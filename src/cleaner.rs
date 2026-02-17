@@ -20,6 +20,29 @@ use windows_sys::Win32::System::Threading::{
 use crate::ntapi::{self, MemoryListCommand};
 use crate::stats::{MemorySnapshot, QuickMemoryReading};
 
+// ─── File Cache Safety Guard ─────────────────────────────────────────────────
+
+/// RAII guard that restores default file cache limits on drop.
+///
+/// If anything panics between `SetSystemFileCacheSize(MAX, MAX, 0)` (purge) and
+/// the explicit restore call, this guard ensures `SetSystemFileCacheSize(0, 0, 0)`
+/// is still called so the system file cache doesn't stay degraded until reboot.
+struct CacheRestoreGuard {
+    armed: bool,
+}
+
+impl Drop for CacheRestoreGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            // SAFETY: Restoring default cache limits with (0, 0, 0) is a safe
+            // Win32 call. Best-effort — we can't propagate errors from Drop.
+            unsafe {
+                SetSystemFileCacheSize(0, 0, 0);
+            }
+        }
+    }
+}
+
 // ─── Kernel Settle Detection ─────────────────────────────────────────────────
 
 /// How thoroughly to wait for kernel memory settling.
@@ -305,7 +328,7 @@ fn flush_file_cache_with_settle(verbose: bool, settle: SettleMode) -> Result<Cle
     if result == 0 {
         let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
 
-        // Restore is not needed on failure
+        // Restore is not needed on failure — cache limits were never changed
         return Ok(CleanResult::failure(
             "Flush File Cache",
             format!("SetSystemFileCacheSize failed (error {err}). Need SeIncreaseQuotaPrivilege."),
@@ -313,8 +336,18 @@ fn flush_file_cache_with_settle(verbose: bool, settle: SettleMode) -> Result<Cle
         ));
     }
 
+    // RAII guard: if anything panics between purge and restore, the drop
+    // impl ensures `SetSystemFileCacheSize(0, 0, 0)` is always called so
+    // the system file cache doesn't stay in a degraded state until reboot.
+    let mut guard = CacheRestoreGuard { armed: true };
+
     // Restore default cache behavior (let Windows manage it again)
     let restore = unsafe { SetSystemFileCacheSize(0, 0, 0) };
+
+    // Disarm the guard — the restore call has been made (whether it succeeded or not)
+    guard.armed = false;
+    drop(guard);
+
     if restore == 0 {
         let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
         return Ok(CleanResult::failure(
