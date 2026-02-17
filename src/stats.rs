@@ -116,15 +116,18 @@ impl MemorySnapshot {
 /// Lightweight memory reading for settle-detection polling.
 ///
 /// Only calls `GlobalMemoryStatusEx` (skips `K32GetPerformanceInfo`) to avoid
-/// unnecessary work when we only need `available_physical` for convergence checks.
+/// unnecessary work when we only need physical memory metrics for convergence
+/// checks.
 #[derive(Debug, Clone, Copy)]
 pub struct QuickMemoryReading {
+    /// Total physical RAM in bytes.
+    pub total_physical: u64,
     /// Available physical RAM in bytes.
     pub available_physical: u64,
 }
 
 impl QuickMemoryReading {
-    /// Capture only available physical memory (single Win32 call).
+    /// Capture physical memory metrics (single Win32 call).
     pub fn capture() -> Result<Self> {
         // SAFETY: MEMORYSTATUSEX is zeroed and has dwLength set before calling
         // GlobalMemoryStatusEx. This is a standard documented Win32 API.
@@ -137,6 +140,7 @@ impl QuickMemoryReading {
             ms
         };
         Ok(Self {
+            total_physical: ms.ullTotalPhys,
             available_physical: ms.ullAvailPhys,
         })
     }

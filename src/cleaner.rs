@@ -57,12 +57,7 @@ fn wait_for_settle(verbose: bool, mode: SettleMode) -> Result<MemorySnapshot> {
 
     // Scale the jitter threshold to total RAM: 0.01% of physical memory,
     // with a 4 MB floor. On a 16 GB system this is ~1.6 MB; on 128 GB ~13 MB.
-    // Use the full snapshot's total_physical via a one-time read.
-    let total_physical = {
-        let snap = MemorySnapshot::capture()?;
-        snap.total_physical
-    };
-    let jitter_threshold = (total_physical / 10_000).max(MIN_JITTER_BYTES);
+    let jitter_threshold = (first.total_physical / 10_000).max(MIN_JITTER_BYTES);
 
     let mut prev_available = first.available_physical;
     let mut stable_count: u32 = 0;
