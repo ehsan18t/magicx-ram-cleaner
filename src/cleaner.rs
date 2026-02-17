@@ -558,12 +558,8 @@ pub fn smart_clean(level: CleanLevel, verbose: bool) -> Result<Vec<CleanResult>>
         }
     }
 
-    // Final settle — catch any remaining kernel-side reclamation
-    println!(
-        "  {} Waiting for kernel to finish reclaiming pages...",
-        "⏳".dimmed()
-    );
-    let overall_after = wait_for_settle(verbose)?;
+    // Each operation already settles internally, so just capture final state
+    let overall_after = MemorySnapshot::capture()?;
     let total_freed =
         overall_after.available_physical as i64 - overall_before.available_physical as i64;
 
