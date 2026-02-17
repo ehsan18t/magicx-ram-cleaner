@@ -46,8 +46,18 @@ anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+[package.metadata.winresource]
+OriginalFilename = "magicx-ram-cleaner.exe"
+ProductName = "MagicX RAM Cleaner"
+FileDescription = "The most powerful Windows RAM cleaner CLI"
+LegalCopyright = "Copyright \u00a9 2025 MagicX — MIT License"
+CompanyName = "MagicX"
+InternalName = "magicx-ram-cleaner"
+Comments = "Surpasses EmptyStandbyList with granular control over every Windows memory subsystem"
+
 [build-dependencies]
 embed-manifest = "1"
+winresource = "0.1"
 
 [profile.release]
 opt-level = 3

@@ -57,7 +57,9 @@ src/
   ntapi.rs       — NT kernel FFI (NtSetSystemInformation, NtQuerySystemInformation)
   privilege.rs   — Windows privilege elevation (Se*Privilege)
   stats.rs       — memory statistics, Win32 API calls, MemorySnapshot
-build.rs         — embeds admin-elevation manifest via embed-manifest
+build.rs         — embeds admin-elevation manifest, application icon, and version metadata
+assets/
+  app.ico        — multi-size application icon (16–256 px) embedded into the binary
 ```
 
 - **Do not create new modules** without explicit human approval.
