@@ -281,6 +281,54 @@ impl MemoryListInfo {
     }
 }
 
+// ─── File Cache Information ──────────────────────────────────────────────────
+
+/// Snapshot of the system file cache working set.
+///
+/// Queried via `NtQuerySystemInformation(SystemFileCacheInformation)`.
+/// Shows how much RAM the file cache is currently consuming and its limits.
+#[derive(Debug, Clone, Serialize)]
+pub struct FileCacheSnapshot {
+    /// Current file cache working set size (bytes).
+    pub current_size: u64,
+    /// Peak file cache working set size since boot (bytes).
+    pub peak_size: u64,
+    /// Minimum configured working set (bytes, 0 = system default).
+    pub minimum_working_set: u64,
+    /// Maximum configured working set (bytes, 0 = system default).
+    pub maximum_working_set: u64,
+}
+
+impl FileCacheSnapshot {
+    /// Query the kernel for current file cache statistics.
+    pub fn capture() -> Result<Self> {
+        use crate::ntapi::{SYSTEM_FILE_CACHE_INFORMATION, SystemFileCacheInfo};
+
+        let mut info: SystemFileCacheInfo = unsafe { std::mem::zeroed() };
+        let mut return_length: u32 = 0;
+
+        let status = crate::ntapi::nt_query_system_information(
+            SYSTEM_FILE_CACHE_INFORMATION,
+            (&raw mut info).cast(),
+            std::mem::size_of::<SystemFileCacheInfo>() as u32,
+            &raw mut return_length,
+        );
+
+        if status != 0 {
+            bail!(
+                "NtQuerySystemInformation(SystemFileCacheInformation) failed: NTSTATUS 0x{status:08X}"
+            );
+        }
+
+        Ok(Self {
+            current_size: info.current_size as u64,
+            peak_size: info.peak_size as u64,
+            minimum_working_set: info.minimum_working_set as u64,
+            maximum_working_set: info.maximum_working_set as u64,
+        })
+    }
+}
+
 // ─── Per-Process Memory Usage ────────────────────────────────────────────────
 
 /// Memory usage information for a single process.

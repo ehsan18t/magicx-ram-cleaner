@@ -19,6 +19,31 @@ pub const SYSTEM_COMBINE_PHYSICAL_MEMORY_INFORMATION: u32 = 130; // 0x82
 // Flushes the registry cache (dirty hive pages) to disk.
 pub const SYSTEM_REGISTRY_RECONCILIATION_INFORMATION: u32 = 155; // 0x9B
 
+// SystemFileCacheInformation information class for NtQuerySystemInformation
+// Returns current and peak file system cache sizes.
+pub const SYSTEM_FILE_CACHE_INFORMATION: u32 = 21; // 0x15
+
+/// File system cache information returned by
+/// `NtQuerySystemInformation(SystemFileCacheInformation)`.
+///
+/// Maps to `SYSTEM_FILECACHE_INFORMATION`. Only the base fields are included;
+/// newer Windows 10 builds may return additional fields (transition pages, flags)
+/// which are safely ignored by querying with this smaller struct.
+#[repr(C)]
+pub struct SystemFileCacheInfo {
+    /// Current size of the system file cache working set (bytes).
+    pub current_size: usize,
+    /// Peak size of the system file cache working set since boot (bytes).
+    pub peak_size: usize,
+    /// Total page faults incurred by the file cache.
+    pub page_fault_count: u32,
+    // 4 bytes padding on x86-64 (u32 before usize alignment)
+    /// Minimum configured working set for the file cache (bytes).
+    pub minimum_working_set: usize,
+    /// Maximum configured working set for the file cache (bytes).
+    pub maximum_working_set: usize,
+}
+
 /// Memory list commands passed to NtSetSystemInformation(SystemMemoryListInformation).
 ///
 /// These are the core operations that `EmptyStandbyList` uses.

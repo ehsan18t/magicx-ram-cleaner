@@ -3,7 +3,9 @@
 //! Beautiful terminal output for memory status and diagnostics.
 
 use crate::cleaner::{CleanLevel, CleanResult};
-use crate::stats::{MemoryListInfo, MemorySnapshot, ProcessMemoryInfo, format_bytes};
+use crate::stats::{
+    FileCacheSnapshot, MemoryListInfo, MemorySnapshot, ProcessMemoryInfo, format_bytes,
+};
 use colored::{ColoredString, Colorize};
 
 /// Colour a memory load percentage: red (>85%), yellow (>60%), green (≤60%).
@@ -19,7 +21,11 @@ fn coloured_load(percent: u32) -> ColoredString {
 }
 
 /// Print a comprehensive memory status report.
-pub fn print_status(snapshot: &MemorySnapshot, list_info: Option<&MemoryListInfo>) {
+pub fn print_status(
+    snapshot: &MemorySnapshot,
+    list_info: Option<&MemoryListInfo>,
+    file_cache: Option<&FileCacheSnapshot>,
+) {
     let page_size = snapshot.page_size;
 
     println!();
@@ -47,6 +53,10 @@ pub fn print_status(snapshot: &MemorySnapshot, list_info: Option<&MemoryListInfo
 
     if let Some(info) = list_info {
         print_memory_lists(info, page_size);
+    }
+
+    if let Some(fc) = file_cache {
+        print_file_cache(fc);
     }
 
     print_commit_and_pagefile(snapshot, page_size);
@@ -139,6 +149,29 @@ fn print_memory_lists(info: &MemoryListInfo, page_size: u64) {
                 priority_label.dimmed()
             );
         }
+    }
+}
+
+/// Print file system cache information.
+fn print_file_cache(fc: &FileCacheSnapshot) {
+    println!();
+    println!("{}", "─── File System Cache ──────────────────".dimmed());
+    println!(
+        "  Current:        {}",
+        format_bytes(fc.current_size).white().bold()
+    );
+    println!("  Peak:           {}", format_bytes(fc.peak_size).yellow());
+    if fc.minimum_working_set > 0 {
+        println!(
+            "  Min Limit:      {}",
+            format_bytes(fc.minimum_working_set).dimmed()
+        );
+    }
+    if fc.maximum_working_set > 0 {
+        println!(
+            "  Max Limit:      {}",
+            format_bytes(fc.maximum_working_set).dimmed()
+        );
     }
 }
 

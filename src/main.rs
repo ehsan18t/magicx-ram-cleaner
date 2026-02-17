@@ -300,6 +300,22 @@ fn dispatch_status(detailed: bool, json: bool, top: Option<usize>) -> Result<()>
         None
     };
 
+    let file_cache = if detailed {
+        match stats::FileCacheSnapshot::capture() {
+            Ok(fc) => Some(fc),
+            Err(e) => {
+                eprintln!(
+                    "{} Could not query file cache info: {}",
+                    "warning:".yellow(),
+                    e
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let top_processes = top.and_then(|count| {
         let count = if count == 0 { 10 } else { count };
         match stats::query_top_processes(count) {
@@ -319,11 +335,12 @@ fn dispatch_status(detailed: bool, json: bool, top: Option<usize>) -> Result<()>
         let output = serde_json::json!({
             "snapshot": snapshot,
             "memory_lists": list_info,
+            "file_cache": file_cache,
             "top_processes": top_processes,
         });
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
-        display::print_status(&snapshot, list_info.as_ref());
+        display::print_status(&snapshot, list_info.as_ref(), file_cache.as_ref());
         if let Some(ref procs) = top_processes {
             display::print_top_processes(procs);
         }
