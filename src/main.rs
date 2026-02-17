@@ -299,9 +299,14 @@ fn main() -> Result<()> {
          Right-click the terminal/exe → 'Run as administrator'",
     )?;
 
+    let mut had_failure = false;
+
     match cli.command {
         Commands::Clean { level, verbose } => {
-            cleaner::smart_clean(level, verbose)?;
+            let results = cleaner::smart_clean(level, verbose)?;
+            if results.iter().any(|r| !r.success) {
+                had_failure = true;
+            }
         }
 
         Commands::Status { detailed, json } => {
@@ -343,11 +348,13 @@ fn main() -> Result<()> {
                 cleaner::purge_standby_all(verbose)?
             };
             print_single_result(&result);
+            if !result.success { had_failure = true; }
         }
 
         Commands::FlushModified { verbose } => {
             let result = cleaner::flush_modified_list(verbose)?;
             print_single_result(&result);
+            if !result.success { had_failure = true; }
         }
 
         Commands::EmptyWorkingsets {
@@ -360,16 +367,19 @@ fn main() -> Result<()> {
                 cleaner::empty_working_sets_kernel(verbose)?
             };
             print_single_result(&result);
+            if !result.success { had_failure = true; }
         }
 
         Commands::FlushCache { verbose } => {
             let result = cleaner::flush_file_cache(verbose)?;
             print_single_result(&result);
+            if !result.success { had_failure = true; }
         }
 
         Commands::Combine { verbose } => {
             let result = cleaner::combine_memory(verbose)?;
             print_single_result(&result);
+            if !result.success { had_failure = true; }
         }
 
         Commands::Monitor {
@@ -385,6 +395,10 @@ fn main() -> Result<()> {
             }
             monitor::run_monitor(interval, threshold, level, verbose)?;
         }
+    }
+
+    if had_failure {
+        std::process::exit(1);
     }
 
     Ok(())
