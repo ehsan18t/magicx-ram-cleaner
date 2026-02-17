@@ -72,7 +72,7 @@ fn wait_for_settle(verbose: bool) -> Result<MemorySnapshot> {
             u64::from(MAX_POLLS) * POLL_INTERVAL_MS
         );
     }
-    MemorySnapshot::capture()
+    Ok(prev)
 }
 
 /// Format an NTSTATUS code into a human-readable `NtSetSystemInformation` error message.
@@ -452,7 +452,13 @@ pub fn combine_memory(verbose: bool) -> Result<CleanResult> {
 /// | **Aggressive** | File cache flush → Empty working sets → Flush modified → Purge ALL standby |
 /// | **Nuclear** | All of aggressive + memory combining + second pass |
 pub fn smart_clean(level: CleanLevel, verbose: bool) -> Result<SmartCleanResult> {
-    let mut results = Vec::new();
+    let capacity = match level {
+        CleanLevel::Gentle => 1,
+        CleanLevel::Moderate => 2,
+        CleanLevel::Aggressive => 4,
+        CleanLevel::Nuclear => 7,
+    };
+    let mut results = Vec::with_capacity(capacity);
     let overall_before = MemorySnapshot::capture()?;
 
     match level {
