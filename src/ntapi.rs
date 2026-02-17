@@ -1,4 +1,4 @@
-//! # MagicX RAM Cleaner — NT Native API Bindings
+//! # `MagicX` RAM Cleaner — NT Native API Bindings
 //!
 //! Raw FFI declarations for undocumented/semi-documented NT kernel APIs
 //! used for advanced memory management. These are loaded directly from ntdll.dll.
@@ -17,8 +17,8 @@ pub const SYSTEM_COMBINE_PHYSICAL_MEMORY_INFORMATION: u32 = 130; // 0x82
 
 /// Memory list commands passed to NtSetSystemInformation(SystemMemoryListInformation).
 ///
-/// These are the core operations that EmptyStandbyList uses.
-/// MagicX supports ALL of them with finer control.
+/// These are the core operations that `EmptyStandbyList` uses.
+/// `MagicX` supports ALL of them with finer control.
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
@@ -28,14 +28,14 @@ pub enum MemoryListCommand {
     /// Capture and reset PTE accessed bits (diagnostic).
     CaptureAndResetAccessedBits = 1,
     /// Empty working sets of ALL processes system-wide (kernel-level).
-    /// More powerful than per-process EmptyWorkingSet — hits all processes
-    /// including ones you can't open with PROCESS_SET_QUOTA.
+    /// More powerful than per-process `EmptyWorkingSet` — hits all processes
+    /// including ones you can't open with `PROCESS_SET_QUOTA`.
     EmptyWorkingSets = 2,
     /// Flush modified page list — write dirty pages to disk/pagefile.
     /// Must be done BEFORE purging standby for maximum effect.
     FlushModifiedList = 3,
     /// Purge ALL standby pages (priorities 0–7).
-    /// This is what EmptyStandbyList's "standbylist" command does.
+    /// This is what `EmptyStandbyList`'s "standbylist" command does.
     PurgeStandbyList = 4,
     /// Purge only low-priority (priority 0) standby pages.
     /// Gentler — preserves high-priority cached data.
@@ -45,8 +45,8 @@ pub enum MemoryListCommand {
 #[link(name = "ntdll")]
 unsafe extern "system" {
     /// Set system information via the NT kernel.
-    /// For memory commands: class = 80 (SystemMemoryListInformation),
-    /// buffer points to a SYSTEM_MEMORY_LIST_COMMAND (i32),
+    /// For memory commands: class = 80 (`SystemMemoryListInformation`),
+    /// buffer points to a `SYSTEM_MEMORY_LIST_COMMAND` (i32),
     /// length = 4.
     pub fn NtSetSystemInformation(
         system_information_class: u32,
@@ -64,13 +64,15 @@ unsafe extern "system" {
     ) -> NtStatus;
 }
 
-/// Safe wrapper around NtSetSystemInformation for memory commands.
+/// Safe wrapper around `NtSetSystemInformation` for memory commands.
 pub fn execute_memory_command(command: MemoryListCommand) -> Result<(), NtStatus> {
     let mut cmd = command as i32;
+    // SAFETY: `cmd` is a valid i32 on the stack. NtSetSystemInformation reads
+    // exactly `size_of::<i32>()` bytes from the pointer.
     let status = unsafe {
         NtSetSystemInformation(
             SYSTEM_MEMORY_LIST_INFORMATION,
-            &mut cmd as *mut i32 as *mut std::ffi::c_void,
+            (&raw mut cmd).cast::<std::ffi::c_void>(),
             std::mem::size_of::<i32>() as u32,
         )
     };
@@ -81,13 +83,14 @@ pub fn execute_memory_command(command: MemoryListCommand) -> Result<(), NtStatus
     }
 }
 
-/// Safe wrapper around NtQuerySystemInformation.
+/// Safe wrapper around `NtQuerySystemInformation`.
 pub fn nt_query_system_information(
     class: u32,
     buffer: *mut std::ffi::c_void,
     length: u32,
     return_length: *mut u32,
 ) -> NtStatus {
+    // SAFETY: Caller provides valid buffer/length. Forwarded directly to NT API.
     unsafe { NtQuerySystemInformation(class, buffer, length, return_length) }
 }
 
@@ -102,7 +105,7 @@ const STATUS_PRIVILEGE_NOT_HELD: NtStatus = 0xC000_0061_u32 as i32;
 pub const STATUS_INFO_LENGTH_MISMATCH: NtStatus = 0xC000_0004_u32 as i32;
 
 /// Translate an NTSTATUS code to a human-readable message.
-pub fn ntstatus_message(status: NtStatus) -> &'static str {
+pub const fn ntstatus_message(status: NtStatus) -> &'static str {
     match status {
         STATUS_SUCCESS => "SUCCESS",
         STATUS_PENDING => "STATUS_PENDING",

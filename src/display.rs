@@ -1,4 +1,4 @@
-//! # MagicX RAM Cleaner — Display & Formatting
+//! # `MagicX` RAM Cleaner — Display & Formatting
 //!
 //! Beautiful terminal output for memory status and diagnostics.
 
@@ -30,7 +30,19 @@ pub fn print_status(snapshot: &MemorySnapshot, list_info: Option<&MemoryListInfo
     );
     println!();
 
-    // ─── Physical Memory ─────────────────────────────────────────
+    print_physical_memory(snapshot);
+
+    if let Some(info) = list_info {
+        print_memory_lists(info, page_size);
+    }
+
+    print_commit_and_pagefile(snapshot, page_size);
+    print_kernel_and_system(snapshot, page_size);
+    println!();
+}
+
+/// Print the physical memory section.
+fn print_physical_memory(snapshot: &MemorySnapshot) {
     println!("{}", "─── Physical Memory ────────────────────".dimmed());
     let load_color = if snapshot.memory_load_percent > 85 {
         format!("{}%", snapshot.memory_load_percent).red().bold()
@@ -39,7 +51,7 @@ pub fn print_status(snapshot: &MemorySnapshot, list_info: Option<&MemoryListInfo
     } else {
         format!("{}%", snapshot.memory_load_percent).green()
     };
-    println!("  Memory Load:    {}", load_color);
+    println!("  Memory Load:    {load_color}");
     println!(
         "  Total:          {}",
         format_bytes(snapshot.total_physical).white().bold()
@@ -52,79 +64,81 @@ pub fn print_status(snapshot: &MemorySnapshot, list_info: Option<&MemoryListInfo
         "  Available:      {}",
         format_bytes(snapshot.available_physical).green()
     );
+}
 
-    // ─── Memory Lists (if available) ─────────────────────────────
-    if let Some(info) = list_info {
-        println!();
-        println!("{}", "─── Memory Page Lists ──────────────────".dimmed());
+/// Print memory page lists and standby priority breakdown.
+fn print_memory_lists(info: &MemoryListInfo, page_size: u64) {
+    println!();
+    println!("{}", "─── Memory Page Lists ──────────────────".dimmed());
+    println!(
+        "  Zeroed:         {}  ({} pages)",
+        format_bytes(info.zeroed_pages * page_size).dimmed(),
+        info.zeroed_pages
+    );
+    println!(
+        "  Free:           {}  ({} pages)",
+        format_bytes(info.free_pages * page_size).green(),
+        info.free_pages
+    );
+    println!(
+        "  Modified:       {}  ({} pages)",
+        format_bytes(info.modified_pages * page_size).yellow(),
+        info.modified_pages
+    );
+    println!(
+        "  Mod-NoWrite:    {}  ({} pages)",
+        format_bytes(info.modified_no_write_pages * page_size).dimmed(),
+        info.modified_no_write_pages
+    );
+    if info.bad_pages > 0 {
         println!(
-            "  Zeroed:         {}  ({} pages)",
-            format_bytes(info.zeroed_pages * page_size).dimmed(),
-            info.zeroed_pages
+            "  Bad:            {}  ({} pages)",
+            format_bytes(info.bad_pages * page_size).red().bold(),
+            info.bad_pages
         );
-        println!(
-            "  Free:           {}  ({} pages)",
-            format_bytes(info.free_pages * page_size).green(),
-            info.free_pages
-        );
-        println!(
-            "  Modified:       {}  ({} pages)",
-            format_bytes(info.modified_pages * page_size).yellow(),
-            info.modified_pages
-        );
-        println!(
-            "  Mod-NoWrite:    {}  ({} pages)",
-            format_bytes(info.modified_no_write_pages * page_size).dimmed(),
-            info.modified_no_write_pages
-        );
-        if info.bad_pages > 0 {
-            println!(
-                "  Bad:            {}  ({} pages)",
-                format_bytes(info.bad_pages * page_size).red().bold(),
-                info.bad_pages
-            );
-        }
-
-        println!();
-        println!("{}", "─── Standby List (by priority) ─────────".dimmed());
-        let total_standby = info.total_standby_pages();
-        let total_standby_bytes = total_standby * page_size;
-        println!(
-            "  Total Standby:  {}  ({} pages)",
-            format_bytes(total_standby_bytes).yellow().bold(),
-            total_standby
-        );
-        for (i, &count) in info.standby_pages.iter().enumerate() {
-            if count > 0 {
-                let bar_len = if total_standby > 0 {
-                    ((count as f64 / total_standby as f64) * 30.0) as usize
-                } else {
-                    0
-                };
-                let bar = "█".repeat(bar_len);
-                let pct = if total_standby > 0 {
-                    (count as f64 / total_standby as f64) * 100.0
-                } else {
-                    0.0
-                };
-                let priority_label = match i {
-                    0 => "Lowest  ",
-                    7 => "Highest ",
-                    _ => "        ",
-                };
-                println!(
-                    "  Priority {}: {:>12}  {:>5.1}%  {} {}",
-                    i,
-                    format_bytes(count * page_size),
-                    pct,
-                    bar.cyan(),
-                    priority_label.dimmed()
-                );
-            }
-        }
     }
 
-    // ─── Commit Charge ───────────────────────────────────────────
+    println!();
+    println!("{}", "─── Standby List (by priority) ─────────".dimmed());
+    let total_standby = info.total_standby_pages();
+    let total_standby_bytes = total_standby * page_size;
+    println!(
+        "  Total Standby:  {}  ({} pages)",
+        format_bytes(total_standby_bytes).yellow().bold(),
+        total_standby
+    );
+    for (i, &count) in info.standby_pages.iter().enumerate() {
+        if count > 0 {
+            let bar_len = if total_standby > 0 {
+                ((count as f64 / total_standby as f64) * 30.0) as usize
+            } else {
+                0
+            };
+            let bar = "█".repeat(bar_len);
+            let pct = if total_standby > 0 {
+                (count as f64 / total_standby as f64) * 100.0
+            } else {
+                0.0
+            };
+            let priority_label = match i {
+                0 => "Lowest  ",
+                7 => "Highest ",
+                _ => "        ",
+            };
+            println!(
+                "  Priority {}: {:>12}  {:>5.1}%  {} {}",
+                i,
+                format_bytes(count * page_size),
+                pct,
+                bar.cyan(),
+                priority_label.dimmed()
+            );
+        }
+    }
+}
+
+/// Print commit charge and page file sections.
+fn print_commit_and_pagefile(snapshot: &MemorySnapshot, page_size: u64) {
     println!();
     println!("{}", "─── Commit Charge ──────────────────────".dimmed());
     println!(
@@ -144,7 +158,6 @@ pub fn print_status(snapshot: &MemorySnapshot, list_info: Option<&MemoryListInfo
     );
     println!("  Usage:          {:.1}%", snapshot.commit_percent());
 
-    // ─── Page File ───────────────────────────────────────────────
     println!();
     println!("{}", "─── Page File ──────────────────────────".dimmed());
     println!(
@@ -164,8 +177,10 @@ pub fn print_status(snapshot: &MemorySnapshot, list_info: Option<&MemoryListInfo
         )
         .red()
     );
+}
 
-    // ─── Kernel Pools ────────────────────────────────────────────
+/// Print kernel memory pools and system counters.
+fn print_kernel_and_system(snapshot: &MemorySnapshot, page_size: u64) {
     println!();
     println!("{}", "─── Kernel Memory Pools ────────────────".dimmed());
     println!(
@@ -177,15 +192,12 @@ pub fn print_status(snapshot: &MemorySnapshot, list_info: Option<&MemoryListInfo
         format_bytes(snapshot.kernel_nonpaged_pages * page_size)
     );
 
-    // ─── System Info ─────────────────────────────────────────────
     println!();
     println!("{}", "─── System Counters ────────────────────".dimmed());
     println!("  Processes:      {}", snapshot.process_count);
     println!("  Threads:        {}", snapshot.thread_count);
     println!("  Handles:        {}", snapshot.handle_count);
     println!("  Page Size:      {} bytes", snapshot.page_size);
-
-    println!();
 }
 
 /// Print a compact one-line memory summary (for monitoring mode).
@@ -216,13 +228,15 @@ pub fn print_compact_status(snapshot: &MemorySnapshot) {
     );
 }
 
-/// Get local time as HH:MM:SS string using Win32 GetLocalTime.
+/// Get local time as HH:MM:SS string using Win32 `GetLocalTime`.
 fn local_now() -> String {
     use windows_sys::Win32::Foundation::SYSTEMTIME;
     use windows_sys::Win32::System::SystemInformation::GetLocalTime;
+    // SAFETY: SYSTEMTIME is a plain data struct; zeroed is a valid initial state.
+    // GetLocalTime writes to the provided pointer and cannot fail.
     unsafe {
         let mut st: SYSTEMTIME = std::mem::zeroed();
-        GetLocalTime(&mut st);
+        GetLocalTime(&raw mut st);
         format!("{:02}:{:02}:{:02}", st.wHour, st.wMinute, st.wSecond)
     }
 }

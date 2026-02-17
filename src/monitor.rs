@@ -1,4 +1,4 @@
-//! # MagicX RAM Cleaner — Monitoring Mode
+//! # `MagicX` RAM Cleaner — Monitoring Mode
 //!
 //! Continuous monitoring with optional auto-clean when memory usage
 //! exceeds a configurable threshold. Uses Win32 `SetConsoleCtrlHandler`
@@ -20,7 +20,7 @@ static RUNNING: AtomicBool = AtomicBool::new(true);
 
 /// Win32 console control handler callback registered via `SetConsoleCtrlHandler`.
 ///
-/// Handles CTRL_C_EVENT (0), CTRL_BREAK_EVENT (1), and CTRL_CLOSE_EVENT (2)
+/// Handles `CTRL_C_EVENT` (0), `CTRL_BREAK_EVENT` (1), and `CTRL_CLOSE_EVENT` (2)
 /// by setting the `RUNNING` flag to `false` for graceful loop termination.
 unsafe extern "system" fn ctrl_handler(ctrl_type: u32) -> i32 {
     // CTRL_C_EVENT = 0, CTRL_BREAK_EVENT = 1, CTRL_CLOSE_EVENT = 2
@@ -56,15 +56,14 @@ pub fn run_monitor(
     RUNNING.store(true, Ordering::SeqCst);
 
     // Install Ctrl+C handler for graceful shutdown
+    // SAFETY: ctrl_handler is a valid extern "system" fn with the correct signature.
     unsafe { SetConsoleCtrlHandler(Some(ctrl_handler), 1) };
 
     println!("\n{} MagicX RAM Monitor started", "◉".green().bold());
     println!(
         "  Interval: {}s | Auto-clean: {} | Level: {}",
         interval_secs,
-        threshold
-            .map(|t| format!("{}%", t))
-            .unwrap_or_else(|| "disabled".into()),
+        threshold.map_or_else(|| "disabled".into(), |t| format!("{t}%")),
         auto_level,
     );
     println!("  Press Ctrl+C to stop.\n");

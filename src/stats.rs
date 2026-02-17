@@ -1,4 +1,4 @@
-//! # MagicX RAM Cleaner — Memory Statistics
+//! # `MagicX` RAM Cleaner — Memory Statistics
 //!
 //! Provides comprehensive memory usage reporting using Win32 and NT APIs.
 //! Displays physical memory, commit charge, page file, kernel pools, and more.
@@ -54,16 +54,18 @@ pub struct MemorySnapshot {
 impl MemorySnapshot {
     /// Capture current system memory state.
     pub fn capture() -> Result<Self> {
+        // SAFETY: Both structs are zeroed and have their size fields set before
+        // calling the Win32 functions. These are standard documented Win32 APIs.
         let (ms, pi) = unsafe {
             let mut ms: MEMORYSTATUSEX = std::mem::zeroed();
             ms.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
-            if GlobalMemoryStatusEx(&mut ms) == 0 {
+            if GlobalMemoryStatusEx(&raw mut ms) == 0 {
                 bail!("GlobalMemoryStatusEx failed");
             }
 
             let mut pi: PERFORMANCE_INFORMATION = std::mem::zeroed();
             pi.cb = std::mem::size_of::<PERFORMANCE_INFORMATION>() as u32;
-            if K32GetPerformanceInfo(&mut pi, pi.cb) == 0 {
+            if K32GetPerformanceInfo(&raw mut pi, pi.cb) == 0 {
                 bail!("GetPerformanceInfo failed");
             }
             (ms, pi)
@@ -92,19 +94,6 @@ impl MemorySnapshot {
         })
     }
 
-    /// Calculate estimated standby list size in bytes.
-    /// This is an approximation — for exact values use `MemoryListInfo::query()`.
-    #[allow(dead_code)]
-    pub fn estimated_standby(&self) -> u64 {
-        // Available includes standby + free + zero pages.
-        // Free/zero pages are typically a small fraction of available.
-        // A rough heuristic: standby ≈ available - (physical_available_pages count
-        // can include zeroed pages which are a small %). Without the undocumented
-        // query, we can't separate free from standby, so return available as
-        // the upper bound.
-        self.available_physical
-    }
-
     /// Get commit charge as a percentage.
     pub fn commit_percent(&self) -> f64 {
         if self.commit_limit_pages == 0 {
@@ -130,13 +119,13 @@ pub fn format_bytes(bytes: u64) -> String {
     } else if bytes >= KB {
         format!("{:.2} KB", bytes as f64 / KB as f64)
     } else {
-        format!("{} B", bytes)
+        format!("{bytes} B")
     }
 }
 
 /// Detailed memory list information from the kernel (undocumented API).
 /// This gives exact page counts for each memory list (Zeroed, Free, Modified,
-/// ModifiedNoWrite, Bad, Standby priorities 0-7, Repurposed priorities 0-7).
+/// `ModifiedNoWrite`, Bad, Standby priorities 0-7, Repurposed priorities 0-7).
 #[derive(Debug, Clone, Serialize)]
 pub struct MemoryListInfo {
     pub zeroed_pages: u64,
@@ -153,11 +142,11 @@ impl MemoryListInfo {
     /// Query the kernel for detailed memory list information.
     ///
     /// The struct layout varies by Windows version:
-    /// - Base: 5 + 8 + 8 + 1 = 22 ULONG_PTR entries
-    /// - Newer builds add StandbyRepurposedByPriority[8], making it 30 entries
+    /// - Base: 5 + 8 + 8 + 1 = 22 `ULONG_PTR` entries
+    /// - Newer builds add `StandbyRepurposedByPriority`[8], making it 30 entries
     ///
     /// This implementation starts with a 30-entry buffer and falls back to
-    /// dynamic sizing via return_length if the kernel reports a mismatch.
+    /// dynamic sizing via `return_length` if the kernel reports a mismatch.
     pub fn query() -> Result<Self> {
         use crate::ntapi::{STATUS_INFO_LENGTH_MISMATCH, SYSTEM_MEMORY_LIST_INFORMATION};
 
@@ -167,28 +156,26 @@ impl MemoryListInfo {
 
         let mut status = crate::ntapi::nt_query_system_information(
             SYSTEM_MEMORY_LIST_INFORMATION,
-            buf.as_mut_ptr() as *mut _,
+            buf.as_mut_ptr().cast(),
             (buf.len() * std::mem::size_of::<usize>()) as u32,
-            &mut return_length,
+            &raw mut return_length,
         );
 
         // If buffer is too small, retry with the size the kernel told us
         if status == STATUS_INFO_LENGTH_MISMATCH && return_length > 0 {
-            let needed_entries = (return_length as usize + std::mem::size_of::<usize>() - 1)
-                / std::mem::size_of::<usize>();
+            let needed_entries = (return_length as usize).div_ceil(std::mem::size_of::<usize>());
             buf.resize(needed_entries, 0);
             status = crate::ntapi::nt_query_system_information(
                 SYSTEM_MEMORY_LIST_INFORMATION,
-                buf.as_mut_ptr() as *mut _,
+                buf.as_mut_ptr().cast(),
                 return_length,
-                &mut return_length,
+                &raw mut return_length,
             );
         }
 
         if status != 0 {
             bail!(
-                "NtQuerySystemInformation(SystemMemoryListInformation) failed: NTSTATUS 0x{:08X}",
-                status
+                "NtQuerySystemInformation(SystemMemoryListInformation) failed: NTSTATUS 0x{status:08X}"
             );
         }
 
@@ -225,12 +212,6 @@ impl MemoryListInfo {
     /// Total standby pages across all priority levels.
     pub fn total_standby_pages(&self) -> u64 {
         self.standby_pages.iter().sum()
-    }
-
-    /// Low-priority standby pages (priority 0 only).
-    #[allow(dead_code)]
-    pub fn low_priority_standby_pages(&self) -> u64 {
-        self.standby_pages[0]
     }
 }
 

@@ -1,7 +1,7 @@
-//! # MagicX RAM Cleaner
+//! # `MagicX` RAM Cleaner
 //!
 //! The most powerful Windows RAM cleaner CLI tool.
-//! Surpasses EmptyStandbyList with granular control over every memory subsystem.
+//! Surpasses `EmptyStandbyList` with granular control over every memory subsystem.
 //!
 //! ## Architecture
 //!
@@ -24,7 +24,7 @@
 //! └────────────────────────────────────────────────────────────┘
 //! ```
 //!
-//! ## Why MagicX is better than EmptyStandbyList
+//! ## Why `MagicX` is better than `EmptyStandbyList`
 //!
 //! | Feature | EmptyStandbyList | MagicX |
 //! |---|---|---|
@@ -55,9 +55,9 @@ use colored::Colorize;
 
 use cleaner::CleanLevel;
 
-/// MagicX RAM Cleaner — The most powerful Windows RAM cleaner.
+/// `MagicX` RAM Cleaner — The most powerful Windows RAM cleaner.
 ///
-/// Surpasses EmptyStandbyList with granular control, smart cleaning levels,
+/// Surpasses `EmptyStandbyList` with granular control, smart cleaning levels,
 /// detailed diagnostics, and monitoring with auto-clean.
 ///
 /// REQUIRES: Run as Administrator (right-click → Run as administrator).
@@ -163,7 +163,7 @@ enum Commands {
     /// commit charge, kernel pools, and system counters.
     Status {
         /// Show detailed memory list information (standby priorities, modified pages, etc.).
-        /// Requires SeProfileSingleProcessPrivilege.
+        /// Requires `SeProfileSingleProcessPrivilege`.
         #[arg(short, long)]
         detailed: bool,
 
@@ -172,7 +172,7 @@ enum Commands {
         json: bool,
     },
 
-    /// Purge standby list — equivalent to EmptyStandbyList but better.
+    /// Purge standby list — equivalent to `EmptyStandbyList` but better.
     ///
     /// Removes cached pages from the standby list, making them available
     /// for new allocations. By default purges ALL priorities.
@@ -219,9 +219,9 @@ enum Commands {
     /// Flush file system cache — release cached file data.
     ///
     /// Tells Windows to release its file system cache, freeing the
-    /// RAM used to cache recently-read files. Requires SeIncreaseQuotaPrivilege.
+    /// RAM used to cache recently-read files. Requires `SeIncreaseQuotaPrivilege`.
     ///
-    /// This is unique to MagicX — EmptyStandbyList can't do this.
+    /// This is unique to `MagicX` — `EmptyStandbyList` can't do this.
     FlushCache {
         /// Show detailed progress.
         #[arg(short, long)]
@@ -234,7 +234,7 @@ enum Commands {
     /// copy-on-write, freeing duplicate pages. Windows 10+ only.
     ///
     /// This can take several seconds on systems with lots of RAM.
-    /// Unique to MagicX.
+    /// Unique to `MagicX`.
     Combine {
         /// Show detailed progress.
         #[arg(short, long)]
@@ -266,21 +266,7 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
-    // Enable ANSI virtual terminal processing on Windows consoles
-    #[cfg(windows)]
-    {
-        use windows_sys::Win32::System::Console::{
-            ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode, GetStdHandle, STD_OUTPUT_HANDLE,
-            SetConsoleMode,
-        };
-        unsafe {
-            let handle = GetStdHandle(STD_OUTPUT_HANDLE);
-            let mut mode: u32 = 0;
-            if GetConsoleMode(handle, &mut mode) != 0 {
-                let _ = SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
-            }
-        }
-    }
+    enable_ansi_colors();
 
     let cli = Cli::parse();
 
@@ -290,20 +276,49 @@ fn main() -> Result<()> {
         print_banner();
     }
 
-    // Check for admin privileges
+    // Check for admin privileges and enable required security tokens
     check_admin()?;
-
-    // Enable required privileges
     privilege::enable_all_privileges().context(
         "Failed to enable privileges. Make sure you're running as Administrator.\n\
          Right-click the terminal/exe → 'Run as administrator'",
     )?;
 
+    let had_failure = dispatch_command(&cli.command)?;
+
+    if had_failure {
+        std::process::exit(1);
+    }
+
+    Ok(())
+}
+
+/// Enable ANSI virtual terminal processing on Windows consoles.
+fn enable_ansi_colors() {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Console::{
+            ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode, GetStdHandle, STD_OUTPUT_HANDLE,
+            SetConsoleMode,
+        };
+        // SAFETY: GetStdHandle/GetConsoleMode/SetConsoleMode are standard Win32 calls
+        // with no preconditions beyond a valid handle. STD_OUTPUT_HANDLE is always valid.
+        unsafe {
+            let handle = GetStdHandle(STD_OUTPUT_HANDLE);
+            let mut mode: u32 = 0;
+            if GetConsoleMode(handle, &raw mut mode) != 0 {
+                let _ = SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+            }
+        }
+    }
+}
+
+/// Dispatch the parsed CLI command. Returns `true` if any operation failed.
+fn dispatch_command(command: &Commands) -> Result<bool> {
     let mut had_failure = false;
 
-    match cli.command {
+    match command {
         Commands::Clean { level, verbose } => {
-            let results = cleaner::smart_clean(level, verbose)?;
+            let results = cleaner::smart_clean(*level, *verbose)?;
             if results.iter().any(|r| !r.success) {
                 had_failure = true;
             }
@@ -311,7 +326,7 @@ fn main() -> Result<()> {
 
         Commands::Status { detailed, json } => {
             let snapshot = stats::MemorySnapshot::capture()?;
-            let list_info = if detailed {
+            let list_info = if *detailed {
                 match stats::MemoryListInfo::query() {
                     Ok(info) => Some(info),
                     Err(e) => {
@@ -327,7 +342,7 @@ fn main() -> Result<()> {
                 None
             };
 
-            if json {
+            if *json {
                 let output = serde_json::json!({
                     "snapshot": snapshot,
                     "memory_lists": list_info,
@@ -342,10 +357,10 @@ fn main() -> Result<()> {
             low_priority,
             verbose,
         } => {
-            let result = if low_priority {
-                cleaner::purge_standby_low_priority(verbose)?
+            let result = if *low_priority {
+                cleaner::purge_standby_low_priority(*verbose)?
             } else {
-                cleaner::purge_standby_all(verbose)?
+                cleaner::purge_standby_all(*verbose)?
             };
             print_single_result(&result);
             if !result.success {
@@ -354,7 +369,7 @@ fn main() -> Result<()> {
         }
 
         Commands::FlushModified { verbose } => {
-            let result = cleaner::flush_modified_list(verbose)?;
+            let result = cleaner::flush_modified_list(*verbose)?;
             print_single_result(&result);
             if !result.success {
                 had_failure = true;
@@ -365,10 +380,10 @@ fn main() -> Result<()> {
             per_process,
             verbose,
         } => {
-            let result = if per_process {
-                cleaner::empty_working_sets_per_process(verbose, &[])?
+            let result = if *per_process {
+                cleaner::empty_working_sets_per_process(*verbose, &[])?
             } else {
-                cleaner::empty_working_sets_kernel(verbose)?
+                cleaner::empty_working_sets_kernel(*verbose)?
             };
             print_single_result(&result);
             if !result.success {
@@ -377,7 +392,7 @@ fn main() -> Result<()> {
         }
 
         Commands::FlushCache { verbose } => {
-            let result = cleaner::flush_file_cache(verbose)?;
+            let result = cleaner::flush_file_cache(*verbose)?;
             print_single_result(&result);
             if !result.success {
                 had_failure = true;
@@ -385,7 +400,7 @@ fn main() -> Result<()> {
         }
 
         Commands::Combine { verbose } => {
-            let result = cleaner::combine_memory(verbose)?;
+            let result = cleaner::combine_memory(*verbose)?;
             print_single_result(&result);
             if !result.success {
                 had_failure = true;
@@ -398,33 +413,29 @@ fn main() -> Result<()> {
             level,
             verbose,
         } => {
-            if let Some(t) = threshold {
-                if t > 100 {
-                    anyhow::bail!("Threshold must be 0-100, got {}", t);
-                }
+            if let Some(t) = threshold
+                && *t > 100
+            {
+                anyhow::bail!("Threshold must be 0-100, got {t}");
             }
-            monitor::run_monitor(interval, threshold, level, verbose)?;
+            monitor::run_monitor(*interval, *threshold, *level, *verbose)?;
         }
     }
 
-    if had_failure {
-        std::process::exit(1);
-    }
-
-    Ok(())
+    Ok(had_failure)
 }
 
 fn print_banner() {
     println!(
         "{}",
-        r#"
+        r"
   __  __             _       __  __
  |  \/  | __ _  __ _(_) ___ \ \/ /
  | |\/| |/ _` |/ _` | |/ __| \  /
  | |  | | (_| | (_| | | (__  /  \
  |_|  |_|\__,_|\__, |_|\___/_/\_\
                |___/
-"#
+"
         .cyan()
         .bold()
     );
@@ -448,7 +459,8 @@ fn check_admin() -> Result<()> {
     let sid_str: Vec<u16> = "S-1-5-32-544\0".encode_utf16().collect();
     let mut sid: *mut std::ffi::c_void = std::ptr::null_mut();
 
-    let ok = unsafe { ConvertStringSidToSidW(sid_str.as_ptr(), &mut sid) };
+    // SAFETY: ConvertStringSidToSidW allocates the SID; we free it with LocalFree below.
+    let ok = unsafe { ConvertStringSidToSidW(sid_str.as_ptr(), &raw mut sid) };
     if ok == 0 {
         anyhow::bail!(
             "Cannot verify admin status. Please run as Administrator.\n\
@@ -457,7 +469,7 @@ fn check_admin() -> Result<()> {
     }
 
     let mut is_member: i32 = 0;
-    let check_ok = unsafe { CheckTokenMembership(std::ptr::null_mut(), sid, &mut is_member) };
+    let check_ok = unsafe { CheckTokenMembership(std::ptr::null_mut(), sid, &raw mut is_member) };
     unsafe { LocalFree(sid) };
 
     if check_ok == 0 || is_member == 0 {
@@ -471,7 +483,7 @@ fn check_admin() -> Result<()> {
 }
 
 /// Print the result of a single cleaning operation.
-/// Uses the before/after data stored in CleanResult (measured with kernel settle).
+/// Uses the before/after data stored in `CleanResult` (measured with kernel settle).
 fn print_single_result(result: &cleaner::CleanResult) {
     println!();
     let status = if result.success {

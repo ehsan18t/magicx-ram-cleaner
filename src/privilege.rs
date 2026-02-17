@@ -1,14 +1,14 @@
-//! # MagicX RAM Cleaner — Privilege Management
+//! # `MagicX` RAM Cleaner — Privilege Management
 //!
 //! Handles Windows security privilege elevation required for memory operations.
-//! Most memory cleaning operations require SeProfileSingleProcessPrivilege,
-//! and file cache operations require SeIncreaseQuotaPrivilege.
+//! Most memory cleaning operations require `SeProfileSingleProcessPrivilege`,
+//! and file cache operations require `SeIncreaseQuotaPrivilege`.
 
 use anyhow::{Context, Result, bail};
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, LUID};
 use windows_sys::Win32::Security::{
-    AdjustTokenPrivileges, LookupPrivilegeValueW, SE_PRIVILEGE_ENABLED,
-    TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES, TOKEN_QUERY,
+    AdjustTokenPrivileges, LookupPrivilegeValueW, SE_PRIVILEGE_ENABLED, TOKEN_ADJUST_PRIVILEGES,
+    TOKEN_PRIVILEGES, TOKEN_QUERY,
 };
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
@@ -19,22 +19,27 @@ fn to_wide(s: &str) -> Vec<u16> {
 
 /// Enable a named Windows privilege on the current process token.
 ///
-/// # Privileges used by MagicX
+/// # Privileges used by `MagicX`
 ///
 /// | Privilege | Required For |
 /// |---|---|
-/// | `SeProfileSingleProcessPrivilege` | NtSetSystemInformation memory commands |
-/// | `SeIncreaseQuotaPrivilege` | SetSystemFileCacheSize |
+/// | `SeProfileSingleProcessPrivilege` | `NtSetSystemInformation` memory commands |
+/// | `SeIncreaseQuotaPrivilege` | `SetSystemFileCacheSize` |
 /// | `SeDebugPrivilege` | Opening system/protected process handles |
 ///
 /// # Errors
 ///
 /// Returns an error if the privilege cannot be looked up or adjusted.
 pub fn enable_privilege(privilege_name: &str) -> Result<()> {
+    // SAFETY: All pointers point to valid stack-allocated variables with correct
+    // sizes. The token handle is closed on every code path (success and error).
     unsafe {
         let mut token: HANDLE = std::ptr::null_mut();
-        if OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &mut token)
-            == 0
+        if OpenProcessToken(
+            GetCurrentProcess(),
+            TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+            &raw mut token,
+        ) == 0
         {
             bail!(
                 "OpenProcessToken failed (error {}). Are you running as Administrator?",
@@ -48,7 +53,7 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
             HighPart: 0,
         };
 
-        if LookupPrivilegeValueW(std::ptr::null(), wide_name.as_ptr(), &mut luid) == 0 {
+        if LookupPrivilegeValueW(std::ptr::null(), wide_name.as_ptr(), &raw mut luid) == 0 {
             CloseHandle(token);
             bail!(
                 "LookupPrivilegeValueW failed for '{}' (error {})",
@@ -57,7 +62,7 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
             );
         }
 
-        let mut tp = TOKEN_PRIVILEGES {
+        let tp = TOKEN_PRIVILEGES {
             PrivilegeCount: 1,
             Privileges: [windows_sys::Win32::Security::LUID_AND_ATTRIBUTES {
                 Luid: luid,
@@ -68,7 +73,7 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
         if AdjustTokenPrivileges(
             token,
             0, // do not disable all
-            &mut tp,
+            &raw const tp,
             0,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
@@ -76,11 +81,7 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
         {
             let err = get_last_error();
             CloseHandle(token);
-            bail!(
-                "AdjustTokenPrivileges failed for '{}' (error {})",
-                privilege_name,
-                err
-            );
+            bail!("AdjustTokenPrivileges failed for '{privilege_name}' (error {err})");
         }
 
         // AdjustTokenPrivileges can succeed but still fail to set:
@@ -89,10 +90,7 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
 
         if err == 1300 {
             // ERROR_NOT_ALL_ASSIGNED
-            bail!(
-                "Privilege '{}' not held by this account. Run as Administrator.",
-                privilege_name
-            );
+            bail!("Privilege '{privilege_name}' not held by this account. Run as Administrator.");
         }
 
         Ok(())
@@ -103,8 +101,7 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
 pub fn enable_all_privileges() -> Result<()> {
     enable_privilege("SeProfileSingleProcessPrivilege")
         .context("Required for memory list operations")?;
-    enable_privilege("SeIncreaseQuotaPrivilege")
-        .context("Required for file cache management")?;
+    enable_privilege("SeIncreaseQuotaPrivilege").context("Required for file cache management")?;
     // SeDebugPrivilege is optional — allows trimming protected processes
     let _ = enable_privilege("SeDebugPrivilege");
     Ok(())

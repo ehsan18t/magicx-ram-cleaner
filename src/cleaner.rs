@@ -1,4 +1,4 @@
-//! # MagicX RAM Cleaner — Core Memory Cleaning Operations
+//! # `MagicX` RAM Cleaner — Core Memory Cleaning Operations
 //!
 //! This module implements all memory cleaning operations, from gentle
 //! working set trimming to aggressive full standby list purging.
@@ -53,7 +53,7 @@ fn wait_for_settle(verbose: bool) -> Result<MemorySnapshot> {
                     println!(
                         "    {} Memory settled after {}ms",
                         "·".dimmed(),
-                        polls_done as u64 * POLL_INTERVAL_MS
+                        u64::from(polls_done) * POLL_INTERVAL_MS
                     );
                 }
                 return Ok(current);
@@ -69,7 +69,7 @@ fn wait_for_settle(verbose: bool) -> Result<MemorySnapshot> {
         println!(
             "    {} Memory still settling (timeout reached after {}ms, using latest reading)",
             "·".dimmed(),
-            MAX_POLLS as u64 * POLL_INTERVAL_MS
+            u64::from(MAX_POLLS) * POLL_INTERVAL_MS
         );
     }
     MemorySnapshot::capture()
@@ -159,10 +159,10 @@ impl std::fmt::Display for CleanLevel {
 
 /// **Operation 1: Trim the file system cache.**
 ///
-/// Calls SetSystemFileCacheSize with minimum values to force Windows to release
-/// file system cache pages. Requires SeIncreaseQuotaPrivilege.
+/// Calls `SetSystemFileCacheSize` with minimum values to force Windows to release
+/// file system cache pages. Requires `SeIncreaseQuotaPrivilege`.
 ///
-/// This is more effective than what EmptyStandbyList does because it directly
+/// This is more effective than what `EmptyStandbyList` does because it directly
 /// targets the file cache, which is often the biggest consumer of standby pages.
 pub fn flush_file_cache(verbose: bool) -> Result<CleanResult> {
     if verbose {
@@ -171,10 +171,10 @@ pub fn flush_file_cache(verbose: bool) -> Result<CleanResult> {
 
     let before = MemorySnapshot::capture()?;
 
-    // Setting min and max to usize::MAX is the documented way to purge the cache
-    // FILE_CACHE_MAX_HARD_ENABLE (0x1) + FILE_CACHE_MIN_HARD_ENABLE (0x4) = 0x5? No.
-    // Actually: pass (usize::MAX, usize::MAX, 0) to release all cached pages,
-    // then restore defaults.
+    // Pass (usize::MAX, usize::MAX, 0) to purge all cached pages,
+    // then restore default limits so Windows resumes normal cache management.
+    // SAFETY: SetSystemFileCacheSize with (MAX, MAX, 0) is the documented way to
+    // purge the file system cache. Requires SeIncreaseQuotaPrivilege.
     let result = unsafe { SetSystemFileCacheSize(usize::MAX, usize::MAX, 0) };
 
     if result == 0 {
@@ -183,10 +183,7 @@ pub fn flush_file_cache(verbose: bool) -> Result<CleanResult> {
         // Restore is not needed on failure
         return Ok(CleanResult::failure(
             "Flush File Cache",
-            format!(
-                "SetSystemFileCacheSize failed (error {}). Need SeIncreaseQuotaPrivilege.",
-                err
-            ),
+            format!("SetSystemFileCacheSize failed (error {err}). Need SeIncreaseQuotaPrivilege."),
             &before,
         ));
     }
@@ -215,12 +212,12 @@ pub fn flush_file_cache(verbose: bool) -> Result<CleanResult> {
 /// **Operation 2: Empty all process working sets (kernel-level).**
 ///
 /// Uses NtSetSystemInformation(MemoryEmptyWorkingSets) which is MORE powerful
-/// than iterating processes with EmptyWorkingSet():
+/// than iterating processes with `EmptyWorkingSet()`:
 /// - Hits ALL processes including protected/system processes
 /// - Single kernel call vs hundreds of user-mode calls
 /// - No handle permission issues
 ///
-/// This is one area where MagicX surpasses EmptyStandbyList significantly.
+/// This is one area where `MagicX` surpasses `EmptyStandbyList` significantly.
 pub fn empty_working_sets_kernel(verbose: bool) -> Result<CleanResult> {
     if verbose {
         println!("  {} Emptying working sets (kernel-level)...", "→".cyan());
@@ -252,7 +249,7 @@ pub fn empty_working_sets_kernel(verbose: bool) -> Result<CleanResult> {
 
 /// **Operation 2b: Empty working sets per-process (user-mode fallback).**
 ///
-/// Iterates all processes and calls EmptyWorkingSet on each.
+/// Iterates all processes and calls `EmptyWorkingSet` on each.
 /// Less powerful than kernel-level but provides per-process reporting.
 /// Protected/system processes may fail — that's normal.
 pub fn empty_working_sets_per_process(verbose: bool, exclude_pids: &[u32]) -> Result<CleanResult> {
@@ -274,7 +271,7 @@ pub fn empty_working_sets_per_process(verbose: bool, exclude_pids: &[u32]) -> Re
     let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
     entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
 
-    let mut has_entry = unsafe { Process32FirstW(snapshot, &mut entry) } != 0;
+    let mut has_entry = unsafe { Process32FirstW(snapshot, &raw mut entry) } != 0;
 
     while has_entry {
         let pid = entry.th32ProcessID;
@@ -284,7 +281,9 @@ pub fn empty_working_sets_per_process(verbose: bool, exclude_pids: &[u32]) -> Re
             let handle: HANDLE =
                 unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_SET_QUOTA, 0, pid) };
 
-            if !handle.is_null() {
+            if handle.is_null() {
+                fail_count += 1;
+            } else {
                 let result = unsafe { K32EmptyWorkingSet(handle) };
                 if result != 0 {
                     success_count += 1;
@@ -292,12 +291,10 @@ pub fn empty_working_sets_per_process(verbose: bool, exclude_pids: &[u32]) -> Re
                     fail_count += 1;
                 }
                 unsafe { CloseHandle(handle) };
-            } else {
-                fail_count += 1;
             }
         }
 
-        has_entry = unsafe { Process32NextW(snapshot, &mut entry) } != 0;
+        has_entry = unsafe { Process32NextW(snapshot, &raw mut entry) } != 0;
     }
 
     unsafe { CloseHandle(snapshot) };
@@ -318,8 +315,8 @@ pub fn empty_working_sets_per_process(verbose: bool, exclude_pids: &[u32]) -> Re
 /// This MUST be done before purging standby for maximum effect, because
 /// modified pages transition to standby after being written.
 ///
-/// EmptyStandbyList supports this but many users don't know to use it first.
-/// MagicX's smart cleaning always does this automatically.
+/// `EmptyStandbyList` supports this but many users don't know to use it first.
+/// `MagicX`'s smart cleaning always does this automatically.
 pub fn flush_modified_list(verbose: bool) -> Result<CleanResult> {
     if verbose {
         println!("  {} Flushing modified page list...", "→".cyan());
@@ -386,7 +383,7 @@ pub fn purge_standby_low_priority(verbose: bool) -> Result<CleanResult> {
 /// **Operation 5: Purge ALL standby pages.**
 ///
 /// The most impactful single operation — removes ALL cached pages from RAM.
-/// This is equivalent to EmptyStandbyList's main "standbylist" command.
+/// This is equivalent to `EmptyStandbyList`'s main "standbylist" command.
 ///
 /// **Warning**: After this, programs will need to re-read data from disk,
 /// causing temporary I/O spikes.
@@ -422,23 +419,23 @@ pub fn purge_standby_all(verbose: bool) -> Result<CleanResult> {
 /// **Operation 6: Memory combining (deduplication).**
 ///
 /// Scans physical memory for identical pages and combines them using
-/// copy-on-write. Only available on Windows 10+. This is unique to MagicX —
-/// EmptyStandbyList doesn't support this.
+/// copy-on-write. Only available on Windows 10+. This is unique to `MagicX` —
+/// `EmptyStandbyList` doesn't support this.
 ///
 /// This is a heavier operation that scans all memory — may take several seconds.
 pub fn combine_memory(verbose: bool) -> Result<CleanResult> {
-    if verbose {
-        println!("  {} Running memory page combining...", "→".cyan());
-    }
-
-    let before = MemorySnapshot::capture()?;
-
     // MEMORY_COMBINE_INFORMATION_INPUT: Handle (HANDLE, pointer-width), PagesCombined (ULONG_PTR)
     #[repr(C)]
     struct CombineInfo {
         handle: usize,        // HANDLE — 0 for full scan
         page_combined: usize, // ULONG_PTR output
     }
+
+    if verbose {
+        println!("  {} Running memory page combining...", "→".cyan());
+    }
+
+    let before = MemorySnapshot::capture()?;
 
     let mut info = CombineInfo {
         handle: 0,
@@ -448,7 +445,7 @@ pub fn combine_memory(verbose: bool) -> Result<CleanResult> {
     let status = unsafe {
         ntapi::NtSetSystemInformation(
             ntapi::SYSTEM_COMBINE_PHYSICAL_MEMORY_INFORMATION,
-            &mut info as *mut CombineInfo as *mut std::ffi::c_void,
+            (&raw mut info).cast::<std::ffi::c_void>(),
             std::mem::size_of::<CombineInfo>() as u32,
         )
     };
@@ -566,16 +563,14 @@ fn print_clean_summary(
         } else {
             "✗".red().bold().to_string()
         };
-        let freed_str = if r.freed_bytes > 0 {
-            format!("+{}", format_bytes(r.freed_bytes as u64))
+        let freed_str = match r.freed_bytes.cmp(&0) {
+            std::cmp::Ordering::Greater => format!("+{}", format_bytes(r.freed_bytes as u64))
                 .green()
-                .to_string()
-        } else if r.freed_bytes < 0 {
-            format!("-{}", format_bytes((-r.freed_bytes) as u64))
+                .to_string(),
+            std::cmp::Ordering::Less => format!("-{}", format_bytes(r.freed_bytes.unsigned_abs()))
                 .yellow()
-                .to_string()
-        } else {
-            "0 B".dimmed().to_string()
+                .to_string(),
+            std::cmp::Ordering::Equal => "0 B".dimmed().to_string(),
         };
 
         println!(
