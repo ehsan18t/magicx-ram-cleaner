@@ -348,13 +348,17 @@ fn main() -> Result<()> {
                 cleaner::purge_standby_all(verbose)?
             };
             print_single_result(&result);
-            if !result.success { had_failure = true; }
+            if !result.success {
+                had_failure = true;
+            }
         }
 
         Commands::FlushModified { verbose } => {
             let result = cleaner::flush_modified_list(verbose)?;
             print_single_result(&result);
-            if !result.success { had_failure = true; }
+            if !result.success {
+                had_failure = true;
+            }
         }
 
         Commands::EmptyWorkingsets {
@@ -367,19 +371,25 @@ fn main() -> Result<()> {
                 cleaner::empty_working_sets_kernel(verbose)?
             };
             print_single_result(&result);
-            if !result.success { had_failure = true; }
+            if !result.success {
+                had_failure = true;
+            }
         }
 
         Commands::FlushCache { verbose } => {
             let result = cleaner::flush_file_cache(verbose)?;
             print_single_result(&result);
-            if !result.success { had_failure = true; }
+            if !result.success {
+                had_failure = true;
+            }
         }
 
         Commands::Combine { verbose } => {
             let result = cleaner::combine_memory(verbose)?;
             print_single_result(&result);
-            if !result.success { had_failure = true; }
+            if !result.success {
+                had_failure = true;
+            }
         }
 
         Commands::Monitor {
