@@ -167,7 +167,8 @@ magicx-ram-cleaner clean [OPTIONS]
 | --------------------- | -------------------------------------------------------------------------------- |
 | `-l, --level <LEVEL>` | Cleaning aggressiveness: `gentle`, `moderate`, `aggressive` (default), `nuclear` |
 | `-v, --verbose`       | Show detailed progress of each operation                                         |
-| `--report <FILE>`     | Write cleaning results to a JSON report file                                     |  | `--dry-run` | Preview what operations would run without executing them |
+| `--report <FILE>`     | Write cleaning results to a JSON report file                                     |
+| `--dry-run`           | Preview what operations would run without executing them                         |
 **Examples:**
 ```powershell
 # Default aggressive clean — best for most situations
@@ -698,7 +699,7 @@ Double-click to clean RAM instantly.
 
 ### Prerequisites
 
-- [Rust](https://rustup.rs/) 1.85 or newer (edition 2024)
+- [Rust](https://rustup.rs/) 1.93 or newer (edition 2024)
 - Windows 10 SDK (comes with Visual Studio Build Tools)
 - Git
 
