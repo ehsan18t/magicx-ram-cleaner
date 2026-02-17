@@ -46,6 +46,10 @@ pub fn run_monitor(
     auto_level: CleanLevel,
     verbose: bool,
 ) -> Result<()> {
+    /// Maximum consecutive auto-clean errors before the monitor aborts.
+    /// Prevents infinite error-clean-error loops on a malfunctioning system.
+    const MAX_CONSECUTIVE_ERRORS: u32 = 3;
+
     // Validate interval to prevent spin-loop
     anyhow::ensure!(
         interval_secs > 0,
@@ -76,6 +80,7 @@ pub fn run_monitor(
     // repeated cleaning when memory stays above the threshold.
     let cooldown = std::time::Duration::from_secs(interval_secs.saturating_mul(2));
     let mut last_clean: Option<Instant> = None;
+    let mut consecutive_errors: u32 = 0;
 
     while RUNNING.load(Ordering::Acquire) {
         let snapshot = MemorySnapshot::capture()?;
@@ -105,6 +110,8 @@ pub fn run_monitor(
                 display::print_clean_start(auto_level);
                 match cleaner::smart_clean(auto_level, verbose) {
                     Ok(output) => {
+                        // Reset error streak on any successful execution
+                        consecutive_errors = 0;
                         display::print_clean_summary(
                             &output.results,
                             &output.overall_before,
@@ -122,7 +129,19 @@ pub fn run_monitor(
                         }
                     }
                     Err(e) => {
+                        consecutive_errors += 1;
                         eprintln!("  {} Auto-clean error: {}", "✗".red().bold(), e);
+                        if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                            anyhow::bail!(
+                                "Monitor aborted: {MAX_CONSECUTIVE_ERRORS} consecutive \
+                                 auto-clean failures. Last error: {e}"
+                            );
+                        }
+                        eprintln!(
+                            "  {} ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS} \
+                             consecutive failures before abort)",
+                            "⚠".yellow()
+                        );
                     }
                 }
             }
