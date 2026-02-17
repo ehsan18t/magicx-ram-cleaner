@@ -350,6 +350,10 @@ pub enum Commands {
         #[arg(short, long, value_enum, default_value = "aggressive")]
         level: CleanLevel,
 
+        /// Cooldown in seconds after auto-clean before cleaning again [default: 2×interval]
+        #[arg(short, long)]
+        cooldown: Option<u64>,
+
         /// Show detailed output during auto-clean.
         #[arg(short, long)]
         verbose: bool,

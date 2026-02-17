@@ -39,11 +39,14 @@ unsafe extern "system" fn ctrl_handler(ctrl_type: u32) -> i32 {
 /// * `interval_secs` — Seconds between status checks.
 /// * `threshold` — Optional memory load percentage (0–100) that triggers auto-clean.
 /// * `auto_level` — The cleaning level to use when auto-cleaning.
+/// * `cooldown_secs` — Optional override for cooldown seconds after an auto-clean.
+///   Defaults to `2 × interval_secs` if `None`.
 /// * `verbose` — Show detailed output during auto-clean.
 pub fn run_monitor(
     interval_secs: u64,
     threshold: Option<u32>,
     auto_level: CleanLevel,
+    cooldown_secs: Option<u64>,
     verbose: bool,
 ) -> Result<()> {
     /// Maximum consecutive auto-clean errors before the monitor aborts.
@@ -61,18 +64,21 @@ pub fn run_monitor(
         "SetConsoleCtrlHandler failed — cannot guarantee graceful shutdown"
     );
 
+    // Cooldown: skip auto-clean after the last clean to avoid
+    // repeated cleaning when memory stays above the threshold.
+    let cooldown_val = cooldown_secs.unwrap_or_else(|| interval_secs.saturating_mul(2));
+    let cooldown = std::time::Duration::from_secs(cooldown_val);
+
     println!("\n{} MagicX RAM Monitor started", "◉".green().bold());
     println!(
-        "  Interval: {}s | Auto-clean: {} | Level: {}",
+        "  Interval: {}s | Auto-clean: {} | Level: {} | Cooldown: {}s",
         interval_secs,
         threshold.map_or_else(|| "disabled".into(), |t| format!("{t}%")),
         auto_level,
+        cooldown_val,
     );
     println!("  Press Ctrl+C to stop.\n");
 
-    // Cooldown: skip auto-clean for 2× interval after the last clean to avoid
-    // repeated cleaning when memory stays above the threshold.
-    let cooldown = std::time::Duration::from_secs(interval_secs.saturating_mul(2));
     let mut last_clean: Option<Instant> = None;
     let mut consecutive_errors: u32 = 0;
 

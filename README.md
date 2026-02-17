@@ -371,12 +371,13 @@ magicx-ram-cleaner monitor [OPTIONS]
 ```
 
 **Options:**
-| Flag                        | Description                                         |
-| --------------------------- | --------------------------------------------------- |
-| `-i, --interval <SECONDS>`  | Check interval in seconds (default: 5)              |
-| `-t, --threshold <PERCENT>` | Auto-clean when memory load exceeds this %          |
-| `-l, --level <LEVEL>`       | Cleaning level for auto-clean (default: aggressive) |
-| `-v, --verbose`             | Show details during auto-clean                      |
+| Flag                        | Description                                                           |
+| --------------------------- | --------------------------------------------------------------------- |
+| `-i, --interval <SECONDS>`  | Check interval in seconds (default: 5)                                |
+| `-t, --threshold <PERCENT>` | Auto-clean when memory load exceeds this %                            |
+| `-l, --level <LEVEL>`       | Cleaning level for auto-clean (default: aggressive)                   |
+| `-c, --cooldown <SECONDS>`  | Cooldown after auto-clean before cleaning again (default: 2×interval) |
+| `-v, --verbose`             | Show details during auto-clean                                        |
 
 **Examples:**
 ```powershell
@@ -388,6 +389,9 @@ magicx-ram-cleaner monitor --interval 10
 
 # Auto-clean at 80% usage with aggressive cleaning
 magicx-ram-cleaner monitor --threshold 80
+
+# Auto-clean with 30-second cooldown between cleans
+magicx-ram-cleaner monitor -t 85 --cooldown 30
 
 # Auto-clean at 90% with gentle cleaning, check every 3 seconds
 magicx-ram-cleaner monitor -i 3 -t 90 -l gentle

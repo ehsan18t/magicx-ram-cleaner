@@ -261,10 +261,11 @@ fn dispatch_command(command: &Commands, quiet: bool) -> Result<bool> {
             interval,
             threshold,
             level,
+            cooldown,
             verbose,
         } => {
             let effective_verbose = *verbose && !quiet;
-            monitor::run_monitor(*interval, *threshold, *level, effective_verbose)?;
+            monitor::run_monitor(*interval, *threshold, *level, *cooldown, effective_verbose)?;
         }
     }
 
