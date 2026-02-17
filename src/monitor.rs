@@ -79,7 +79,25 @@ pub fn run_monitor(
                 snapshot.memory_load_percent,
                 thresh
             );
-            let _ = cleaner::smart_clean(auto_level, verbose);
+            match cleaner::smart_clean(auto_level, verbose) {
+                Ok(results) => {
+                    let failures: Vec<_> = results.iter().filter(|r| !r.success).collect();
+                    if !failures.is_empty() {
+                        eprintln!(
+                            "  {} Auto-clean completed with {} failed operation(s)",
+                            "⚠".yellow(),
+                            failures.len()
+                        );
+                    }
+                }
+                Err(e) => {
+                    eprintln!(
+                        "  {} Auto-clean error: {}",
+                        "✗".red().bold(),
+                        e
+                    );
+                }
+            }
         }
 
         // Sleep in small increments so Ctrl+C is responsive
