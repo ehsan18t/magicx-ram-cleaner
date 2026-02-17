@@ -4,18 +4,47 @@
 
 $ErrorActionPreference = "Stop"
 
-$hookSource = Join-Path $PSScriptRoot ".." "hooks" "pre-commit"
-$hookTarget = Join-Path $PSScriptRoot ".." ".git" "hooks" "pre-commit"
+$hooksDir = Join-Path $PSScriptRoot ".." "hooks"
+$gitHooksDir = Join-Path $PSScriptRoot ".." ".git" "hooks"
 
-if (Test-Path $hookTarget) {
-    Write-Host "Pre-commit hook already installed at: $hookTarget" -ForegroundColor Yellow
-    Write-Host "Overwriting..."
+# Ensure .git/hooks directory exists
+if (-not (Test-Path $gitHooksDir)) {
+    New-Item -ItemType Directory -Path $gitHooksDir -Force | Out-Null
 }
 
-Copy-Item $hookSource $hookTarget -Force
-Write-Host "Pre-commit hook installed successfully!" -ForegroundColor Green
+# Install pre-commit hook
+$preCommitSource = Join-Path $hooksDir "pre-commit"
+$preCommitTarget = Join-Path $gitHooksDir "pre-commit"
+
+if (Test-Path $preCommitTarget) {
+    Write-Host "Pre-commit hook already exists, overwriting..." -ForegroundColor Yellow
+}
+Copy-Item $preCommitSource $preCommitTarget -Force
+Write-Host "Pre-commit hook installed." -ForegroundColor Green
+
+# Install pre-push hook
+$prePushSource = Join-Path $hooksDir "pre-push"
+$prePushTarget = Join-Path $gitHooksDir "pre-push"
+
+if (Test-Path $prePushTarget) {
+    Write-Host "Pre-push hook already exists, overwriting..." -ForegroundColor Yellow
+}
+Copy-Item $prePushSource $prePushTarget -Force
+Write-Host "Pre-push hook installed." -ForegroundColor Green
+
 Write-Host ""
-Write-Host "Quality gates will now run automatically before every commit:" -ForegroundColor Cyan
-Write-Host "  1. cargo fmt --check    (formatting)"
-Write-Host "  2. cargo clippy         (lints)"
-Write-Host "  3. cargo test           (tests)"
+Write-Host "Git hooks installed successfully!" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Quality gates will now run automatically:" -ForegroundColor Cyan
+Write-Host "  Pre-commit (fast checks before each commit):" -ForegroundColor White
+Write-Host "    1. cargo fmt --check    (formatting)"
+Write-Host "    2. cargo clippy         (lints)"
+Write-Host "    3. cargo test           (tests)"
+Write-Host ""
+Write-Host "  Pre-push (full CI-equivalent checks before each push):" -ForegroundColor White
+Write-Host "    1. cargo fmt --check    (formatting)"
+Write-Host "    2. cargo clippy -D warn (lints)"
+Write-Host "    3. cargo test           (tests)"
+Write-Host "    4. cargo build --release(release build)"
+Write-Host "    5. cargo doc            (documentation)"
+Write-Host "    6. cargo deny check     (dependency audit)"

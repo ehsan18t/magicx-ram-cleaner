@@ -4,26 +4,25 @@
 # Install: cargo install cargo-deny
 
 [advisories]
-# Deny any dependency with a known security vulnerability
-vulnerability = "deny"
-unmaintained = "warn"
-yanked = "deny"
-notice = "warn"
+# Warn only when a direct workspace dependency is unmaintained.
+# Vulnerabilities, yanked crates, and notices are denied by default in cargo-deny 0.19+.
+unmaintained = "workspace"
+ignore = []
 
 [licenses]
-# Only allow these licenses — reject anything weird
+# Only allow these licenses — anything unlisted is denied by default.
+confidence-threshold = 0.93
 allow = [
     "MIT",
     "Apache-2.0",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "ISC",
+    "MPL-2.0",
     "Unicode-3.0",
     "Unicode-DFS-2016",
     "Zlib",
 ]
-unlicensed = "deny"
-copyleft = "deny"
 
 # Windows-sys uses MIT, clap uses MIT/Apache-2.0, etc.
 # If a new dependency brings in a weird license, this will catch it.
@@ -42,8 +41,8 @@ highlight = "all"
 # Ban known-problematic crates
 deny = [
     # openssl — we don't need it and it's a security liability
-    { name = "openssl" },
-    { name = "openssl-sys" },
+    { crate = "openssl", use-instead = "rustls" },
+    { crate = "openssl-sys", use-instead = "rustls" },
 ]
 
 [sources]

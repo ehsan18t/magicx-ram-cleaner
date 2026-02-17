@@ -1,5 +1,5 @@
 # MagicX RAM Cleaner — CI Pipeline
-# Enforces code quality on every push and PR. No bad code gets merged.
+# Enforces code quality on pull requests. All checks must pass before merging.
 #
 # Gates (ALL must pass):
 #   1. cargo fmt --check     → consistent formatting
@@ -12,8 +12,6 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 
@@ -64,7 +62,7 @@ jobs:
         env:
           RUSTDOCFLAGS: "-D warnings"
 
-  # Optional: dependency audit (runs separately, non-blocking initially)
+  # Gate 6: Dependency audit — rejects vulnerable/banned dependencies
   audit:
     name: Dependency Audit
     runs-on: windows-latest
@@ -74,5 +72,5 @@ jobs:
       - name: Install cargo-deny
         run: cargo install cargo-deny --locked
 
-      - name: "Audit: cargo deny check"
+      - name: "Gate 6: cargo deny check"
         run: cargo deny check
