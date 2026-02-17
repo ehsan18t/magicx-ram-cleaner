@@ -107,7 +107,21 @@ assets/
 
 ---
 
-## 7 · Commit Message Rules
+## 7 · Commit Rules
+
+### 7.1 · Commit After Every Completed Task
+
+Agents **must** commit immediately after completing each discrete task or fix.
+Do not batch multiple unrelated changes into a single commit. Each commit
+should represent **one logical change** that can be understood, reviewed, and
+reverted independently.
+
+- Fix one bug → commit. Fix the next bug → commit again.
+- Refactor one module → commit. Then move to the next.
+- Add a feature → commit. Update its docs → commit (or same commit if tightly coupled).
+- Never leave uncommitted work when moving to a different task.
+
+### 7.2 · Conventional Commits Format
 
 This project enforces **Conventional Commits** via a `commit-msg` git hook.
 
@@ -124,13 +138,29 @@ Rules:
 - No trailing period.
 - Scope is optional, lowercase, alphanumeric + hyphens.
 
-Examples:
+### 7.3 · Commit Description Quality
+
+Commit messages must be **concise yet descriptive**. The subject line should
+clearly explain _what_ changed so a reviewer can understand without reading
+the diff. Use the commit body (via `-m` flags) for _why_ and _how_ when the
+change is non-trivial.
+
+Good examples:
 
 ```
-feat(monitor): add cooldown configuration flag
-fix(ntapi): handle STATUS_ACCESS_DENIED gracefully
-docs: update README with new subcommands
+fix(privilege): free SID memory on all error paths
 refactor(cleaner): extract wait_for_settle helper
+perf(stats): avoid redundant GlobalMemoryStatusEx call
+fix(ntapi): validate command enum before FFI call
+docs: update architecture section for new modules
+```
+
+Bad examples (too vague):
+
+```
+fix: fix bug
+refactor: cleanup
+chore: updates
 ```
 
 ---
