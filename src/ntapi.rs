@@ -12,6 +12,9 @@ pub const STATUS_SUCCESS: NtStatus = 0;
 // SystemMemoryListInformation information class for NtSetSystemInformation / NtQuerySystemInformation
 pub const SYSTEM_MEMORY_LIST_INFORMATION: u32 = 80; // 0x50
 
+// SystemCombinePhysicalMemoryInformation information class for NtSetSystemInformation
+pub const SYSTEM_COMBINE_PHYSICAL_MEMORY_INFORMATION: u32 = 130; // 0x82
+
 /// Memory list commands passed to NtSetSystemInformation(SystemMemoryListInformation).
 ///
 /// These are the core operations that EmptyStandbyList uses.

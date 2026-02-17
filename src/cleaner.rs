@@ -433,7 +433,6 @@ pub fn combine_memory(verbose: bool) -> Result<CleanResult> {
 
     let before = MemorySnapshot::capture()?;
 
-    // SYSTEM_COMBINE_PHYSICAL_MEMORY_INFORMATION = 0x82 (130)
     // MEMORY_COMBINE_INFORMATION_INPUT: Handle (HANDLE, pointer-width), PagesCombined (ULONG_PTR)
     #[repr(C)]
     struct CombineInfo {
@@ -448,7 +447,7 @@ pub fn combine_memory(verbose: bool) -> Result<CleanResult> {
 
     let status = unsafe {
         ntapi::NtSetSystemInformation(
-            130, // SystemCombinePhysicalMemoryInformation
+            ntapi::SYSTEM_COMBINE_PHYSICAL_MEMORY_INFORMATION,
             &mut info as *mut CombineInfo as *mut std::ffi::c_void,
             std::mem::size_of::<CombineInfo>() as u32,
         )
