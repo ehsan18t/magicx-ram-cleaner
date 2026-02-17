@@ -220,7 +220,7 @@ pub fn print_compact_status(snapshot: &MemorySnapshot) {
     );
 }
 
-/// Get local time as HH:MM:SS string using Win32 `GetLocalTime`.
+/// Get local date and time as `YYYY-MM-DD HH:MM:SS` string using Win32 `GetLocalTime`.
 fn local_now() -> String {
     use windows_sys::Win32::Foundation::SYSTEMTIME;
     use windows_sys::Win32::System::SystemInformation::GetLocalTime;
@@ -229,7 +229,10 @@ fn local_now() -> String {
     unsafe {
         let mut st: SYSTEMTIME = std::mem::zeroed();
         GetLocalTime(&raw mut st);
-        format!("{:02}:{:02}:{:02}", st.wHour, st.wMinute, st.wSecond)
+        format!(
+            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+            st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond
+        )
     }
 }
 
