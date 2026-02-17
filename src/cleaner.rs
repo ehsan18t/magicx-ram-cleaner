@@ -94,7 +94,12 @@ pub struct CleanResult {
 
 impl CleanResult {
     /// Create a successful result from before/after snapshots.
-    fn success(operation: &str, message: &str, before: &MemorySnapshot, after: &MemorySnapshot) -> Self {
+    fn success(
+        operation: &str,
+        message: &str,
+        before: &MemorySnapshot,
+        after: &MemorySnapshot,
+    ) -> Self {
         Self {
             operation: operation.into(),
             success: true,
@@ -108,7 +113,12 @@ impl CleanResult {
     }
 
     /// Create a successful result with a dynamic message from before/after snapshots.
-    fn success_msg(operation: &str, message: String, before: &MemorySnapshot, after: &MemorySnapshot) -> Self {
+    fn success_msg(
+        operation: &str,
+        message: String,
+        before: &MemorySnapshot,
+        after: &MemorySnapshot,
+    ) -> Self {
         Self {
             operation: operation.into(),
             success: true,
@@ -192,7 +202,10 @@ pub fn flush_file_cache(verbose: bool) -> Result<CleanResult> {
         // Restore is not needed on failure
         return Ok(CleanResult::failure(
             "Flush File Cache",
-            format!("SetSystemFileCacheSize failed (error {}). Need SeIncreaseQuotaPrivilege.", err),
+            format!(
+                "SetSystemFileCacheSize failed (error {}). Need SeIncreaseQuotaPrivilege.",
+                err
+            ),
             &before,
         ));
     }
@@ -210,7 +223,12 @@ pub fn flush_file_cache(verbose: bool) -> Result<CleanResult> {
 
     let after = wait_for_settle(verbose)?;
 
-    Ok(CleanResult::success("Flush File Cache", "File system cache flushed successfully", &before, &after))
+    Ok(CleanResult::success(
+        "Flush File Cache",
+        "File system cache flushed successfully",
+        &before,
+        &after,
+    ))
 }
 
 /// **Operation 2: Empty all process working sets (kernel-level).**
@@ -232,11 +250,20 @@ pub fn empty_working_sets_kernel(verbose: bool) -> Result<CleanResult> {
     match ntapi::execute_memory_command(MemoryListCommand::EmptyWorkingSets) {
         Ok(()) => {
             let after = wait_for_settle(verbose)?;
-            Ok(CleanResult::success("Empty Working Sets (Kernel)", "All process working sets emptied via kernel", &before, &after))
+            Ok(CleanResult::success(
+                "Empty Working Sets (Kernel)",
+                "All process working sets emptied via kernel",
+                &before,
+                &after,
+            ))
         }
         Err(status) => Ok(CleanResult::failure(
             "Empty Working Sets (Kernel)",
-            format!("NtSetSystemInformation failed: 0x{:08X} — {}", status as u32, ntapi::ntstatus_message(status)),
+            format!(
+                "NtSetSystemInformation failed: 0x{:08X} — {}",
+                status as u32,
+                ntapi::ntstatus_message(status)
+            ),
             &before,
         )),
     }
@@ -299,7 +326,8 @@ pub fn empty_working_sets_per_process(verbose: bool, exclude_pids: &[u32]) -> Re
     Ok(CleanResult::success_msg(
         "Empty Working Sets (Per-Process)",
         format!("Trimmed {success_count} processes, {fail_count} skipped (protected/system)"),
-        &before, &after,
+        &before,
+        &after,
     ))
 }
 
@@ -321,11 +349,20 @@ pub fn flush_modified_list(verbose: bool) -> Result<CleanResult> {
     match ntapi::execute_memory_command(MemoryListCommand::FlushModifiedList) {
         Ok(()) => {
             let after = wait_for_settle(verbose)?;
-            Ok(CleanResult::success("Flush Modified List", "Modified pages flushed to disk", &before, &after))
+            Ok(CleanResult::success(
+                "Flush Modified List",
+                "Modified pages flushed to disk",
+                &before,
+                &after,
+            ))
         }
         Err(status) => Ok(CleanResult::failure(
             "Flush Modified List",
-            format!("NtSetSystemInformation failed: 0x{:08X} — {}", status as u32, ntapi::ntstatus_message(status)),
+            format!(
+                "NtSetSystemInformation failed: 0x{:08X} — {}",
+                status as u32,
+                ntapi::ntstatus_message(status)
+            ),
             &before,
         )),
     }
@@ -346,11 +383,20 @@ pub fn purge_standby_low_priority(verbose: bool) -> Result<CleanResult> {
     match ntapi::execute_memory_command(MemoryListCommand::PurgeLowPriorityStandbyList) {
         Ok(()) => {
             let after = wait_for_settle(verbose)?;
-            Ok(CleanResult::success("Purge Low-Priority Standby", "Low-priority standby pages purged", &before, &after))
+            Ok(CleanResult::success(
+                "Purge Low-Priority Standby",
+                "Low-priority standby pages purged",
+                &before,
+                &after,
+            ))
         }
         Err(status) => Ok(CleanResult::failure(
             "Purge Low-Priority Standby",
-            format!("NtSetSystemInformation failed: 0x{:08X} — {}", status as u32, ntapi::ntstatus_message(status)),
+            format!(
+                "NtSetSystemInformation failed: 0x{:08X} — {}",
+                status as u32,
+                ntapi::ntstatus_message(status)
+            ),
             &before,
         )),
     }
@@ -373,11 +419,20 @@ pub fn purge_standby_all(verbose: bool) -> Result<CleanResult> {
     match ntapi::execute_memory_command(MemoryListCommand::PurgeStandbyList) {
         Ok(()) => {
             let after = wait_for_settle(verbose)?;
-            Ok(CleanResult::success("Purge ALL Standby", "All standby pages purged", &before, &after))
+            Ok(CleanResult::success(
+                "Purge ALL Standby",
+                "All standby pages purged",
+                &before,
+                &after,
+            ))
         }
         Err(status) => Ok(CleanResult::failure(
             "Purge ALL Standby",
-            format!("NtSetSystemInformation failed: 0x{:08X} — {}", status as u32, ntapi::ntstatus_message(status)),
+            format!(
+                "NtSetSystemInformation failed: 0x{:08X} — {}",
+                status as u32,
+                ntapi::ntstatus_message(status)
+            ),
             &before,
         )),
     }
@@ -401,8 +456,8 @@ pub fn combine_memory(verbose: bool) -> Result<CleanResult> {
     // MEMORY_COMBINE_INFORMATION_INPUT: Handle (HANDLE, pointer-width), PagesCombined (ULONG_PTR)
     #[repr(C)]
     struct CombineInfo {
-        handle: usize,         // HANDLE — 0 for full scan
-        page_combined: usize,  // ULONG_PTR output
+        handle: usize,        // HANDLE — 0 for full scan
+        page_combined: usize, // ULONG_PTR output
     }
 
     let mut info = CombineInfo {
@@ -421,7 +476,11 @@ pub fn combine_memory(verbose: bool) -> Result<CleanResult> {
     if status != 0 {
         return Ok(CleanResult::failure(
             "Memory Combining",
-            format!("NtSetSystemInformation(SystemCombinePhysicalMemoryInformation) failed: 0x{:08X} — {}", status as u32, ntapi::ntstatus_message(status)),
+            format!(
+                "NtSetSystemInformation(SystemCombinePhysicalMemoryInformation) failed: 0x{:08X} — {}",
+                status as u32,
+                ntapi::ntstatus_message(status)
+            ),
             &before,
         ));
     }
@@ -431,7 +490,8 @@ pub fn combine_memory(verbose: bool) -> Result<CleanResult> {
     Ok(CleanResult::success_msg(
         "Memory Combining",
         format!("Pages combined: {}", info.page_combined),
-        &before, &after,
+        &before,
+        &after,
     ))
 }
 
@@ -483,8 +543,7 @@ pub fn smart_clean(level: CleanLevel, verbose: bool) -> Result<Vec<CleanResult>>
             // Phase 2: Flush modified to disk
             results.push(flush_modified_list(verbose)?);
 
-            // Phase 3: Purge standby (low first, then all)
-            results.push(purge_standby_low_priority(verbose)?);
+            // Phase 3: Purge all standby pages (covers low-priority too)
             results.push(purge_standby_all(verbose)?);
 
             // Phase 4: Memory combining
