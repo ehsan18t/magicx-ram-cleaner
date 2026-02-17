@@ -83,6 +83,7 @@ pub fn run_monitor(
     let mut consecutive_errors: u32 = 0;
 
     while RUNNING.load(Ordering::Acquire) {
+        let iteration_start = Instant::now();
         let snapshot = MemorySnapshot::capture()?;
         display::print_compact_status(&snapshot);
 
@@ -147,8 +148,13 @@ pub fn run_monitor(
             }
         }
 
-        // Sleep in small increments so Ctrl+C is responsive
-        for _ in 0..interval_secs.saturating_mul(10) {
+        // Sleep in small increments so Ctrl+C is responsive.
+        // Subtract the time already spent on this iteration (status capture +
+        // potential cleaning) so the effective check interval stays consistent.
+        let interval = std::time::Duration::from_secs(interval_secs);
+        let remaining = interval.saturating_sub(iteration_start.elapsed());
+        let ticks = remaining.as_millis() / 100;
+        for _ in 0..ticks {
             if !RUNNING.load(Ordering::Acquire) {
                 break;
             }
