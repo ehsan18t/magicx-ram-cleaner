@@ -118,6 +118,7 @@ pub fn run_monitor(
                             &output.overall_before,
                             &output.overall_after,
                             output.total_freed,
+                            output.total_elapsed_secs,
                         );
                         let failures: Vec<_> =
                             output.results.iter().filter(|r| !r.success).collect();

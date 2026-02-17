@@ -201,6 +201,7 @@ fn dispatch_command(command: &Commands, quiet: bool) -> Result<bool> {
                     &output.overall_before,
                     &output.overall_after,
                     output.total_freed,
+                    output.total_elapsed_secs,
                 );
                 if let Some(path) = report {
                     write_report(path, &output)?;

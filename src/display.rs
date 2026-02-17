@@ -295,8 +295,8 @@ pub fn print_single_result(result: &CleanResult) {
         format_bytes(result.available_after).green()
     );
     println!(
-        "  Load: {}% -> {}%\n",
-        result.load_before, result.load_after
+        "  Load: {}% -> {}%   (took {:.2}s)\n",
+        result.load_before, result.load_after, result.elapsed_secs
     );
 }
 
@@ -372,6 +372,7 @@ pub fn print_clean_summary(
     before: &MemorySnapshot,
     after: &MemorySnapshot,
     total_freed: i64,
+    total_elapsed_secs: f64,
 ) {
     println!("{}", "─── Cleaning Summary ───────────────────".dimmed());
     println!();
@@ -392,11 +393,14 @@ pub fn print_clean_summary(
             std::cmp::Ordering::Equal => "0 B".dimmed().to_string(),
         };
 
+        let elapsed_str = format!("{:.2}s", r.elapsed_secs).dimmed().to_string();
+
         println!(
-            "  {} {:<35} {:>12}   {}",
+            "  {} {:<35} {:>12}  {:>6}  {}",
             status,
             r.operation,
             freed_str,
+            elapsed_str,
             r.message.dimmed()
         );
     }
@@ -424,15 +428,17 @@ pub fn print_clean_summary(
 
     if total_freed > 0 {
         println!(
-            "\n  {} Total freed: {}",
+            "\n  {} Total freed: {}  (took {:.2}s)",
             "★".yellow().bold(),
-            format_bytes(total_freed as u64).green().bold()
+            format_bytes(total_freed as u64).green().bold(),
+            total_elapsed_secs
         );
     } else {
         println!(
-            "\n  {} Net change: {} (already clean or pages re-faulted)",
+            "\n  {} Net change: {} (already clean or pages re-faulted, took {:.2}s)",
             "•".dimmed(),
-            format_bytes(total_freed.unsigned_abs()).yellow()
+            format_bytes(total_freed.unsigned_abs()).yellow(),
+            total_elapsed_secs
         );
     }
     println!();

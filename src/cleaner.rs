@@ -184,11 +184,19 @@ fn execute_kernel_memory_op(
     }
 
     let before = MemorySnapshot::capture()?;
+    let start = std::time::Instant::now();
 
     match ntapi::execute_memory_command(command) {
         Ok(()) => {
             let after = wait_for_settle(verbose, settle)?;
-            Ok(CleanResult::success(name, success_msg, &before, &after))
+            let elapsed = start.elapsed();
+            Ok(CleanResult::success(
+                name,
+                success_msg,
+                &before,
+                &after,
+                elapsed,
+            ))
         }
         Err(status) => Ok(CleanResult::failure(
             name,
@@ -217,6 +225,8 @@ pub struct CleanResult {
     pub load_before: u32,
     /// Memory load percentage after.
     pub load_after: u32,
+    /// Wall-clock time for the entire operation (seconds), including settle.
+    pub elapsed_secs: f64,
 }
 
 impl CleanResult {
@@ -226,6 +236,7 @@ impl CleanResult {
         message: impl Into<String>,
         before: &MemorySnapshot,
         after: &MemorySnapshot,
+        elapsed: std::time::Duration,
     ) -> Self {
         Self {
             operation: operation.into(),
@@ -236,6 +247,7 @@ impl CleanResult {
             available_after: after.available_physical,
             load_before: before.memory_load_percent,
             load_after: after.memory_load_percent,
+            elapsed_secs: elapsed.as_secs_f64(),
         }
     }
 
@@ -250,6 +262,7 @@ impl CleanResult {
             available_after: before.available_physical,
             load_before: before.memory_load_percent,
             load_after: before.memory_load_percent,
+            elapsed_secs: 0.0,
         }
     }
 }
@@ -296,6 +309,8 @@ pub struct SmartCleanResult {
     pub overall_after: MemorySnapshot,
     /// Net bytes freed (positive = more available memory after cleaning).
     pub total_freed: i64,
+    /// Total wall-clock time for all operations (seconds).
+    pub total_elapsed_secs: f64,
 }
 
 // ─── Individual Operations ───────────────────────────────────────────────────
@@ -318,6 +333,7 @@ fn flush_file_cache_with_settle(verbose: bool, settle: SettleMode) -> Result<Cle
     }
 
     let before = MemorySnapshot::capture()?;
+    let start = std::time::Instant::now();
 
     // Pass (usize::MAX, usize::MAX, 0) to purge all cached pages,
     // then restore default limits so Windows resumes normal cache management.
@@ -361,12 +377,14 @@ fn flush_file_cache_with_settle(verbose: bool, settle: SettleMode) -> Result<Cle
     }
 
     let after = wait_for_settle(verbose, settle)?;
+    let elapsed = start.elapsed();
 
     Ok(CleanResult::success(
         "Flush File Cache",
         "File system cache flushed successfully",
         &before,
         &after,
+        elapsed,
     ))
 }
 
@@ -405,6 +423,7 @@ pub fn empty_working_sets_per_process(
     }
 
     let before = MemorySnapshot::capture()?;
+    let start = std::time::Instant::now();
     let mut success_count = 0u32;
     let mut fail_count = 0u32;
     let mut excluded_count = 0u32;
@@ -470,6 +489,7 @@ pub fn empty_working_sets_per_process(
     unsafe { CloseHandle(snapshot) };
 
     let after = wait_for_settle(verbose, SettleMode::Full)?;
+    let elapsed = start.elapsed();
 
     let mut message =
         format!("Trimmed {success_count} processes, {fail_count} skipped (protected/system)");
@@ -483,6 +503,7 @@ pub fn empty_working_sets_per_process(
         message,
         &before,
         &after,
+        elapsed,
     ))
 }
 
@@ -565,12 +586,10 @@ fn combine_memory_with_settle(verbose: bool, settle: SettleMode) -> Result<Clean
             let elapsed = start.elapsed();
             Ok(CleanResult::success(
                 "Memory Combining",
-                format!(
-                    "Pages combined: {pages_combined} ({:.1}s)",
-                    elapsed.as_secs_f64()
-                ),
+                format!("Pages combined: {pages_combined}"),
                 &before,
                 &after,
+                elapsed,
             ))
         }
         Err(status) => Ok(CleanResult::failure(
@@ -742,6 +761,7 @@ pub fn smart_clean(
     exclude_names: &[String],
 ) -> Result<SmartCleanResult> {
     let overall_before = MemorySnapshot::capture()?;
+    let start = std::time::Instant::now();
 
     let results = match level {
         CleanLevel::Gentle => {
@@ -770,17 +790,21 @@ pub fn smart_clean(
     let overall_after = MemorySnapshot::capture()?;
     let total_freed =
         overall_after.available_physical as i64 - overall_before.available_physical as i64;
+    let total_elapsed_secs = start.elapsed().as_secs_f64();
 
     Ok(SmartCleanResult {
         results,
         overall_before,
         overall_after,
         total_freed,
+        total_elapsed_secs,
     })
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
     use crate::stats::MemorySnapshot;
 
@@ -813,7 +837,8 @@ mod tests {
     fn clean_result_success_calculates_freed_bytes() {
         let before = mock_snapshot(4_000_000_000, 75);
         let after = mock_snapshot(6_000_000_000, 62);
-        let result = CleanResult::success("Test Op", "ok", &before, &after);
+        let result =
+            CleanResult::success("Test Op", "ok", &before, &after, Duration::from_millis(150));
 
         assert!(result.success);
         assert_eq!(result.freed_bytes, 2_000_000_000);
@@ -821,13 +846,20 @@ mod tests {
         assert_eq!(result.message, "ok");
         assert_eq!(result.load_before, 75);
         assert_eq!(result.load_after, 62);
+        assert!(result.elapsed_secs > 0.0, "elapsed_secs should be positive");
     }
 
     #[test]
     fn clean_result_success_with_dynamic_message() {
         let before = mock_snapshot(4_000_000_000, 75);
         let after = mock_snapshot(5_000_000_000, 69);
-        let result = CleanResult::success("Op", format!("freed {} items", 42), &before, &after);
+        let result = CleanResult::success(
+            "Op",
+            format!("freed {} items", 42),
+            &before,
+            &after,
+            Duration::from_secs(1),
+        );
 
         assert!(result.success);
         assert_eq!(result.message, "freed 42 items");
@@ -842,13 +874,23 @@ mod tests {
         assert_eq!(result.freed_bytes, 0);
         assert_eq!(result.available_before, result.available_after);
         assert_eq!(result.load_before, result.load_after);
+        assert!(
+            result.elapsed_secs.abs() < f64::EPSILON,
+            "failure elapsed should be 0"
+        );
     }
 
     #[test]
     fn clean_result_negative_freed_when_memory_decreases() {
         let before = mock_snapshot(6_000_000_000, 62);
         let after = mock_snapshot(4_000_000_000, 75);
-        let result = CleanResult::success("Test", "mem decreased", &before, &after);
+        let result = CleanResult::success(
+            "Test",
+            "mem decreased",
+            &before,
+            &after,
+            Duration::from_millis(500),
+        );
 
         assert!(result.freed_bytes < 0);
         assert_eq!(result.freed_bytes, -2_000_000_000);
