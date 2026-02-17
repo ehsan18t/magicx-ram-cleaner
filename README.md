@@ -308,10 +308,11 @@ magicx-ram-cleaner empty-workingsets [OPTIONS]
 ```
 
 **Options:**
-| Flag            | Description                                                                 |
-| --------------- | --------------------------------------------------------------------------- |
-| `--per-process` | Use per-process trimming instead of kernel-level (slower but more detailed) |
-| `-v, --verbose` | Show detailed progress                                                      |
+| Flag               | Description                                                                     |
+| ------------------ | ------------------------------------------------------------------------------- |
+| `--per-process`    | Use per-process trimming instead of kernel-level (slower but more detailed)     |
+| `--exclude <NAME>` | Exclude processes by name (case-insensitive, repeatable). Implies --per-process |
+| `-v, --verbose`    | Show detailed progress                                                          |
 
 **Examples:**
 ```powershell
@@ -320,6 +321,9 @@ magicx-ram-cleaner empty-workingsets
 
 # Per-process trim — shows how many processes were trimmed
 magicx-ram-cleaner empty-workingsets --per-process -v
+
+# Trim all processes except Chrome and Firefox
+magicx-ram-cleaner empty-workingsets --exclude chrome --exclude firefox
 ```
 
 **Kernel-level vs Per-process:**

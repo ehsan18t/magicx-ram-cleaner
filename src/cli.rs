@@ -137,6 +137,8 @@ pub const AFTER_HELP_LONG: &str = "\
 \x1b[32mmagicx-ram-cleaner purge-standby\x1b[0m                \x1b[90m# Step 2: purge standby list\x1b[0m
     \
 \x1b[32mmagicx-ram-cleaner empty-workingsets --per-process\x1b[0m \x1b[90m# Per-process details\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner empty-workingsets --exclude chrome --exclude firefox\x1b[0m \x1b[90m# Protect browsers\x1b[0m
 
 \
 \x1b[1;36mKEY CONCEPTS:\x1b[0m
@@ -290,12 +292,20 @@ pub enum Commands {
     /// Forces all processes to release their working set pages.
     /// By default uses the kernel-level command which is faster and
     /// more thorough than per-process trimming.
+    ///
+    /// Use --exclude to protect specific processes (implies --per-process).
     #[command(verbatim_doc_comment)]
     EmptyWorkingsets {
         /// Use per-process trimming instead of kernel-level.
         /// Slower but shows individual process results.
         #[arg(long)]
         per_process: bool,
+
+        /// Exclude processes by name (case-insensitive, .exe suffix optional).
+        /// Can be specified multiple times: --exclude chrome --exclude firefox
+        /// Implies --per-process since kernel-level trim cannot exclude.
+        #[arg(long, value_name = "NAME")]
+        exclude: Vec<String>,
 
         /// Show detailed progress.
         #[arg(short, long)]

@@ -236,11 +236,13 @@ fn dispatch_command(command: &Commands, quiet: bool) -> Result<bool> {
 
         Commands::EmptyWorkingsets {
             per_process,
+            exclude,
             verbose,
         } => {
             let effective_verbose = *verbose && !quiet;
-            let result = if *per_process {
-                cleaner::empty_working_sets_per_process(effective_verbose, &[])?
+            // --exclude implies per-process mode (kernel-level cannot exclude)
+            let result = if *per_process || !exclude.is_empty() {
+                cleaner::empty_working_sets_per_process(effective_verbose, exclude)?
             } else {
                 cleaner::empty_working_sets_kernel(effective_verbose)?
             };

@@ -364,7 +364,14 @@ pub fn empty_working_sets_kernel(verbose: bool) -> Result<CleanResult> {
 /// Iterates all processes and calls `EmptyWorkingSet` on each.
 /// Less powerful than kernel-level but provides per-process reporting.
 /// Protected/system processes may fail — that's normal.
-pub fn empty_working_sets_per_process(verbose: bool, exclude_pids: &[u32]) -> Result<CleanResult> {
+///
+/// Processes whose executable name (case-insensitive) matches any entry in
+/// `exclude_names` are skipped. Names are matched with or without the `.exe`
+/// suffix — e.g. `"chrome"` matches `chrome.exe`.
+pub fn empty_working_sets_per_process(
+    verbose: bool,
+    exclude_names: &[String],
+) -> Result<CleanResult> {
     if verbose {
         println!("  {} Emptying working sets per-process...", "→".cyan());
     }
@@ -372,7 +379,17 @@ pub fn empty_working_sets_per_process(verbose: bool, exclude_pids: &[u32]) -> Re
     let before = MemorySnapshot::capture()?;
     let mut success_count = 0u32;
     let mut fail_count = 0u32;
+    let mut excluded_count = 0u32;
     let current_pid = std::process::id();
+
+    // Normalise exclude names: lowercase, strip trailing `.exe` if present
+    let normalised_excludes: Vec<String> = exclude_names
+        .iter()
+        .map(|n| {
+            let lower = n.to_lowercase();
+            lower.strip_suffix(".exe").unwrap_or(&lower).to_owned()
+        })
+        .collect();
 
     // Use Toolhelp32 snapshot for process enumeration (more reliable than K32EnumProcesses)
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
@@ -388,21 +405,34 @@ pub fn empty_working_sets_per_process(verbose: bool, exclude_pids: &[u32]) -> Re
     while has_entry {
         let pid = entry.th32ProcessID;
 
-        // Skip System (PID 0, 4), ourselves, and excluded PIDs
-        if pid != 0 && pid != 4 && pid != current_pid && !exclude_pids.contains(&pid) {
-            let handle: HANDLE =
-                unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_SET_QUOTA, 0, pid) };
+        // Skip System (PID 0, 4) and ourselves
+        if pid != 0 && pid != 4 && pid != current_pid {
+            let exe_name = extract_exe_name(&entry.szExeFile);
 
-            if handle.is_null() {
-                fail_count += 1;
-            } else {
-                let result = unsafe { K32EmptyWorkingSet(handle) };
-                if result != 0 {
-                    success_count += 1;
-                } else {
-                    fail_count += 1;
+            if is_excluded(&exe_name, &normalised_excludes) {
+                if verbose {
+                    println!(
+                        "    {} Skipping {} (PID {pid}, excluded)",
+                        "·".dimmed(),
+                        exe_name.yellow()
+                    );
                 }
-                unsafe { CloseHandle(handle) };
+                excluded_count += 1;
+            } else {
+                let handle: HANDLE =
+                    unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_SET_QUOTA, 0, pid) };
+
+                if handle.is_null() {
+                    fail_count += 1;
+                } else {
+                    let result = unsafe { K32EmptyWorkingSet(handle) };
+                    if result != 0 {
+                        success_count += 1;
+                    } else {
+                        fail_count += 1;
+                    }
+                    unsafe { CloseHandle(handle) };
+                }
             }
         }
 
@@ -413,12 +443,37 @@ pub fn empty_working_sets_per_process(verbose: bool, exclude_pids: &[u32]) -> Re
 
     let after = wait_for_settle(verbose, SettleMode::Full)?;
 
+    let mut message =
+        format!("Trimmed {success_count} processes, {fail_count} skipped (protected/system)");
+    if excluded_count > 0 {
+        use std::fmt::Write;
+        let _ = write!(message, ", {excluded_count} excluded by name");
+    }
+
     Ok(CleanResult::success(
         "Empty Working Sets (Per-Process)",
-        format!("Trimmed {success_count} processes, {fail_count} skipped (protected/system)"),
+        message,
         &before,
         &after,
     ))
+}
+
+/// Extract a UTF-8 process name from a null-terminated UTF-16 `szExeFile` buffer.
+fn extract_exe_name(sz_exe_file: &[u16]) -> String {
+    let len = sz_exe_file
+        .iter()
+        .position(|&c| c == 0)
+        .unwrap_or(sz_exe_file.len());
+    String::from_utf16_lossy(&sz_exe_file[..len])
+}
+
+/// Check whether a process name matches any entry in the normalised exclude list.
+///
+/// Comparison is case-insensitive and matches with or without the `.exe` suffix.
+fn is_excluded(exe_name: &str, normalised_excludes: &[String]) -> bool {
+    let lower = exe_name.to_lowercase();
+    let stem = lower.strip_suffix(".exe").unwrap_or(&lower);
+    normalised_excludes.iter().any(|ex| ex == stem)
 }
 
 /// **Operation 3: Flush the modified page list.**
@@ -774,5 +829,36 @@ mod tests {
             7,
             "nuclear = 7 ops"
         );
+    }
+
+    #[test]
+    fn extract_exe_name_from_utf16() {
+        // Simulate a null-terminated UTF-16 "chrome.exe"
+        let name: Vec<u16> = "chrome.exe\0\0\0\0".encode_utf16().collect();
+        assert_eq!(extract_exe_name(&name), "chrome.exe");
+    }
+
+    #[test]
+    fn is_excluded_case_insensitive() {
+        let excludes = vec!["chrome".to_owned(), "firefox".to_owned()];
+        assert!(is_excluded("chrome.exe", &excludes));
+        assert!(is_excluded("Chrome.EXE", &excludes));
+        assert!(is_excluded("FIREFOX.exe", &excludes));
+        assert!(!is_excluded("notepad.exe", &excludes));
+    }
+
+    #[test]
+    fn is_excluded_with_exe_suffix_in_list() {
+        // User passes "chrome.exe" — should still match "chrome.exe"
+        let raw = ["chrome.exe".to_owned()];
+        let normalised: Vec<String> = raw
+            .iter()
+            .map(|n| {
+                let lower = n.to_lowercase();
+                lower.strip_suffix(".exe").unwrap_or(&lower).to_owned()
+            })
+            .collect();
+        assert!(is_excluded("chrome.exe", &normalised));
+        assert!(is_excluded("Chrome.EXE", &normalised));
     }
 }
