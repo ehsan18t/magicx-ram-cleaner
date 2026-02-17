@@ -5,6 +5,7 @@
 //! for graceful Ctrl+C shutdown.
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 
 use anyhow::Result;
 use colored::Colorize;
@@ -46,7 +47,10 @@ pub fn run_monitor(
     verbose: bool,
 ) -> Result<()> {
     // Validate interval to prevent spin-loop
-    anyhow::ensure!(interval_secs > 0, "Monitor interval must be at least 1 second");
+    anyhow::ensure!(
+        interval_secs > 0,
+        "Monitor interval must be at least 1 second"
+    );
 
     // Reset the RUNNING flag in case run_monitor is called more than once
     RUNNING.store(true, Ordering::SeqCst);
@@ -65,6 +69,11 @@ pub fn run_monitor(
     );
     println!("  Press Ctrl+C to stop.\n");
 
+    // Cooldown: skip auto-clean for 2× interval after the last clean to avoid
+    // repeated cleaning when memory stays above the threshold.
+    let cooldown = std::time::Duration::from_secs(interval_secs * 2);
+    let mut last_clean: Option<Instant> = None;
+
     while RUNNING.load(Ordering::SeqCst) {
         let snapshot = MemorySnapshot::capture()?;
         display::print_compact_status(&snapshot);
@@ -73,29 +82,37 @@ pub fn run_monitor(
         if let Some(thresh) = threshold
             && snapshot.memory_load_percent >= thresh
         {
-            println!(
-                "\n  {} Memory load {}% >= threshold {}% — auto-cleaning...",
-                "⚠".yellow().bold(),
-                snapshot.memory_load_percent,
-                thresh
-            );
-            match cleaner::smart_clean(auto_level, verbose) {
-                Ok(results) => {
-                    let failures: Vec<_> = results.iter().filter(|r| !r.success).collect();
-                    if !failures.is_empty() {
-                        eprintln!(
-                            "  {} Auto-clean completed with {} failed operation(s)",
-                            "⚠".yellow(),
-                            failures.len()
-                        );
+            let in_cooldown = last_clean.is_some_and(|t| t.elapsed() < cooldown);
+
+            if in_cooldown {
+                println!(
+                    "  {} Memory {}% >= {}% but cooldown active — skipping",
+                    "⏳".yellow(),
+                    snapshot.memory_load_percent,
+                    thresh
+                );
+            } else {
+                println!(
+                    "\n  {} Memory load {}% >= threshold {}% — auto-cleaning...",
+                    "⚠".yellow().bold(),
+                    snapshot.memory_load_percent,
+                    thresh
+                );
+                last_clean = Some(Instant::now());
+                match cleaner::smart_clean(auto_level, verbose) {
+                    Ok(results) => {
+                        let failures: Vec<_> = results.iter().filter(|r| !r.success).collect();
+                        if !failures.is_empty() {
+                            eprintln!(
+                                "  {} Auto-clean completed with {} failed operation(s)",
+                                "⚠".yellow(),
+                                failures.len()
+                            );
+                        }
                     }
-                }
-                Err(e) => {
-                    eprintln!(
-                        "  {} Auto-clean error: {}",
-                        "✗".red().bold(),
-                        e
-                    );
+                    Err(e) => {
+                        eprintln!("  {} Auto-clean error: {}", "✗".red().bold(), e);
+                    }
                 }
             }
         }
