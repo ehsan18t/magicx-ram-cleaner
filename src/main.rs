@@ -74,10 +74,163 @@ mod privilege;
 mod stats;
 
 use anyhow::{Context, Result};
+use clap::builder::styling::{AnsiColor, Styles};
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 
 use cleaner::CleanLevel;
+
+// ─── Clap styling ────────────────────────────────────────────────────────────
+
+const STYLES: Styles = Styles::styled()
+    .header(AnsiColor::Cyan.on_default().bold())
+    .literal(AnsiColor::Green.on_default().bold())
+    .placeholder(AnsiColor::Yellow.on_default())
+    .usage(AnsiColor::Cyan.on_default().bold())
+    .valid(AnsiColor::Green.on_default());
+
+// ─── Help text constants ─────────────────────────────────────────────────────
+
+const LONG_ABOUT: &str = "\
+MagicX RAM Cleaner \x1b[90m—\x1b[0m The world's most powerful Windows RAM cleaner CLI.
+
+\
+Provides unmatched control over Windows memory management, surpassing \
+EmptyStandbyList with granular control over every memory subsystem.
+
+\
+\x1b[1;36mFEATURES:\x1b[0m
+  \
+\x1b[1;32m★\x1b[0m Smart cleaning with 4 aggressiveness levels (gentle → nuclear)
+  \
+\x1b[1;32m★\x1b[0m Individual control over each memory operation
+  \
+\x1b[1;32m★\x1b[0m Detailed diagnostics with per-priority standby breakdown
+  \
+\x1b[1;32m★\x1b[0m Continuous monitoring with auto-clean at configurable thresholds
+  \
+\x1b[1;32m★\x1b[0m File system cache management
+  \
+\x1b[1;32m★\x1b[0m Memory page combining / deduplication (Windows 10+)
+  \
+\x1b[1;32m★\x1b[0m Before/after reporting showing exact RAM freed
+  \
+\x1b[1;32m★\x1b[0m Optimal operation ordering for maximum recovery
+
+\
+\x1b[1;36mCLEANING LEVELS:\x1b[0m
+  \
+\x1b[32mgentle\x1b[0m      Safe — purge low-priority standby only \x1b[90m(good for gaming)\x1b[0m
+  \
+\x1b[33mmoderate\x1b[0m    Balanced — working sets + low-priority standby
+  \
+\x1b[1;33maggressive\x1b[0m  Full clean: cache + working sets + modified + standby \x1b[1;33m[DEFAULT]\x1b[0m
+  \
+\x1b[35mnuclear\x1b[0m     Maximum — everything + memory combining + 2nd pass
+
+\
+\x1b[1;36mQUICK START:\x1b[0m
+  \
+\x1b[32mmagicx-ram-cleaner clean\x1b[0m                    \x1b[90m# Smart clean (aggressive)\x1b[0m
+  \
+\x1b[32mmagicx-ram-cleaner clean --level gentle\x1b[0m     \x1b[90m# Minimal impact clean\x1b[0m
+  \
+\x1b[32mmagicx-ram-cleaner status\x1b[0m                   \x1b[90m# Show memory usage\x1b[0m
+  \
+\x1b[32mmagicx-ram-cleaner monitor --threshold 80\x1b[0m   \x1b[90m# Auto-clean at 80%\x1b[0m
+
+\
+\x1b[1;33mREQUIREMENTS:\x1b[0m
+  \
+Must be run as \x1b[1;33mAdministrator\x1b[0m (right-click → Run as administrator).
+  \
+Windows 10/11 or Windows Server 2016+ required.";
+
+const AFTER_HELP_SHORT: &str = "\
+\x1b[90mRun\x1b[0m \x1b[32mmagicx-ram-cleaner --help\x1b[0m \x1b[90mfor full documentation and examples.\x1b[0m";
+
+const AFTER_HELP_LONG: &str = "\
+\x1b[1;36mEXAMPLES:\x1b[0m
+
+  \
+\x1b[36mBasic Cleaning:\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner clean\x1b[0m                        \x1b[90m# Aggressive clean (default)\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner clean --level gentle\x1b[0m         \x1b[90m# Safe, minimal impact\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner clean --level nuclear -v\x1b[0m     \x1b[90m# Maximum recovery, verbose\x1b[0m
+
+  \
+\x1b[36mIndividual Operations:\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner purge-standby\x1b[0m                \x1b[90m# Like EmptyStandbyList\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner purge-standby --low-priority\x1b[0m \x1b[90m# Safest purge\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner flush-modified\x1b[0m               \x1b[90m# Write dirty pages to disk\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner flush-cache\x1b[0m                  \x1b[90m# Release file cache\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner empty-workingsets\x1b[0m            \x1b[90m# Trim all process memory\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner combine\x1b[0m                      \x1b[90m# Deduplicate pages (Win10+)\x1b[0m
+
+  \
+\x1b[36mDiagnostics:\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner status\x1b[0m                       \x1b[90m# Memory overview\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner status --detailed\x1b[0m            \x1b[90m# Full standby breakdown\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner status --json\x1b[0m                \x1b[90m# Machine-readable output\x1b[0m
+
+  \
+\x1b[36mMonitoring:\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner monitor\x1b[0m                      \x1b[90m# Watch memory usage live\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner monitor -t 85 -i 5\x1b[0m           \x1b[90m# Auto-clean at 85%, every 5s\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner monitor -t 80 -l nuclear\x1b[0m     \x1b[90m# Nuclear clean at 80%\x1b[0m
+
+  \
+\x1b[36mAdvanced Workflows:\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner flush-modified\x1b[0m               \x1b[90m# Step 1: flush dirty pages\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner purge-standby\x1b[0m                \x1b[90m# Step 2: purge standby list\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner empty-workingsets --per-process\x1b[0m \x1b[90m# Per-process details\x1b[0m
+
+\
+\x1b[1;36mKEY CONCEPTS:\x1b[0m
+  \
+\x1b[1mStandby List\x1b[0m     Cached pages in RAM — freed first when memory is needed
+  \
+\x1b[1mWorking Sets\x1b[0m     Pages actively mapped by each running process
+  \
+\x1b[1mModified Pages\x1b[0m   Dirty pages not yet written to disk or pagefile
+  \
+\x1b[1mFile Cache\x1b[0m       RAM used by Windows to cache recent file I/O
+  \
+\x1b[1mPage Combining\x1b[0m   Deduplicating identical pages via copy-on-write
+
+\
+\x1b[1;36mEXIT CODES:\x1b[0m
+  \
+\x1b[32m0\x1b[0m  All operations completed successfully
+  \
+\x1b[33m1\x1b[0m  One or more operations failed
+  \
+\x1b[31m2\x1b[0m  Invalid arguments or missing administrator privileges
+
+\
+\x1b[1;36mLEARN MORE:\x1b[0m
+  \
+Repository:  \x1b[36mhttps://github.com/ehsan18t/magicx-ram-cleaner\x1b[0m
+  \
+Run \x1b[32mmagicx-ram-cleaner <command> --help\x1b[0m for detailed command information.";
 
 /// `MagicX` RAM Cleaner — The most powerful Windows RAM cleaner.
 ///
@@ -89,70 +242,11 @@ use cleaner::CleanLevel;
 #[command(
     name = "magicx-ram-cleaner",
     version,
+    styles = STYLES,
     about = "MagicX RAM Cleaner — The world's most powerful Windows RAM cleaner CLI",
-    long_about = "\
-MagicX RAM Cleaner is a command-line tool that provides unmatched control over \
-Windows memory management. It goes beyond EmptyStandbyList by offering:\n\
-\n\
-  • Smart cleaning with 4 levels: gentle, moderate, aggressive, nuclear\n\
-  • Individual control over every memory operation\n\
-  • Detailed memory diagnostics with per-priority standby breakdown\n\
-  • Continuous monitoring with automatic cleaning at configurable thresholds\n\
-  • File system cache management\n\
-  • Memory page combining/deduplication\n\
-  • Optimal operation ordering for maximum RAM recovery\n\
-  • Before/after reporting showing exactly how much RAM was freed\n\
-\n\
-REQUIRES: Must be run as Administrator.\n\
-\n\
-QUICK START:\n\
-  magicx-ram-cleaner clean                    # Smart clean (aggressive)\n\
-  magicx-ram-cleaner clean --level gentle     # Minimal impact clean\n\
-  magicx-ram-cleaner status                   # Show memory usage\n\
-  magicx-ram-cleaner monitor --threshold 80   # Auto-clean at 80% usage\n\
-",
-    after_help = "\
-EXAMPLES:\n\
-  # Quick aggressive clean (default — recommended for most users)\n\
-  magicx-ram-cleaner clean\n\
-\n\
-  # Gentle clean — minimal impact, good for gaming\n\
-  magicx-ram-cleaner clean --level gentle\n\
-\n\
-  # Nuclear clean — maximum RAM recovery\n\
-  magicx-ram-cleaner clean --level nuclear -v\n\
-\n\
-  # Just purge the standby list (like EmptyStandbyList)\n\
-  magicx-ram-cleaner purge-standby\n\
-\n\
-  # Only purge low-priority standby (safest)\n\
-  magicx-ram-cleaner purge-standby --low-priority\n\
-\n\
-  # Flush modified pages to disk first, then purge standby\n\
-  magicx-ram-cleaner flush-modified\n\
-  magicx-ram-cleaner purge-standby\n\
-\n\
-  # Show detailed memory status including standby list breakdown\n\
-  magicx-ram-cleaner status --detailed\n\
-\n\
-  # Monitor memory every 5 seconds, auto-clean at 85% usage\n\
-  magicx-ram-cleaner monitor --interval 5 --threshold 85\n\
-\n\
-  # Export memory status as JSON\n\
-  magicx-ram-cleaner status --json\n\
-\n\
-  # Trim file system cache (frees cached file data from RAM)\n\
-  magicx-ram-cleaner flush-cache\n\
-\n\
-  # Empty all process working sets (kernel-level)\n\
-  magicx-ram-cleaner empty-workingsets\n\
-\n\
-  # Empty working sets per-process (shows details)\n\
-  magicx-ram-cleaner empty-workingsets --per-process\n\
-\n\
-  # Run memory page combining (Windows 10+ only)\n\
-  magicx-ram-cleaner combine\n\
-"
+    long_about = LONG_ABOUT,
+    after_help = AFTER_HELP_SHORT,
+    after_long_help = AFTER_HELP_LONG,
 )]
 struct Cli {
     #[command(subcommand)]
@@ -171,6 +265,7 @@ enum Commands {
     ///   moderate   — Empty working sets + purge low-priority standby
     ///   aggressive — Full clean: cache + working sets + modified + standby (DEFAULT)
     ///   nuclear    — Everything + memory combining + second pass
+    #[command(verbatim_doc_comment)]
     Clean {
         /// Cleaning aggressiveness level [default: aggressive]
         #[arg(short, long, value_enum, default_value = "aggressive")]
@@ -185,6 +280,7 @@ enum Commands {
     ///
     /// Displays physical memory, page lists, standby priorities,
     /// commit charge, kernel pools, and system counters.
+    #[command(verbatim_doc_comment)]
     Status {
         /// Show detailed memory list information (standby priorities, modified pages, etc.).
         /// Requires `SeProfileSingleProcessPrivilege`.
@@ -196,12 +292,13 @@ enum Commands {
         json: bool,
     },
 
-    /// Purge standby list — equivalent to `EmptyStandbyList` but better.
+    /// Purge standby list — equivalent to EmptyStandbyList but better.
     ///
     /// Removes cached pages from the standby list, making them available
     /// for new allocations. By default purges ALL priorities.
     ///
-    /// Tip: Run `flush-modified` first for maximum effect.
+    /// Tip: Run `flush-modified` first, then `purge-standby` for maximum effect.
+    #[command(verbatim_doc_comment)]
     PurgeStandby {
         /// Only purge low-priority (priority 0) standby pages.
         /// Safer — preserves frequently-accessed cached data.
@@ -218,6 +315,7 @@ enum Commands {
     /// Forces all modified (dirty) pages to be written to disk/pagefile.
     /// After flushing, these pages move to the standby list where they
     /// can then be purged. Best used before `purge-standby`.
+    #[command(verbatim_doc_comment)]
     FlushModified {
         /// Show detailed progress.
         #[arg(short, long)]
@@ -229,6 +327,7 @@ enum Commands {
     /// Forces all processes to release their working set pages.
     /// By default uses the kernel-level command which is faster and
     /// more thorough than per-process trimming.
+    #[command(verbatim_doc_comment)]
     EmptyWorkingsets {
         /// Use per-process trimming instead of kernel-level.
         /// Slower but shows individual process results.
@@ -243,9 +342,10 @@ enum Commands {
     /// Flush file system cache — release cached file data.
     ///
     /// Tells Windows to release its file system cache, freeing the
-    /// RAM used to cache recently-read files. Requires `SeIncreaseQuotaPrivilege`.
+    /// RAM used to cache recently-read files. Requires SeIncreaseQuotaPrivilege.
     ///
-    /// This is unique to `MagicX` — `EmptyStandbyList` can't do this.
+    /// This is unique to MagicX — EmptyStandbyList cannot do this.
+    #[command(verbatim_doc_comment)]
     FlushCache {
         /// Show detailed progress.
         #[arg(short, long)]
@@ -258,7 +358,8 @@ enum Commands {
     /// copy-on-write, freeing duplicate pages. Windows 10+ only.
     ///
     /// This can take several seconds on systems with lots of RAM.
-    /// Unique to `MagicX`.
+    /// Unique to MagicX — EmptyStandbyList cannot do this.
+    #[command(verbatim_doc_comment)]
     Combine {
         /// Show detailed progress.
         #[arg(short, long)]
@@ -269,6 +370,9 @@ enum Commands {
     ///
     /// Watches memory usage at regular intervals and optionally triggers
     /// automatic cleaning when usage exceeds a threshold.
+    ///
+    /// Press Ctrl+C to stop monitoring.
+    #[command(verbatim_doc_comment)]
     Monitor {
         /// Check interval in seconds [default: 5]
         #[arg(short, long, default_value = "5")]
