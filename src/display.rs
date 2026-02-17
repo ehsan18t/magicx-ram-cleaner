@@ -118,17 +118,13 @@ fn print_memory_lists(info: &MemoryListInfo, page_size: u64) {
     );
     for (i, &count) in info.standby_pages.iter().enumerate() {
         if count > 0 {
-            let bar_len = if total_standby > 0 {
-                ((count as f64 / total_standby as f64) * 30.0) as usize
-            } else {
-                0
-            };
-            let bar = "█".repeat(bar_len);
-            let pct = if total_standby > 0 {
-                (count as f64 / total_standby as f64) * 100.0
+            let ratio = if total_standby > 0 {
+                count as f64 / total_standby as f64
             } else {
                 0.0
             };
+            let bar = "█".repeat((ratio * 30.0) as usize);
+            let pct = ratio * 100.0;
             let priority_label = match i {
                 0 => "Lowest  ",
                 7 => "Highest ",
@@ -218,7 +214,7 @@ pub fn print_compact_status(snapshot: &MemorySnapshot) {
         "[{}] Load: {} | Used: {} | Avail: {} | Commit: {:.0}%",
         now.dimmed(),
         load_str,
-        format_bytes(snapshot.used_physical),
+        format_bytes(snapshot.used_physical).red(),
         format_bytes(snapshot.available_physical).green(),
         snapshot.commit_percent(),
     );
