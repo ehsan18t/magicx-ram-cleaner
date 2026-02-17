@@ -201,6 +201,7 @@ magicx-ram-cleaner status [OPTIONS]
 | ---------------- | -------------------------------------------------------------------------- |
 | `-d, --detailed` | Show memory page list breakdown (standby priorities, modified pages, etc.) |
 | `-j, --json`     | Output as JSON for scripting/automation                                    |
+| `--top <N>`      | Show top N processes ranked by working set (physical RAM) usage            |
 
 **Examples:**
 ```powershell
@@ -209,6 +210,9 @@ magicx-ram-cleaner status
 
 # Detailed view including standby list per-priority breakdown
 magicx-ram-cleaner status --detailed
+
+# Top 10 memory-hungry processes
+magicx-ram-cleaner status --top 10
 
 # JSON output for scripts
 magicx-ram-cleaner status --json

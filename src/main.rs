@@ -195,8 +195,12 @@ fn dispatch_command(command: &Commands, quiet: bool) -> Result<bool> {
             had_failure = output.results.iter().any(|r| !r.success);
         }
 
-        Commands::Status { detailed, json } => {
-            dispatch_status(*detailed, *json)?;
+        Commands::Status {
+            detailed,
+            json,
+            top,
+        } => {
+            dispatch_status(*detailed, *json, *top)?;
         }
 
         Commands::PurgeStandby {
@@ -255,7 +259,7 @@ fn dispatch_command(command: &Commands, quiet: bool) -> Result<bool> {
 }
 
 /// Handle the `status` subcommand — capture and display memory information.
-fn dispatch_status(detailed: bool, json: bool) -> Result<()> {
+fn dispatch_status(detailed: bool, json: bool, top: Option<usize>) -> Result<()> {
     let snapshot = stats::MemorySnapshot::capture()?;
     let list_info = if detailed {
         match stats::MemoryListInfo::query() {
@@ -273,14 +277,33 @@ fn dispatch_status(detailed: bool, json: bool) -> Result<()> {
         None
     };
 
+    let top_processes = top.and_then(|count| {
+        let count = if count == 0 { 10 } else { count };
+        match stats::query_top_processes(count) {
+            Ok(procs) => Some(procs),
+            Err(e) => {
+                eprintln!(
+                    "{} Could not query process memory info: {}",
+                    "warning:".yellow(),
+                    e
+                );
+                None
+            }
+        }
+    });
+
     if json {
         let output = serde_json::json!({
             "snapshot": snapshot,
             "memory_lists": list_info,
+            "top_processes": top_processes,
         });
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
         display::print_status(&snapshot, list_info.as_ref());
+        if let Some(ref procs) = top_processes {
+            display::print_top_processes(procs);
+        }
     }
     Ok(())
 }

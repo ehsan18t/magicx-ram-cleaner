@@ -5,8 +5,18 @@
 
 use anyhow::{Result, bail};
 use serde::Serialize;
-use windows_sys::Win32::System::ProcessStatus::{K32GetPerformanceInfo, PERFORMANCE_INFORMATION};
+use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+    CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
+};
+use windows_sys::Win32::System::ProcessStatus::{
+    K32GetPerformanceInfo, K32GetProcessMemoryInfo, PERFORMANCE_INFORMATION,
+    PROCESS_MEMORY_COUNTERS,
+};
 use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+use windows_sys::Win32::System::Threading::{
+    OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
+};
 
 /// Snapshot of system memory state at a point in time.
 #[derive(Debug, Clone, Serialize)]
@@ -245,6 +255,108 @@ impl MemoryListInfo {
     pub fn total_standby_pages(&self) -> u64 {
         self.standby_pages.iter().sum()
     }
+}
+
+// ─── Per-Process Memory Usage ────────────────────────────────────────────────
+
+/// Memory usage information for a single process.
+#[derive(Debug, Clone, Serialize)]
+pub struct ProcessMemoryInfo {
+    /// Process ID.
+    pub pid: u32,
+    /// Executable name (e.g. `chrome.exe`).
+    pub name: String,
+    /// Current working set size in bytes (physical RAM used).
+    pub working_set: u64,
+    /// Peak working set size in bytes.
+    pub peak_working_set: u64,
+}
+
+/// Enumerate running processes and return the top `count` by working set size.
+///
+/// Uses `Toolhelp32` for process enumeration (same approach as `cleaner.rs`)
+/// and `K32GetProcessMemoryInfo` for per-process memory counters.
+/// Processes that cannot be opened (system/protected) are silently skipped.
+pub fn query_top_processes(count: usize) -> Result<Vec<ProcessMemoryInfo>> {
+    // SAFETY: CreateToolhelp32Snapshot with TH32CS_SNAPPROCESS and 0 is the
+    // standard documented way to enumerate all running processes.
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snapshot == INVALID_HANDLE_VALUE {
+        bail!("CreateToolhelp32Snapshot failed");
+    }
+
+    let mut processes = Vec::new();
+    let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+    entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+    // SAFETY: Process32FirstW/Process32NextW iterate the Toolhelp snapshot.
+    // The entry struct is properly zeroed and sized.
+    let mut has_entry = unsafe { Process32FirstW(snapshot, &raw mut entry) } != 0;
+
+    while has_entry {
+        let pid = entry.th32ProcessID;
+
+        // Skip System Idle (PID 0) and System (PID 4)
+        if pid != 0
+            && pid != 4
+            && let Some(info) = query_single_process(pid, &entry.szExeFile)
+        {
+            processes.push(info);
+        }
+
+        has_entry = unsafe { Process32NextW(snapshot, &raw mut entry) } != 0;
+    }
+
+    // SAFETY: snapshot is a valid handle from CreateToolhelp32Snapshot.
+    unsafe { CloseHandle(snapshot) };
+
+    // Sort descending by working set size and truncate to requested count
+    processes.sort_unstable_by(|a, b| b.working_set.cmp(&a.working_set));
+    processes.truncate(count);
+
+    Ok(processes)
+}
+
+/// Query memory info for a single process. Returns `None` if the process
+/// cannot be opened (protected/system processes).
+fn query_single_process(pid: u32, exe_name: &[u16]) -> Option<ProcessMemoryInfo> {
+    // SAFETY: OpenProcess with PROCESS_QUERY_INFORMATION | PROCESS_VM_READ is the
+    // documented way to open a process for memory info queries.
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, pid) };
+    if handle.is_null() {
+        return None;
+    }
+
+    // SAFETY: PROCESS_MEMORY_COUNTERS is zeroed, cb is set to struct size,
+    // and handle is a valid process handle from OpenProcess.
+    let counters = unsafe {
+        let mut counters: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
+        counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+        let ok = K32GetProcessMemoryInfo(
+            handle,
+            &raw mut counters,
+            std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+        );
+        CloseHandle(handle);
+        if ok == 0 {
+            return None;
+        }
+        counters
+    };
+
+    // Extract process name from the wide-char szExeFile buffer
+    let name_len = exe_name
+        .iter()
+        .position(|&c| c == 0)
+        .unwrap_or(exe_name.len());
+    let name = String::from_utf16_lossy(&exe_name[..name_len]);
+
+    Some(ProcessMemoryInfo {
+        pid,
+        name,
+        working_set: counters.WorkingSetSize as u64,
+        peak_working_set: counters.PeakWorkingSetSize as u64,
+    })
 }
 
 #[cfg(test)]

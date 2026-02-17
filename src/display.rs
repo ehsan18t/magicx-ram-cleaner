@@ -3,7 +3,7 @@
 //! Beautiful terminal output for memory status and diagnostics.
 
 use crate::cleaner::{CleanLevel, CleanResult};
-use crate::stats::{MemoryListInfo, MemorySnapshot, format_bytes};
+use crate::stats::{MemoryListInfo, MemorySnapshot, ProcessMemoryInfo, format_bytes};
 use colored::{ColoredString, Colorize};
 
 /// Colour a memory load percentage: red (>85%), yellow (>60%), green (≤60%).
@@ -298,6 +298,44 @@ pub fn print_single_result(result: &CleanResult) {
         "  Load: {}% -> {}%\n",
         result.load_before, result.load_after
     );
+}
+
+/// Print a ranked table of the top processes by working set (physical RAM) usage.
+pub fn print_top_processes(processes: &[ProcessMemoryInfo]) {
+    if processes.is_empty() {
+        return;
+    }
+
+    println!();
+    println!("{}", "─── Top Processes by Memory ────────────".dimmed());
+    println!(
+        "  {:<6} {:<30} {:>12} {:>12}",
+        "PID".cyan().bold(),
+        "Process".cyan().bold(),
+        "Working Set".cyan().bold(),
+        "Peak".cyan().bold()
+    );
+    println!("  {}", "─".repeat(62).dimmed());
+
+    for p in processes {
+        println!(
+            "  {:<6} {:<30} {:>12} {:>12}",
+            p.pid,
+            truncate_name(&p.name, 30),
+            format_bytes(p.working_set).white().bold(),
+            format_bytes(p.peak_working_set).dimmed()
+        );
+    }
+    println!();
+}
+
+/// Truncate a string to `max_len` characters, adding an ellipsis if needed.
+fn truncate_name(name: &str, max_len: usize) -> String {
+    if name.len() <= max_len {
+        name.to_string()
+    } else {
+        format!("{}…", &name[..max_len - 1])
+    }
 }
 
 /// Print a formatted summary of all cleaning results with before/after comparison.

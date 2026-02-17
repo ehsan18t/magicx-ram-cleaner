@@ -116,6 +116,8 @@ pub const AFTER_HELP_LONG: &str = "\
     \
 \x1b[32mmagicx-ram-cleaner status --detailed\x1b[0m            \x1b[90m# Full standby breakdown\x1b[0m
     \
+\x1b[32mmagicx-ram-cleaner status --top 10\x1b[0m              \x1b[90m# Top 10 RAM-hungry processes\x1b[0m
+    \
 \x1b[32mmagicx-ram-cleaner status --json\x1b[0m                \x1b[90m# Machine-readable output\x1b[0m
 
   \
@@ -239,6 +241,10 @@ pub enum Commands {
         /// Output as JSON for scripting/automation.
         #[arg(short, long)]
         json: bool,
+
+        /// Show top N processes by memory (working set) usage.
+        #[arg(long, value_name = "N")]
+        top: Option<usize>,
     },
 
     /// Purge standby list — equivalent to `EmptyStandbyList` but better.
