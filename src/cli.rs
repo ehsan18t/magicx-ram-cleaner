@@ -185,6 +185,13 @@ pub struct Cli {
     /// The subcommand to execute.
     #[command(subcommand)]
     pub command: Option<Commands>,
+
+    /// Disable coloured terminal output.
+    ///
+    /// Useful for piping output to files or non-ANSI terminals.
+    /// Also respects the `NO_COLOR` environment variable.
+    #[arg(long, global = true)]
+    pub no_color: bool,
 }
 
 /// Available CLI subcommands.

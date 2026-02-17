@@ -141,6 +141,16 @@ cargo build --release
 
 ---
 
+## Global Options
+
+These flags can be used with **any** subcommand:
+
+| Flag         | Description                                                             |
+| ------------ | ----------------------------------------------------------------------- |
+| `--no-color` | Disable coloured terminal output (also respects `NO_COLOR` env var)     |
+
+---
+
 ## Commands Reference
 
 ### `clean` — Smart Clean

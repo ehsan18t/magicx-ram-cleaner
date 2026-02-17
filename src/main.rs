@@ -122,6 +122,11 @@ fn main() -> ExitCode {
 fn run() -> Result<bool> {
     let cli = Cli::parse();
 
+    // Disable coloured output if requested via --no-color flag
+    if cli.no_color {
+        colored::control::set_override(false);
+    }
+
     let Some(ref command) = cli.command else {
         display::print_banner();
         print_no_command_help()?;
