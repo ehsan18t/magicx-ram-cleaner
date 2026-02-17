@@ -109,7 +109,7 @@ pub fn run_monitor(
                 );
                 last_clean = Some(Instant::now());
                 display::print_clean_start(auto_level);
-                match cleaner::smart_clean(auto_level, verbose) {
+                match cleaner::smart_clean(auto_level, verbose, &[]) {
                     Ok(output) => {
                         // Reset error streak on any successful execution
                         consecutive_errors = 0;

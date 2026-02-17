@@ -93,6 +93,8 @@ pub const AFTER_HELP_LONG: &str = "\
 \x1b[32mmagicx-ram-cleaner clean --level gentle\x1b[0m         \x1b[90m# Safe, minimal impact\x1b[0m
     \
 \x1b[32mmagicx-ram-cleaner clean --level nuclear -v\x1b[0m     \x1b[90m# Maximum recovery, verbose\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner clean --exclude chrome\x1b[0m      \x1b[90m# Protect Chrome from trimming\x1b[0m
 
   \
 \x1b[36mIndividual Operations:\x1b[0m
@@ -235,6 +237,12 @@ pub enum Commands {
         /// Preview what operations would run without executing them.
         #[arg(long)]
         dry_run: bool,
+
+        /// Exclude processes by name during working set emptying (case-insensitive, .exe optional).
+        /// Can be specified multiple times: --exclude chrome --exclude firefox
+        /// When set, working set operations use per-process trimming instead of kernel-level.
+        #[arg(long, value_name = "NAME")]
+        exclude: Vec<String>,
     },
 
     /// Show detailed memory usage status.

@@ -587,19 +587,38 @@ fn combine_memory_with_settle(verbose: bool, settle: SettleMode) -> Result<Clean
 
 // ─── Smart Cleaning Engine ───────────────────────────────────────────────────
 
+/// Choose between kernel-level or per-process working set emptying.
+///
+/// Uses the kernel-level `NtSetSystemInformation(EmptyWorkingSets)` command when
+/// no process exclusions are requested. When `exclude_names` is non-empty, falls
+/// back to per-process trimming so excluded processes are skipped.
+fn empty_working_sets_op(
+    verbose: bool,
+    exclude_names: &[String],
+    settle: SettleMode,
+) -> Result<CleanResult> {
+    if exclude_names.is_empty() {
+        execute_kernel_memory_op(MemoryListCommand::EmptyWorkingSets, verbose, settle)
+    } else {
+        // Per-process mode always does its own Full settle internally;
+        // we accept the settle parameter for API consistency but per-process
+        // ignores it (it's always the recommended approach when excluding).
+        empty_working_sets_per_process(verbose, exclude_names)
+    }
+}
+
 /// Execute the aggressive cleaning sequence (4 operations).
 ///
 /// File cache flush → Empty working sets → Flush modified → Purge ALL standby.
 /// All intermediate operations use [`SettleMode::Quick`]; only the final purge
 /// uses [`SettleMode::Full`] for an accurate delta measurement.
-fn execute_aggressive_chain(verbose: bool) -> Result<Vec<CleanResult>> {
+///
+/// When `exclude_names` is non-empty, working sets are emptied per-process
+/// (skipping excluded names) instead of using the kernel-level command.
+fn execute_aggressive_chain(verbose: bool, exclude_names: &[String]) -> Result<Vec<CleanResult>> {
     Ok(vec![
         flush_file_cache_with_settle(verbose, SettleMode::Quick)?,
-        execute_kernel_memory_op(
-            MemoryListCommand::EmptyWorkingSets,
-            verbose,
-            SettleMode::Quick,
-        )?,
+        empty_working_sets_op(verbose, exclude_names, SettleMode::Quick)?,
         execute_kernel_memory_op(
             MemoryListCommand::FlushModifiedList,
             verbose,
@@ -617,14 +636,16 @@ fn execute_aggressive_chain(verbose: bool) -> Result<Vec<CleanResult>> {
 ///
 /// All of aggressive + memory combining + a second pass of flush modified +
 /// purge all standby. Only the very last purge uses [`SettleMode::Full`].
-fn execute_nuclear_chain(verbose: bool) -> Result<Vec<CleanResult>> {
+///
+/// When `exclude_names` is non-empty, working sets are emptied per-process.
+fn execute_nuclear_chain(verbose: bool, exclude_names: &[String]) -> Result<Vec<CleanResult>> {
     let mut results = Vec::with_capacity(7);
 
     // Phase 1: Cache + Working sets
     results.push(flush_file_cache_with_settle(verbose, SettleMode::Quick)?);
-    results.push(execute_kernel_memory_op(
-        MemoryListCommand::EmptyWorkingSets,
+    results.push(empty_working_sets_op(
         verbose,
+        exclude_names,
         SettleMode::Quick,
     )?);
 
@@ -708,7 +729,18 @@ pub fn dry_run_plan(level: CleanLevel) -> Vec<&'static str> {
 /// operation in each chain uses `Full`, since only the overall delta matters.
 /// This reduces worst-case settle overhead from ~14 s (7 ops × 2 s) to ~4.8 s
 /// (6 × 0.8 s + 1 × 2 s) on a Nuclear clean.
-pub fn smart_clean(level: CleanLevel, verbose: bool) -> Result<SmartCleanResult> {
+///
+/// ## Process Exclusion
+///
+/// When `exclude_names` is non-empty, the working-set-emptying step uses
+/// per-process trimming instead of the kernel-level command. This allows
+/// protecting specific applications (e.g. `chrome`, `firefox`) from having
+/// their pages evicted.
+pub fn smart_clean(
+    level: CleanLevel,
+    verbose: bool,
+    exclude_names: &[String],
+) -> Result<SmartCleanResult> {
     let overall_before = MemorySnapshot::capture()?;
 
     let results = match level {
@@ -722,11 +754,7 @@ pub fn smart_clean(level: CleanLevel, verbose: bool) -> Result<SmartCleanResult>
         }
         CleanLevel::Moderate => {
             vec![
-                execute_kernel_memory_op(
-                    MemoryListCommand::EmptyWorkingSets,
-                    verbose,
-                    SettleMode::Quick,
-                )?,
+                empty_working_sets_op(verbose, exclude_names, SettleMode::Quick)?,
                 execute_kernel_memory_op(
                     MemoryListCommand::PurgeLowPriorityStandbyList,
                     verbose,
@@ -734,8 +762,8 @@ pub fn smart_clean(level: CleanLevel, verbose: bool) -> Result<SmartCleanResult>
                 )?,
             ]
         }
-        CleanLevel::Aggressive => execute_aggressive_chain(verbose)?,
-        CleanLevel::Nuclear => execute_nuclear_chain(verbose)?,
+        CleanLevel::Aggressive => execute_aggressive_chain(verbose, exclude_names)?,
+        CleanLevel::Nuclear => execute_nuclear_chain(verbose, exclude_names)?,
     };
 
     // Each operation already settles internally, so just capture final state

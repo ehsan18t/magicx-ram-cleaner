@@ -185,6 +185,7 @@ fn dispatch_command(command: &Commands, quiet: bool) -> Result<bool> {
             verbose,
             report,
             dry_run,
+            exclude,
         } => {
             if *dry_run {
                 let plan = cleaner::dry_run_plan(*level);
@@ -194,7 +195,7 @@ fn dispatch_command(command: &Commands, quiet: bool) -> Result<bool> {
                 if !quiet {
                     display::print_clean_start(*level);
                 }
-                let output = cleaner::smart_clean(*level, effective_verbose)?;
+                let output = cleaner::smart_clean(*level, effective_verbose, exclude)?;
                 display::print_clean_summary(
                     &output.results,
                     &output.overall_before,
