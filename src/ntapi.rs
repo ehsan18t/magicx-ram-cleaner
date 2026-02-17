@@ -85,31 +85,39 @@ pub fn execute_memory_command(command: MemoryListCommand) -> Result<(), NtStatus
 
 /// FFI struct for `NtSetSystemInformation(SystemCombinePhysicalMemoryInformation)`.
 ///
-/// Maps to Windows `MEMORY_COMBINE_INFORMATION_INPUT` / `MEMORY_COMBINE_INFORMATION`.
+/// FFI struct for `NtSetSystemInformation(SystemCombinePhysicalMemoryInformation)`.
+///
+/// Maps to `MEMORY_COMBINE_INFORMATION_EX` — the extended variant that includes
+/// the `Flags` field. This is the struct Windows 10+ expects and allows passing
+/// `MEMORY_COMBINE_FLAGS_COMMON_PAGES_ONLY` (0x4) to restrict combining to
+/// common-only pages.
 #[repr(C)]
-struct CombinePhysicalMemoryInfo {
+struct CombinePhysicalMemoryInfoEx {
     /// Process handle — 0 for system-wide scan.
     handle: usize,
     /// Output: number of pages combined.
     pages_combined: usize,
+    /// Combination flags (e.g. `MEMORY_COMBINE_FLAGS_COMMON_PAGES_ONLY`).
+    flags: u32,
 }
 
 /// Execute a physical memory combine operation via the NT kernel.
 ///
 /// Returns the number of pages combined on success.
 pub fn execute_combine_memory() -> Result<usize, NtStatus> {
-    let mut info = CombinePhysicalMemoryInfo {
+    let mut info = CombinePhysicalMemoryInfoEx {
         handle: 0,
         pages_combined: 0,
+        flags: 0, // 0 = combine all duplicates (default behaviour)
     };
 
     // SAFETY: `info` is a valid repr(C) struct on the stack with correct size.
-    // NtSetSystemInformation reads/writes exactly `size_of::<CombinePhysicalMemoryInfo>()` bytes.
+    // NtSetSystemInformation reads/writes exactly `size_of::<CombinePhysicalMemoryInfoEx>()` bytes.
     let status = unsafe {
         NtSetSystemInformation(
             SYSTEM_COMBINE_PHYSICAL_MEMORY_INFORMATION,
             (&raw mut info).cast::<std::ffi::c_void>(),
-            std::mem::size_of::<CombinePhysicalMemoryInfo>() as u32,
+            std::mem::size_of::<CombinePhysicalMemoryInfoEx>() as u32,
         )
     };
 
