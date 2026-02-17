@@ -159,7 +159,7 @@ impl MemoryListInfo {
     /// This implementation starts with a 30-entry buffer and falls back to
     /// dynamic sizing via return_length if the kernel reports a mismatch.
     pub fn query() -> Result<Self> {
-        use crate::ntapi::{SYSTEM_MEMORY_LIST_INFORMATION, STATUS_INFO_LENGTH_MISMATCH};
+        use crate::ntapi::{STATUS_INFO_LENGTH_MISMATCH, SYSTEM_MEMORY_LIST_INFORMATION};
 
         // Start with the larger known layout (30 entries covers newer Windows)
         let mut buf: Vec<usize> = vec![0usize; 30];
@@ -231,5 +231,44 @@ impl MemoryListInfo {
     #[allow(dead_code)]
     pub fn low_priority_standby_pages(&self) -> u64 {
         self.standby_pages[0]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_bytes_zero() {
+        assert_eq!(format_bytes(0), "0 B");
+    }
+
+    #[test]
+    fn format_bytes_bytes_range() {
+        assert_eq!(format_bytes(1), "1 B");
+        assert_eq!(format_bytes(1023), "1023 B");
+    }
+
+    #[test]
+    fn format_bytes_kilobytes() {
+        assert_eq!(format_bytes(1024), "1.00 KB");
+        assert_eq!(format_bytes(1536), "1.50 KB");
+    }
+
+    #[test]
+    fn format_bytes_megabytes() {
+        assert_eq!(format_bytes(1024 * 1024), "1.00 MB");
+        assert_eq!(format_bytes(1_572_864), "1.50 MB"); // 1.5 MB
+    }
+
+    #[test]
+    fn format_bytes_gigabytes() {
+        assert_eq!(format_bytes(1024 * 1024 * 1024), "1.00 GB");
+        assert_eq!(format_bytes(17_179_869_184), "16.00 GB");
+    }
+
+    #[test]
+    fn format_bytes_terabytes() {
+        assert_eq!(format_bytes(1024 * 1024 * 1024 * 1024), "1.00 TB");
     }
 }

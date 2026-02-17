@@ -623,3 +623,86 @@ fn print_clean_summary(
     }
     println!();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stats::MemorySnapshot;
+
+    /// Helper to build a minimal MemorySnapshot for testing.
+    fn mock_snapshot(available: u64, load: u32) -> MemorySnapshot {
+        MemorySnapshot {
+            memory_load_percent: load,
+            total_physical: 16 * 1024 * 1024 * 1024,
+            available_physical: available,
+            used_physical: 16 * 1024 * 1024 * 1024 - available,
+            total_page_file: 0,
+            available_page_file: 0,
+            total_virtual: 0,
+            available_virtual: 0,
+            commit_total_pages: 0,
+            commit_limit_pages: 0,
+            commit_peak_pages: 0,
+            physical_available_pages: 0,
+            physical_total_pages: 0,
+            kernel_paged_pages: 0,
+            kernel_nonpaged_pages: 0,
+            page_size: 4096,
+            handle_count: 0,
+            process_count: 0,
+            thread_count: 0,
+        }
+    }
+
+    #[test]
+    fn clean_result_success_calculates_freed_bytes() {
+        let before = mock_snapshot(4_000_000_000, 75);
+        let after = mock_snapshot(6_000_000_000, 62);
+        let result = CleanResult::success("Test Op", "ok", &before, &after);
+
+        assert!(result.success);
+        assert_eq!(result.freed_bytes, 2_000_000_000);
+        assert_eq!(result.operation, "Test Op");
+        assert_eq!(result.message, "ok");
+        assert_eq!(result.load_before, 75);
+        assert_eq!(result.load_after, 62);
+    }
+
+    #[test]
+    fn clean_result_success_with_dynamic_message() {
+        let before = mock_snapshot(4_000_000_000, 75);
+        let after = mock_snapshot(5_000_000_000, 69);
+        let result = CleanResult::success("Op", format!("freed {} items", 42), &before, &after);
+
+        assert!(result.success);
+        assert_eq!(result.message, "freed 42 items");
+    }
+
+    #[test]
+    fn clean_result_failure_has_zero_freed() {
+        let snap = mock_snapshot(4_000_000_000, 75);
+        let result = CleanResult::failure("Bad Op", "something broke".into(), &snap);
+
+        assert!(!result.success);
+        assert_eq!(result.freed_bytes, 0);
+        assert_eq!(result.available_before, result.available_after);
+        assert_eq!(result.load_before, result.load_after);
+    }
+
+    #[test]
+    fn clean_result_negative_freed_when_memory_decreases() {
+        let before = mock_snapshot(6_000_000_000, 62);
+        let after = mock_snapshot(4_000_000_000, 75);
+        let result = CleanResult::success("Test", "mem decreased", &before, &after);
+
+        assert!(result.freed_bytes < 0);
+        assert_eq!(result.freed_bytes, -2_000_000_000);
+    }
+
+    #[test]
+    fn clean_level_ordering() {
+        assert!(CleanLevel::Gentle < CleanLevel::Moderate);
+        assert!(CleanLevel::Moderate < CleanLevel::Aggressive);
+        assert!(CleanLevel::Aggressive < CleanLevel::Nuclear);
+    }
+}
