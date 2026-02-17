@@ -225,6 +225,10 @@ pub enum Commands {
         /// Show detailed progress of each operation.
         #[arg(short, long)]
         verbose: bool,
+
+        /// Write cleaning results to a JSON report file.
+        #[arg(long, value_name = "FILE")]
+        report: Option<String>,
     },
 
     /// Show detailed memory usage status.

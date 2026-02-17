@@ -6,6 +6,7 @@
 
 use anyhow::{Result, bail};
 use colored::Colorize;
+use serde::Serialize;
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
@@ -184,7 +185,7 @@ fn execute_kernel_memory_op(
 }
 
 /// Result of a cleaning operation, with before/after memory stats.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct CleanResult {
     pub operation: String,
     pub success: bool,
@@ -236,7 +237,7 @@ impl CleanResult {
 }
 
 /// Cleaning aggressiveness level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum, Serialize)]
 pub enum CleanLevel {
     /// Gentle: Only purge low-priority standby pages.
     /// Safe for everyday use — preserves important cached data.
@@ -267,7 +268,7 @@ impl std::fmt::Display for CleanLevel {
 ///
 /// Returned by [`smart_clean`] so callers can decide how to present the results
 /// (e.g. summary table, JSON, or logging).
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct SmartCleanResult {
     /// Individual operation results.
     pub results: Vec<CleanResult>,

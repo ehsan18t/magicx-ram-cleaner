@@ -180,7 +180,11 @@ fn dispatch_command(command: &Commands, quiet: bool) -> Result<bool> {
     let mut had_failure = false;
 
     match command {
-        Commands::Clean { level, verbose } => {
+        Commands::Clean {
+            level,
+            verbose,
+            report,
+        } => {
             let effective_verbose = *verbose && !quiet;
             if !quiet {
                 display::print_clean_start(*level);
@@ -192,6 +196,9 @@ fn dispatch_command(command: &Commands, quiet: bool) -> Result<bool> {
                 &output.overall_after,
                 output.total_freed,
             );
+            if let Some(path) = report {
+                write_report(path, &output)?;
+            }
             had_failure = output.results.iter().any(|r| !r.success);
         }
 
@@ -305,5 +312,16 @@ fn dispatch_status(detailed: bool, json: bool, top: Option<usize>) -> Result<()>
             display::print_top_processes(procs);
         }
     }
+    Ok(())
+}
+/// Write a cleaning report to a JSON file.
+fn write_report(path: &str, output: &cleaner::SmartCleanResult) -> Result<()> {
+    let json = serde_json::to_string_pretty(output).context("Failed to serialize report")?;
+    std::fs::write(path, &json).with_context(|| format!("Failed to write report to '{path}'"))?;
+    println!(
+        "  {} Report written to {}",
+        "📄".dimmed(),
+        path.cyan().bold()
+    );
     Ok(())
 }
