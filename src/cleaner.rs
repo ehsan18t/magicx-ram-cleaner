@@ -21,6 +21,20 @@ use crate::stats::{MemorySnapshot, QuickMemoryReading};
 
 // ─── Kernel Settle Detection ─────────────────────────────────────────────────
 
+/// How thoroughly to wait for kernel memory settling.
+///
+/// `Full` is used for standalone operations and the last operation in a chain.
+/// `Quick` is used for intermediate operations in `smart_clean` to avoid
+/// spending 3+ seconds per operation waiting for sub-megabyte variations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SettleMode {
+    /// Standard: 3 consecutive stable reads, up to 20 polls (3s max).
+    Full,
+    /// Fast: 1 stable read, up to 8 polls (1.2s max). Good enough for
+    /// intermediate operations where only per-op deltas are needed.
+    Quick,
+}
+
 /// Wait for the kernel to finish processing memory operations.
 ///
 /// After `NtSetSystemInformation` returns, the kernel continues reclaiming pages
@@ -29,11 +43,14 @@ use crate::stats::{MemorySnapshot, QuickMemoryReading};
 ///
 /// Uses [`QuickMemoryReading`] for polling (single Win32 call) and only captures
 /// a full [`MemorySnapshot`] once memory has settled.
-fn wait_for_settle(verbose: bool) -> Result<MemorySnapshot> {
-    const POLL_INTERVAL_MS: u64 = 150;
-    const MAX_POLLS: u32 = 20; // 20 × 150ms = 3 seconds max
-    const STABLE_READS: u32 = 3; // require 3 consecutive identical reads
+fn wait_for_settle(verbose: bool, mode: SettleMode) -> Result<MemorySnapshot> {
+    const POLL_INTERVAL_MS: u64 = 100;
     const MIN_JITTER_BYTES: u64 = 4 * 1024 * 1024; // 4 MB absolute floor
+
+    let (max_polls, stable_reads): (u32, u32) = match mode {
+        SettleMode::Full => (20, 3), // 20 × 100ms = 2s max
+        SettleMode::Quick => (8, 1), //  8 × 100ms = 0.8s max
+    };
 
     let first = QuickMemoryReading::capture()?;
 
@@ -50,7 +67,7 @@ fn wait_for_settle(verbose: bool) -> Result<MemorySnapshot> {
     let mut stable_count: u32 = 0;
     let mut polls_done: u32 = 0;
 
-    for _ in 0..MAX_POLLS {
+    for _ in 0..max_polls {
         std::thread::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS));
         polls_done += 1;
         let current = QuickMemoryReading::capture()?;
@@ -60,7 +77,7 @@ fn wait_for_settle(verbose: bool) -> Result<MemorySnapshot> {
         let diff = (current.available_physical as i64 - prev_available as i64).unsigned_abs();
         if diff < jitter_threshold {
             stable_count += 1;
-            if stable_count >= STABLE_READS {
+            if stable_count >= stable_reads {
                 if verbose {
                     println!(
                         "    {} Memory settled after {}ms",
@@ -82,7 +99,7 @@ fn wait_for_settle(verbose: bool) -> Result<MemorySnapshot> {
         println!(
             "    {} Memory still settling (timeout reached after {}ms, using latest reading)",
             "·".dimmed(),
-            u64::from(MAX_POLLS) * POLL_INTERVAL_MS
+            u64::from(max_polls) * POLL_INTERVAL_MS
         );
     }
     MemorySnapshot::capture()
@@ -109,6 +126,7 @@ fn execute_kernel_memory_op(
     success_msg: &str,
     verbose: bool,
     verbose_label: &str,
+    settle: SettleMode,
 ) -> Result<CleanResult> {
     if verbose {
         println!("  {} {verbose_label}", "→".cyan());
@@ -118,7 +136,7 @@ fn execute_kernel_memory_op(
 
     match ntapi::execute_memory_command(command) {
         Ok(()) => {
-            let after = wait_for_settle(verbose)?;
+            let after = wait_for_settle(verbose, settle)?;
             Ok(CleanResult::success(name, success_msg, &before, &after))
         }
         Err(status) => Ok(CleanResult::failure(
@@ -235,6 +253,11 @@ pub struct SmartCleanResult {
 /// This is more effective than what `EmptyStandbyList` does because it directly
 /// targets the file cache, which is often the biggest consumer of standby pages.
 pub fn flush_file_cache(verbose: bool) -> Result<CleanResult> {
+    flush_file_cache_with_settle(verbose, SettleMode::Full)
+}
+
+/// Inner implementation of file cache flush with configurable settle mode.
+fn flush_file_cache_with_settle(verbose: bool, settle: SettleMode) -> Result<CleanResult> {
     if verbose {
         println!("  {} Flushing file system cache...", "→".cyan());
     }
@@ -272,7 +295,7 @@ pub fn flush_file_cache(verbose: bool) -> Result<CleanResult> {
         ));
     }
 
-    let after = wait_for_settle(verbose)?;
+    let after = wait_for_settle(verbose, settle)?;
 
     Ok(CleanResult::success(
         "Flush File Cache",
@@ -298,6 +321,7 @@ pub fn empty_working_sets_kernel(verbose: bool) -> Result<CleanResult> {
         "All process working sets emptied via kernel",
         verbose,
         "Emptying working sets (kernel-level)...",
+        SettleMode::Full,
     )
 }
 
@@ -353,7 +377,7 @@ pub fn empty_working_sets_per_process(verbose: bool, exclude_pids: &[u32]) -> Re
 
     unsafe { CloseHandle(snapshot) };
 
-    let after = wait_for_settle(verbose)?;
+    let after = wait_for_settle(verbose, SettleMode::Full)?;
 
     Ok(CleanResult::success(
         "Empty Working Sets (Per-Process)",
@@ -378,6 +402,7 @@ pub fn flush_modified_list(verbose: bool) -> Result<CleanResult> {
         "Modified pages flushed to disk",
         verbose,
         "Flushing modified page list...",
+        SettleMode::Full,
     )
 }
 
@@ -393,6 +418,7 @@ pub fn purge_standby_low_priority(verbose: bool) -> Result<CleanResult> {
         "Low-priority standby pages purged",
         verbose,
         "Purging low-priority standby pages...",
+        SettleMode::Full,
     )
 }
 
@@ -410,6 +436,7 @@ pub fn purge_standby_all(verbose: bool) -> Result<CleanResult> {
         "All standby pages purged",
         verbose,
         "Purging ALL standby pages...",
+        SettleMode::Full,
     )
 }
 
@@ -421,6 +448,11 @@ pub fn purge_standby_all(verbose: bool) -> Result<CleanResult> {
 ///
 /// This is a heavier operation that scans all memory — may take several seconds.
 pub fn combine_memory(verbose: bool) -> Result<CleanResult> {
+    combine_memory_with_settle(verbose, SettleMode::Full)
+}
+
+/// Inner implementation of memory combining with configurable settle mode.
+fn combine_memory_with_settle(verbose: bool, settle: SettleMode) -> Result<CleanResult> {
     if verbose {
         println!("  {} Running memory page combining...", "→".cyan());
     }
@@ -429,7 +461,7 @@ pub fn combine_memory(verbose: bool) -> Result<CleanResult> {
 
     match ntapi::execute_combine_memory() {
         Ok(pages_combined) => {
-            let after = wait_for_settle(verbose)?;
+            let after = wait_for_settle(verbose, settle)?;
             Ok(CleanResult::success(
                 "Memory Combining",
                 format!("Pages combined: {pages_combined}"),
@@ -453,6 +485,106 @@ pub fn combine_memory(verbose: bool) -> Result<CleanResult> {
 
 /// Run a smart cleaning sequence based on the given level.
 ///
+/// Execute the aggressive cleaning sequence (4 operations).
+///
+/// File cache flush → Empty working sets → Flush modified → Purge ALL standby.
+/// All intermediate operations use [`SettleMode::Quick`]; only the final purge
+/// uses [`SettleMode::Full`] for an accurate delta measurement.
+fn execute_aggressive_chain(verbose: bool) -> Result<Vec<CleanResult>> {
+    Ok(vec![
+        flush_file_cache_with_settle(verbose, SettleMode::Quick)?,
+        execute_kernel_memory_op(
+            MemoryListCommand::EmptyWorkingSets,
+            "Empty Working Sets (Kernel)",
+            "All process working sets emptied via kernel",
+            verbose,
+            "Emptying working sets (kernel-level)...",
+            SettleMode::Quick,
+        )?,
+        execute_kernel_memory_op(
+            MemoryListCommand::FlushModifiedList,
+            "Flush Modified List",
+            "Modified pages flushed to disk",
+            verbose,
+            "Flushing modified page list...",
+            SettleMode::Quick,
+        )?,
+        execute_kernel_memory_op(
+            MemoryListCommand::PurgeStandbyList,
+            "Purge ALL Standby",
+            "All standby pages purged",
+            verbose,
+            "Purging ALL standby pages...",
+            SettleMode::Full, // last op
+        )?,
+    ])
+}
+
+/// Execute the nuclear cleaning sequence (7 operations).
+///
+/// All of aggressive + memory combining + a second pass of flush modified +
+/// purge all standby. Only the very last purge uses [`SettleMode::Full`].
+fn execute_nuclear_chain(verbose: bool) -> Result<Vec<CleanResult>> {
+    let mut results = Vec::with_capacity(7);
+
+    // Phase 1: Cache + Working sets
+    results.push(flush_file_cache_with_settle(verbose, SettleMode::Quick)?);
+    results.push(execute_kernel_memory_op(
+        MemoryListCommand::EmptyWorkingSets,
+        "Empty Working Sets (Kernel)",
+        "All process working sets emptied via kernel",
+        verbose,
+        "Emptying working sets (kernel-level)...",
+        SettleMode::Quick,
+    )?);
+
+    // Phase 2: Flush modified to disk
+    results.push(execute_kernel_memory_op(
+        MemoryListCommand::FlushModifiedList,
+        "Flush Modified List",
+        "Modified pages flushed to disk",
+        verbose,
+        "Flushing modified page list...",
+        SettleMode::Quick,
+    )?);
+
+    // Phase 3: Purge all standby pages (covers low-priority too)
+    results.push(execute_kernel_memory_op(
+        MemoryListCommand::PurgeStandbyList,
+        "Purge ALL Standby",
+        "All standby pages purged",
+        verbose,
+        "Purging ALL standby pages...",
+        SettleMode::Quick,
+    )?);
+
+    // Phase 4: Memory combining
+    results.push(combine_memory_with_settle(verbose, SettleMode::Quick)?);
+
+    // Phase 5: Second pass — modified pages generated during combine
+    if verbose {
+        println!("  {} Running second pass cleanup...", "→".cyan());
+    }
+    results.push(execute_kernel_memory_op(
+        MemoryListCommand::FlushModifiedList,
+        "Flush Modified List",
+        "Modified pages flushed to disk",
+        verbose,
+        "Flushing modified page list...",
+        SettleMode::Quick,
+    )?);
+    results.push(execute_kernel_memory_op(
+        MemoryListCommand::PurgeStandbyList,
+        "Purge ALL Standby",
+        "All standby pages purged",
+        verbose,
+        "Purging ALL standby pages...",
+        SettleMode::Full, // last op — full settle for accurate final delta
+    )?);
+
+    Ok(results)
+}
+
 /// This is the main cleaning entry point that orchestrates multiple operations
 /// in the optimal order for maximum RAM recovery.
 ///
@@ -464,52 +596,52 @@ pub fn combine_memory(verbose: bool) -> Result<CleanResult> {
 /// | **Moderate** | Empty working sets (kernel) → Purge low-priority standby |
 /// | **Aggressive** | File cache flush → Empty working sets → Flush modified → Purge ALL standby |
 /// | **Nuclear** | All of aggressive + memory combining + second pass |
+///
+/// ## Settle Optimisation
+///
+/// Intermediate operations use [`SettleMode::Quick`] (1 stable read, 0.8 s max)
+/// instead of [`SettleMode::Full`] (3 stable reads, 2 s max). Only the final
+/// operation in each chain uses `Full`, since only the overall delta matters.
+/// This reduces worst-case settle overhead from ~14 s (7 ops × 2 s) to ~4.8 s
+/// (6 × 0.8 s + 1 × 2 s) on a Nuclear clean.
 pub fn smart_clean(level: CleanLevel, verbose: bool) -> Result<SmartCleanResult> {
-    let capacity = match level {
-        CleanLevel::Gentle => 1,
-        CleanLevel::Moderate => 2,
-        CleanLevel::Aggressive => 4,
-        CleanLevel::Nuclear => 7,
-    };
-    let mut results = Vec::with_capacity(capacity);
     let overall_before = MemorySnapshot::capture()?;
 
-    match level {
+    let results = match level {
         CleanLevel::Gentle => {
-            results.push(purge_standby_low_priority(verbose)?);
+            // Single operation — always Full
+            vec![execute_kernel_memory_op(
+                MemoryListCommand::PurgeLowPriorityStandbyList,
+                "Purge Low-Priority Standby",
+                "Low-priority standby pages purged",
+                verbose,
+                "Purging low-priority standby pages...",
+                SettleMode::Full,
+            )?]
         }
         CleanLevel::Moderate => {
-            results.push(empty_working_sets_kernel(verbose)?);
-            results.push(purge_standby_low_priority(verbose)?);
+            vec![
+                execute_kernel_memory_op(
+                    MemoryListCommand::EmptyWorkingSets,
+                    "Empty Working Sets (Kernel)",
+                    "All process working sets emptied via kernel",
+                    verbose,
+                    "Emptying working sets (kernel-level)...",
+                    SettleMode::Quick,
+                )?,
+                execute_kernel_memory_op(
+                    MemoryListCommand::PurgeLowPriorityStandbyList,
+                    "Purge Low-Priority Standby",
+                    "Low-priority standby pages purged",
+                    verbose,
+                    "Purging low-priority standby pages...",
+                    SettleMode::Full, // last op
+                )?,
+            ]
         }
-        CleanLevel::Aggressive => {
-            results.push(flush_file_cache(verbose)?);
-            results.push(empty_working_sets_kernel(verbose)?);
-            results.push(flush_modified_list(verbose)?);
-            results.push(purge_standby_all(verbose)?);
-        }
-        CleanLevel::Nuclear => {
-            // Phase 1: Cache + Working sets
-            results.push(flush_file_cache(verbose)?);
-            results.push(empty_working_sets_kernel(verbose)?);
-
-            // Phase 2: Flush modified to disk
-            results.push(flush_modified_list(verbose)?);
-
-            // Phase 3: Purge all standby pages (covers low-priority too)
-            results.push(purge_standby_all(verbose)?);
-
-            // Phase 4: Memory combining
-            results.push(combine_memory(verbose)?);
-
-            // Phase 5: Second pass — modified pages generated during combine
-            if verbose {
-                println!("  {} Running second pass cleanup...", "→".cyan());
-            }
-            results.push(flush_modified_list(verbose)?);
-            results.push(purge_standby_all(verbose)?);
-        }
-    }
+        CleanLevel::Aggressive => execute_aggressive_chain(verbose)?,
+        CleanLevel::Nuclear => execute_nuclear_chain(verbose)?,
+    };
 
     // Each operation already settles internally, so just capture final state
     let overall_after = MemorySnapshot::capture()?;
