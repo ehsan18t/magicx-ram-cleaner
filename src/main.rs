@@ -75,7 +75,7 @@ mod stats;
 
 use anyhow::{Context, Result};
 use clap::builder::styling::{AnsiColor, Styles};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use colored::Colorize;
 
 use cleaner::CleanLevel;
@@ -250,7 +250,7 @@ Run \x1b[32mmagicx-ram-cleaner <command> --help\x1b[0m for detailed command info
 )]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -395,11 +395,38 @@ enum Commands {
 
 fn main() -> Result<()> {
     enable_ansi_colors();
+    let standalone = is_standalone_console();
 
+    let result = run();
+
+    // If launched by double-clicking the .exe, pause so the user can read the
+    // output before the console window closes.
+    if standalone {
+        pause_before_exit();
+    }
+
+    match result {
+        Ok(false) => Ok(()),
+        Ok(true) => std::process::exit(1),
+        Err(e) => Err(e),
+    }
+}
+
+/// Core application logic.
+///
+/// Returns `Ok(true)` if any cleaning operation reported a failure,
+/// `Ok(false)` on full success, or `Err` on fatal errors.
+fn run() -> Result<bool> {
     let cli = Cli::parse();
 
+    let Some(ref command) = cli.command else {
+        print_banner();
+        print_no_command_help()?;
+        return Ok(false);
+    };
+
     // Suppress banner when JSON output is requested so stdout stays machine-parseable
-    let is_json = matches!(cli.command, Commands::Status { json: true, .. });
+    let is_json = matches!(command, Commands::Status { json: true, .. });
     if !is_json {
         print_banner();
     }
@@ -411,12 +438,41 @@ fn main() -> Result<()> {
          Right-click the terminal/exe → 'Run as administrator'",
     )?;
 
-    let had_failure = dispatch_command(&cli.command)?;
+    dispatch_command(command)
+}
 
-    if had_failure {
-        std::process::exit(1);
-    }
+/// Detect whether this process owns its console (i.e. launched by double-clicking).
+///
+/// Uses `GetConsoleProcessList` — if only our process is attached, the console
+/// was created just for us and will vanish when we exit.
+#[allow(unsafe_code)]
+fn is_standalone_console() -> bool {
+    use windows_sys::Win32::System::Console::GetConsoleProcessList;
+    let mut pids = [0u32; 2];
+    // SAFETY: `GetConsoleProcessList` is a standard Win32 console API.
+    // We pass a valid stack-allocated buffer and its length.
+    let count = unsafe { GetConsoleProcessList(pids.as_mut_ptr(), 2) };
+    count <= 1
+}
 
+/// Wait for the user to press Enter before the console window closes.
+fn pause_before_exit() {
+    use std::io::Write;
+    eprint!("\n  {}", "Press Enter to exit...".dimmed());
+    drop(std::io::stderr().flush());
+    drop(std::io::stdin().read_line(&mut String::new()));
+}
+
+/// Show a friendly help guide when no subcommand is given.
+fn print_no_command_help() -> Result<()> {
+    println!(
+        "  {}\n",
+        "No command specified. Showing usage guide.".yellow()
+    );
+    Cli::command()
+        .print_long_help()
+        .context("Failed to print help")?;
+    println!();
     Ok(())
 }
 

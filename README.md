@@ -2,38 +2,64 @@
 
 **The world's most powerful Windows RAM cleaner CLI tool.**
 
-MagicX RAM Cleaner goes far beyond tools like EmptyStandbyList by providing granular control over every Windows memory subsystem, smart multi-step cleaning, real-time monitoring with auto-clean, and detailed diagnostics — all in a single ~580 KB binary.
+MagicX RAM Cleaner goes far beyond tools like EmptyStandbyList by providing granular control over every Windows memory subsystem, smart multi-step cleaning, real-time monitoring with auto-clean, and detailed diagnostics — all in a single ~730 KB binary.
 
 ---
 
 ## Table of Contents
 
-- [Quick Start](#quick-start)
-- [Installation](#installation)
-- [Why MagicX?](#why-magicx)
-- [Commands Reference](#commands-reference)
-  - [clean](#clean--smart-clean)
-  - [status](#status--memory-diagnostics)
-  - [purge-standby](#purge-standby--standby-list-purge)
-  - [flush-modified](#flush-modified--modified-page-flush)
-  - [empty-workingsets](#empty-workingsets--working-set-trim)
-  - [flush-cache](#flush-cache--file-system-cache-flush)
-  - [combine](#combine--memory-page-deduplication)
-  - [monitor](#monitor--continuous-monitoring)
-- [Cleaning Levels Explained](#cleaning-levels-explained)
-- [Usage Examples](#usage-examples)
-  - [For Normal Users](#for-normal-users)
-  - [For Gamers](#for-gamers)
-  - [For Power Users / Sysadmins](#for-power-users--sysadmins)
-  - [For Automation / Scripts](#for-automation--scripts)
-- [How Windows Memory Works](#how-windows-memory-works)
-- [Comparison with Other Tools](#comparison-with-other-tools)
-- [FAQ](#faq)
-- [Building from Source](#building-from-source)
-- [Documentation](#documentation)
-- [Technical Architecture](#technical-architecture)
-- [Supported Systems](#supported-systems)
-- [License](#license)
+- [MagicX RAM Cleaner](#magicx-ram-cleaner)
+  - [Table of Contents](#table-of-contents)
+  - [Quick Start](#quick-start)
+  - [Installation](#installation)
+    - [Option A: Download Pre-built Binary](#option-a-download-pre-built-binary)
+    - [Option B: Build from Source](#option-b-build-from-source)
+    - [Adding to PATH (optional)](#adding-to-path-optional)
+  - [Why MagicX?](#why-magicx)
+    - [vs EmptyStandbyList](#vs-emptystandbylist)
+    - [Key Advantages](#key-advantages)
+  - [Commands Reference](#commands-reference)
+    - [`clean` — Smart Clean](#clean--smart-clean)
+    - [`status` — Memory Diagnostics](#status--memory-diagnostics)
+    - [`purge-standby` — Standby List Purge](#purge-standby--standby-list-purge)
+    - [`flush-modified` — Modified Page Flush](#flush-modified--modified-page-flush)
+    - [`empty-workingsets` — Working Set Trim](#empty-workingsets--working-set-trim)
+    - [`flush-cache` — File System Cache Flush](#flush-cache--file-system-cache-flush)
+    - [`combine` — Memory Page Deduplication](#combine--memory-page-deduplication)
+    - [`monitor` — Continuous Monitoring](#monitor--continuous-monitoring)
+  - [Cleaning Levels Explained](#cleaning-levels-explained)
+    - [What happens at each level?](#what-happens-at-each-level)
+      - [Gentle](#gentle)
+      - [Moderate](#moderate)
+      - [Aggressive (Default)](#aggressive-default)
+      - [Nuclear](#nuclear)
+  - [Usage Examples](#usage-examples)
+    - [For Normal Users](#for-normal-users)
+    - [For Gamers](#for-gamers)
+    - [For Power Users / Sysadmins](#for-power-users--sysadmins)
+    - [For Automation / Scripts](#for-automation--scripts)
+  - [How Windows Memory Works](#how-windows-memory-works)
+    - [Memory Page Lists](#memory-page-lists)
+    - [Standby Priority Levels (0-7)](#standby-priority-levels-0-7)
+    - [What "Available" Memory Really Means](#what-available-memory-really-means)
+    - [The Optimal Cleaning Sequence](#the-optimal-cleaning-sequence)
+  - [Comparison with Other Tools](#comparison-with-other-tools)
+  - [FAQ](#faq)
+    - [Do I need to run as Administrator?](#do-i-need-to-run-as-administrator)
+    - [Will this break anything?](#will-this-break-anything)
+    - [How often should I clean?](#how-often-should-i-clean)
+    - [What's the difference between this and just restarting?](#whats-the-difference-between-this-and-just-restarting)
+    - [Does this work on Windows ARM?](#does-this-work-on-windows-arm)
+    - [Can I use this without the command line?](#can-i-use-this-without-the-command-line)
+  - [Building from Source](#building-from-source)
+    - [Prerequisites](#prerequisites)
+    - [Build Steps](#build-steps)
+    - [Development](#development)
+  - [Documentation](#documentation)
+  - [Technical Architecture](#technical-architecture)
+    - [APIs Used](#apis-used)
+  - [Supported Systems](#supported-systems)
+  - [License](#license)
 
 ---
 
@@ -99,7 +125,7 @@ cargo build --release
 | Optimal operation ordering      |        ❌         |               ✅                |
 | Second-pass cleaning            |        ❌         |               ✅                |
 | UAC auto-elevation (manifest)   |        ❌         |               ✅                |
-| Single-file, no dependencies    |        ✅         |        ✅ ~580 KB binary        |
+| Single-file, no dependencies    |        ✅         |        ✅ ~730 KB binary        |
 
 ### Key Advantages
 
@@ -591,7 +617,7 @@ If you skip step 3, modified pages can't be freed by step 4. This is why MagicX 
 | CLI (no GUI)          |    ✅    |        ✅         |   ❌    |     ❌      |
 | Portable (no install) |    ✅    |        ✅         |   ✅    |     ❌      |
 | Open source           |    ✅    |        ❌         |   ❌    |     ✅      |
-| Binary size           | ~580 KB |      18 KB       | 1.2 MB |   800 KB   |
+| Binary size           | ~730 KB |      18 KB       | 1.2 MB |   800 KB   |
 
 ---
 
