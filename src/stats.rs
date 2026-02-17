@@ -200,33 +200,44 @@ impl MemoryListInfo {
     /// - Base: 5 + 8 + 8 + 1 = 22 `ULONG_PTR` entries
     /// - Newer builds add `StandbyRepurposedByPriority`\[8\], making it 30 entries
     ///
-    /// This implementation starts with a 30-entry buffer and falls back to
-    /// dynamic sizing via `return_length` if the kernel reports a mismatch.
+    /// Uses a fixed-size stack buffer (30 entries = 240 bytes on x86-64) which
+    /// covers all known Windows versions. Falls back to a heap-allocated buffer
+    /// only if the kernel reports a larger size than expected.
     pub fn query() -> Result<Self> {
         use crate::ntapi::{STATUS_INFO_LENGTH_MISMATCH, SYSTEM_MEMORY_LIST_INFORMATION};
 
-        // Start with the larger known layout (30 entries covers newer Windows)
-        let mut buf: Vec<usize> = vec![0usize; 30];
+        // Stack buffer covers the largest known layout (30 × 8 = 240 bytes)
+        let mut stack_buf = [0usize; 30];
         let mut return_length: u32 = 0;
 
         let mut status = crate::ntapi::nt_query_system_information(
             SYSTEM_MEMORY_LIST_INFORMATION,
-            buf.as_mut_ptr().cast(),
-            (buf.len() * std::mem::size_of::<usize>()) as u32,
+            stack_buf.as_mut_ptr().cast(),
+            std::mem::size_of_val(&stack_buf) as u32,
             &raw mut return_length,
         );
 
-        // If buffer is too small, retry with the size the kernel told us
+        // If the kernel needs more than 30 entries (unlikely but defensive),
+        // fall back to a heap allocation with the exact size requested.
+        let mut heap_buf: Option<Vec<usize>> = None;
         if status == STATUS_INFO_LENGTH_MISMATCH && return_length > 0 {
             let needed_entries = (return_length as usize).div_ceil(std::mem::size_of::<usize>());
-            buf.resize(needed_entries, 0);
+            let buf = vec![0usize; needed_entries];
+            heap_buf = Some(buf);
             status = crate::ntapi::nt_query_system_information(
                 SYSTEM_MEMORY_LIST_INFORMATION,
-                buf.as_mut_ptr().cast(),
+                heap_buf
+                    .as_mut()
+                    .expect("just assigned")
+                    .as_mut_ptr()
+                    .cast(),
                 return_length,
                 &raw mut return_length,
             );
         }
+
+        // Use the heap buffer if it was allocated, otherwise the stack buffer
+        let buf: &[usize] = heap_buf.as_deref().unwrap_or(&stack_buf);
 
         if status != 0 {
             bail!(
