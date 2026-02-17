@@ -75,6 +75,47 @@ fn wait_for_settle(verbose: bool) -> Result<MemorySnapshot> {
     MemorySnapshot::capture()
 }
 
+/// Format an NTSTATUS code into a human-readable `NtSetSystemInformation` error message.
+fn ntstatus_error_message(status: ntapi::NtStatus) -> String {
+    format!(
+        "NtSetSystemInformation failed: 0x{:08X} — {}",
+        status as u32,
+        ntapi::ntstatus_message(status)
+    )
+}
+
+/// Execute a kernel memory command with before/after measurement.
+///
+/// This is the common pattern for operations that go through
+/// `NtSetSystemInformation(SystemMemoryListInformation)`: capture a before
+/// snapshot, execute the command, wait for the kernel to settle, and return
+/// a [`CleanResult`] with the delta.
+fn execute_kernel_memory_op(
+    command: MemoryListCommand,
+    name: &str,
+    success_msg: &str,
+    verbose: bool,
+    verbose_label: &str,
+) -> Result<CleanResult> {
+    if verbose {
+        println!("  {} {verbose_label}", "→".cyan());
+    }
+
+    let before = MemorySnapshot::capture()?;
+
+    match ntapi::execute_memory_command(command) {
+        Ok(()) => {
+            let after = wait_for_settle(verbose)?;
+            Ok(CleanResult::success(name, success_msg, &before, &after))
+        }
+        Err(status) => Ok(CleanResult::failure(
+            name,
+            ntstatus_error_message(status),
+            &before,
+        )),
+    }
+}
+
 /// Result of a cleaning operation, with before/after memory stats.
 #[derive(Debug)]
 pub struct CleanResult {
@@ -235,32 +276,13 @@ pub fn flush_file_cache(verbose: bool) -> Result<CleanResult> {
 ///
 /// This is one area where `MagicX` surpasses `EmptyStandbyList` significantly.
 pub fn empty_working_sets_kernel(verbose: bool) -> Result<CleanResult> {
-    if verbose {
-        println!("  {} Emptying working sets (kernel-level)...", "→".cyan());
-    }
-
-    let before = MemorySnapshot::capture()?;
-
-    match ntapi::execute_memory_command(MemoryListCommand::EmptyWorkingSets) {
-        Ok(()) => {
-            let after = wait_for_settle(verbose)?;
-            Ok(CleanResult::success(
-                "Empty Working Sets (Kernel)",
-                "All process working sets emptied via kernel",
-                &before,
-                &after,
-            ))
-        }
-        Err(status) => Ok(CleanResult::failure(
-            "Empty Working Sets (Kernel)",
-            format!(
-                "NtSetSystemInformation failed: 0x{:08X} — {}",
-                status as u32,
-                ntapi::ntstatus_message(status)
-            ),
-            &before,
-        )),
-    }
+    execute_kernel_memory_op(
+        MemoryListCommand::EmptyWorkingSets,
+        "Empty Working Sets (Kernel)",
+        "All process working sets emptied via kernel",
+        verbose,
+        "Emptying working sets (kernel-level)...",
+    )
 }
 
 /// **Operation 2b: Empty working sets per-process (user-mode fallback).**
@@ -334,32 +356,13 @@ pub fn empty_working_sets_per_process(verbose: bool, exclude_pids: &[u32]) -> Re
 /// `EmptyStandbyList` supports this but many users don't know to use it first.
 /// `MagicX`'s smart cleaning always does this automatically.
 pub fn flush_modified_list(verbose: bool) -> Result<CleanResult> {
-    if verbose {
-        println!("  {} Flushing modified page list...", "→".cyan());
-    }
-
-    let before = MemorySnapshot::capture()?;
-
-    match ntapi::execute_memory_command(MemoryListCommand::FlushModifiedList) {
-        Ok(()) => {
-            let after = wait_for_settle(verbose)?;
-            Ok(CleanResult::success(
-                "Flush Modified List",
-                "Modified pages flushed to disk",
-                &before,
-                &after,
-            ))
-        }
-        Err(status) => Ok(CleanResult::failure(
-            "Flush Modified List",
-            format!(
-                "NtSetSystemInformation failed: 0x{:08X} — {}",
-                status as u32,
-                ntapi::ntstatus_message(status)
-            ),
-            &before,
-        )),
-    }
+    execute_kernel_memory_op(
+        MemoryListCommand::FlushModifiedList,
+        "Flush Modified List",
+        "Modified pages flushed to disk",
+        verbose,
+        "Flushing modified page list...",
+    )
 }
 
 /// **Operation 4: Purge low-priority standby pages only.**
@@ -368,32 +371,13 @@ pub fn flush_modified_list(verbose: bool) -> Result<CleanResult> {
 /// This is the gentlest standby purge — it frees pages that Windows would
 /// reclaim first anyway, with minimal impact on cache performance.
 pub fn purge_standby_low_priority(verbose: bool) -> Result<CleanResult> {
-    if verbose {
-        println!("  {} Purging low-priority standby pages...", "→".cyan());
-    }
-
-    let before = MemorySnapshot::capture()?;
-
-    match ntapi::execute_memory_command(MemoryListCommand::PurgeLowPriorityStandbyList) {
-        Ok(()) => {
-            let after = wait_for_settle(verbose)?;
-            Ok(CleanResult::success(
-                "Purge Low-Priority Standby",
-                "Low-priority standby pages purged",
-                &before,
-                &after,
-            ))
-        }
-        Err(status) => Ok(CleanResult::failure(
-            "Purge Low-Priority Standby",
-            format!(
-                "NtSetSystemInformation failed: 0x{:08X} — {}",
-                status as u32,
-                ntapi::ntstatus_message(status)
-            ),
-            &before,
-        )),
-    }
+    execute_kernel_memory_op(
+        MemoryListCommand::PurgeLowPriorityStandbyList,
+        "Purge Low-Priority Standby",
+        "Low-priority standby pages purged",
+        verbose,
+        "Purging low-priority standby pages...",
+    )
 }
 
 /// **Operation 5: Purge ALL standby pages.**
@@ -404,32 +388,13 @@ pub fn purge_standby_low_priority(verbose: bool) -> Result<CleanResult> {
 /// **Warning**: After this, programs will need to re-read data from disk,
 /// causing temporary I/O spikes.
 pub fn purge_standby_all(verbose: bool) -> Result<CleanResult> {
-    if verbose {
-        println!("  {} Purging ALL standby pages...", "→".cyan());
-    }
-
-    let before = MemorySnapshot::capture()?;
-
-    match ntapi::execute_memory_command(MemoryListCommand::PurgeStandbyList) {
-        Ok(()) => {
-            let after = wait_for_settle(verbose)?;
-            Ok(CleanResult::success(
-                "Purge ALL Standby",
-                "All standby pages purged",
-                &before,
-                &after,
-            ))
-        }
-        Err(status) => Ok(CleanResult::failure(
-            "Purge ALL Standby",
-            format!(
-                "NtSetSystemInformation failed: 0x{:08X} — {}",
-                status as u32,
-                ntapi::ntstatus_message(status)
-            ),
-            &before,
-        )),
-    }
+    execute_kernel_memory_op(
+        MemoryListCommand::PurgeStandbyList,
+        "Purge ALL Standby",
+        "All standby pages purged",
+        verbose,
+        "Purging ALL standby pages...",
+    )
 }
 
 /// **Operation 6: Memory combining (deduplication).**
