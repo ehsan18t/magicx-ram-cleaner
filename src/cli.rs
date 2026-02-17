@@ -313,7 +313,7 @@ pub enum Commands {
         #[arg(short, long, default_value = "5")]
         interval: u64,
 
-        /// Auto-clean when memory load exceeds this percentage (0-100).
+        /// Auto-clean when memory load exceeds this percentage (1-100).
         /// Omit to only monitor without cleaning.
         #[arg(short, long)]
         threshold: Option<u32>,
