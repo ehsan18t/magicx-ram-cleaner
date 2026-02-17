@@ -111,3 +111,39 @@ pub fn enable_all_privileges() -> Result<()> {
 fn get_last_error() -> u32 {
     unsafe { windows_sys::Win32::Foundation::GetLastError() }
 }
+
+/// Check if we're actually running with elevated (Administrator) privileges.
+///
+/// Uses `CheckTokenMembership` with the built-in Administrators group SID
+/// to verify true elevation, not just token access.
+pub fn check_admin() -> Result<()> {
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Authorization::ConvertStringSidToSidW;
+    use windows_sys::Win32::Security::CheckTokenMembership;
+
+    // Well-known SID string for BUILTIN\Administrators: S-1-5-32-544
+    let sid_str: Vec<u16> = "S-1-5-32-544\0".encode_utf16().collect();
+    let mut sid: *mut std::ffi::c_void = std::ptr::null_mut();
+
+    // SAFETY: ConvertStringSidToSidW allocates the SID; we free it with LocalFree below.
+    let ok = unsafe { ConvertStringSidToSidW(sid_str.as_ptr(), &raw mut sid) };
+    if ok == 0 {
+        bail!(
+            "Cannot verify admin status. Please run as Administrator.\n\
+             Right-click Command Prompt or PowerShell → 'Run as administrator'"
+        );
+    }
+
+    let mut is_member: i32 = 0;
+    let check_ok = unsafe { CheckTokenMembership(std::ptr::null_mut(), sid, &raw mut is_member) };
+    unsafe { LocalFree(sid) };
+
+    if check_ok == 0 || is_member == 0 {
+        bail!(
+            "Not running as Administrator.\n\
+             Right-click Command Prompt or PowerShell → 'Run as administrator'"
+        );
+    }
+
+    Ok(())
+}

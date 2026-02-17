@@ -714,13 +714,15 @@ cargo clippy
 
 ```
 src/
-├── main.rs         # CLI entry point, argument parsing (clap)
+├── main.rs         # Thin entry point: mod declarations, main(), run(), dispatch
+├── cli.rs          # CLI definitions: clap Parser, Commands enum, help text
 ├── cleaner.rs      # Core cleaning operations + smart clean engine
+├── console.rs      # Windows console utilities (ANSI, standalone detection)
+├── display.rs      # ALL terminal formatting: banner, status, clean output
+├── monitor.rs      # Continuous monitoring loop with auto-clean
 ├── ntapi.rs        # NT Native API FFI (NtSetSystemInformation)
-├── privilege.rs    # Windows privilege management
-├── stats.rs        # Memory statistics (GlobalMemoryStatusEx, GetPerformanceInfo)
-├── display.rs      # Terminal output formatting
-└── monitor.rs      # Continuous monitoring loop
+├── privilege.rs    # Windows privilege management + admin elevation check
+└── stats.rs        # Memory statistics (GlobalMemoryStatusEx, GetPerformanceInfo)
 ```
 
 ### APIs Used

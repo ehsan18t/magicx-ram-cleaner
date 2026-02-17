@@ -17,7 +17,7 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use crate::ntapi::{self, MemoryListCommand};
-use crate::stats::{MemorySnapshot, format_bytes};
+use crate::stats::MemorySnapshot;
 
 // ─── Kernel Settle Detection ─────────────────────────────────────────────────
 
@@ -153,6 +153,22 @@ impl std::fmt::Display for CleanLevel {
             Self::Nuclear => write!(f, "nuclear"),
         }
     }
+}
+
+/// Output from a smart cleaning run, including per-operation results and overall metrics.
+///
+/// Returned by [`smart_clean`] so callers can decide how to present the results
+/// (e.g. summary table, JSON, or logging).
+#[derive(Debug)]
+pub struct SmartCleanResult {
+    /// Individual operation results.
+    pub results: Vec<CleanResult>,
+    /// Memory state before any cleaning started.
+    pub overall_before: MemorySnapshot,
+    /// Memory state after all cleaning completed.
+    pub overall_after: MemorySnapshot,
+    /// Net bytes freed (positive = more available memory after cleaning).
+    pub total_freed: i64,
 }
 
 // ─── Individual Operations ───────────────────────────────────────────────────
@@ -487,15 +503,8 @@ pub fn combine_memory(verbose: bool) -> Result<CleanResult> {
 /// | **Moderate** | Empty working sets (kernel) → Purge low-priority standby |
 /// | **Aggressive** | File cache flush → Empty working sets → Flush modified → Purge ALL standby |
 /// | **Nuclear** | All of aggressive + memory combining + second pass |
-pub fn smart_clean(level: CleanLevel, verbose: bool) -> Result<Vec<CleanResult>> {
+pub fn smart_clean(level: CleanLevel, verbose: bool) -> Result<SmartCleanResult> {
     let mut results = Vec::new();
-
-    println!(
-        "\n{} Starting {} clean...\n",
-        "⚡".yellow(),
-        level.to_string().bold()
-    );
-
     let overall_before = MemorySnapshot::capture()?;
 
     match level {
@@ -540,83 +549,12 @@ pub fn smart_clean(level: CleanLevel, verbose: bool) -> Result<Vec<CleanResult>>
     let total_freed =
         overall_after.available_physical as i64 - overall_before.available_physical as i64;
 
-    // Print summary
-    println!();
-    print_clean_summary(&results, &overall_before, &overall_after, total_freed);
-
-    Ok(results)
-}
-
-/// Print a formatted summary of cleaning results.
-fn print_clean_summary(
-    results: &[CleanResult],
-    before: &MemorySnapshot,
-    after: &MemorySnapshot,
-    total_freed: i64,
-) {
-    println!("{}", "─── Cleaning Summary ───────────────────".dimmed());
-    println!();
-
-    for r in results {
-        let status = if r.success {
-            "✓".green().bold().to_string()
-        } else {
-            "✗".red().bold().to_string()
-        };
-        let freed_str = match r.freed_bytes.cmp(&0) {
-            std::cmp::Ordering::Greater => format!("+{}", format_bytes(r.freed_bytes as u64))
-                .green()
-                .to_string(),
-            std::cmp::Ordering::Less => format!("-{}", format_bytes(r.freed_bytes.unsigned_abs()))
-                .yellow()
-                .to_string(),
-            std::cmp::Ordering::Equal => "0 B".dimmed().to_string(),
-        };
-
-        println!(
-            "  {} {:<35} {:>12}   {}",
-            status,
-            r.operation,
-            freed_str,
-            r.message.dimmed()
-        );
-    }
-
-    println!();
-    println!("{}", "─── Memory Before/After ────────────────".dimmed());
-    println!(
-        "  {} Used:      {} → {}",
-        "▸".cyan(),
-        format_bytes(before.used_physical).red(),
-        format_bytes(after.used_physical).green()
-    );
-    println!(
-        "  {} Available: {} → {}",
-        "▸".cyan(),
-        format_bytes(before.available_physical).yellow(),
-        format_bytes(after.available_physical).green()
-    );
-    println!(
-        "  {} Load:      {}% → {}%",
-        "▸".cyan(),
-        before.memory_load_percent.to_string().red(),
-        after.memory_load_percent.to_string().green()
-    );
-
-    if total_freed > 0 {
-        println!(
-            "\n  {} Total freed: {}",
-            "★".yellow().bold(),
-            format_bytes(total_freed as u64).green().bold()
-        );
-    } else {
-        println!(
-            "\n  {} Net change: {} (already clean or pages re-faulted)",
-            "•".dimmed(),
-            format_bytes(total_freed.unsigned_abs()).yellow()
-        );
-    }
-    println!();
+    Ok(SmartCleanResult {
+        results,
+        overall_before,
+        overall_after,
+        total_freed,
+    })
 }
 
 #[cfg(test)]

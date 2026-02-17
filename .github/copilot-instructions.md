@@ -50,12 +50,14 @@
 
 ```
 src/
-  main.rs        — CLI entry, clap Parser, command dispatch (no business logic)
+  main.rs        — thin entry point: mod declarations, main(), run(), command dispatch
+  cli.rs         — clap Parser, Commands enum, help text constants, STYLES
   cleaner.rs     — cleaning operations & orchestration (smart_clean, CleanLevel)
-  display.rs     — terminal formatting, box drawing, colour-coded output
+  console.rs     — Windows console utilities (ANSI colours, standalone detection, pause)
+  display.rs     — ALL terminal formatting: banner, status, clean output, box drawing
   monitor.rs     — continuous monitoring loop, Ctrl+C handler, auto-clean
   ntapi.rs       — NT kernel FFI (NtSetSystemInformation, NtQuerySystemInformation)
-  privilege.rs   — Windows privilege elevation (Se*Privilege)
+  privilege.rs   — Windows privilege elevation (Se*Privilege) + admin check
   stats.rs       — memory statistics, Win32 API calls, MemorySnapshot
 build.rs         — embeds admin-elevation manifest, application icon, and version metadata
 assets/
@@ -166,7 +168,7 @@ are worse than verbose docs.
 
 Update the relevant `--help` text when changing any CLI-facing behaviour. The help
 text is defined as constants (`LONG_ABOUT`, `AFTER_HELP_SHORT`, `AFTER_HELP_LONG`)
-in `main.rs`.
+in `cli.rs`.
 
 ---
 
@@ -226,14 +228,14 @@ Always verify against current sources when the information is critical.
 
 1. Add the kernel command to `ntapi::MemoryListCommand` if needed.
 2. Implement the function in `cleaner.rs` following existing patterns.
-3. Add a `Commands` variant in `main.rs` with clap attributes and doc comment.
+3. Add a `Commands` variant in `cli.rs` with clap attributes and doc comment.
 4. Wire it up in the `match` dispatch in `main()`.
 5. Update README.md, `AFTER_HELP_LONG`, and docs/RUST_IMPLEMENTATION_GUIDE.md.
 6. Add tests for any pure logic.
 
 ### Adding a new CLI flag:
 
-1. Add the field to the relevant clap struct in `main.rs`.
+1. Add the field to the relevant clap struct in `cli.rs`.
 2. Use it in the dispatch logic.
 3. Update `--help` text, README.md.
 4. Test with `cargo run -- --help`.

@@ -98,9 +98,17 @@ pub fn run_monitor(
                     thresh
                 );
                 last_clean = Some(Instant::now());
+                display::print_clean_start(auto_level);
                 match cleaner::smart_clean(auto_level, verbose) {
-                    Ok(results) => {
-                        let failures: Vec<_> = results.iter().filter(|r| !r.success).collect();
+                    Ok(output) => {
+                        display::print_clean_summary(
+                            &output.results,
+                            &output.overall_before,
+                            &output.overall_after,
+                            output.total_freed,
+                        );
+                        let failures: Vec<_> =
+                            output.results.iter().filter(|r| !r.success).collect();
                         if !failures.is_empty() {
                             eprintln!(
                                 "  {} Auto-clean completed with {} failed operation(s)",

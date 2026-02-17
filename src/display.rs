@@ -2,6 +2,7 @@
 //!
 //! Beautiful terminal output for memory status and diagnostics.
 
+use crate::cleaner::{CleanLevel, CleanResult};
 use crate::stats::{MemoryListInfo, MemorySnapshot, format_bytes};
 use colored::Colorize;
 
@@ -239,4 +240,140 @@ fn local_now() -> String {
         GetLocalTime(&raw mut st);
         format!("{:02}:{:02}:{:02}", st.wHour, st.wMinute, st.wSecond)
     }
+}
+
+// ─── Application-level Display Functions ─────────────────────────────────────
+
+/// Print the `MagicX` ASCII art banner and version.
+pub fn print_banner() {
+    println!(
+        "{}",
+        r"
+  __  __             _       __  __
+ |  \/  | __ _  __ _(_) ___ \ \/ /
+ | |\/| |/ _` |/ _` | |/ __| \  /
+ | |  | | (_| | (_| | | (__  /  \
+ |_|  |_|\__,_|\__, |_|\___/_/\_\
+               |___/
+"
+        .cyan()
+        .bold()
+    );
+    println!(
+        "  {} {}\n",
+        "RAM Cleaner".white().bold(),
+        format!("v{}", env!("CARGO_PKG_VERSION")).dimmed()
+    );
+}
+
+/// Print the "Starting X clean..." header before a smart clean run.
+pub fn print_clean_start(level: CleanLevel) {
+    println!(
+        "\n{} Starting {} clean...\n",
+        "⚡".yellow(),
+        level.to_string().bold()
+    );
+}
+
+/// Print the result of a single cleaning operation.
+///
+/// Uses the before/after data stored in [`CleanResult`] (measured with kernel settle).
+pub fn print_single_result(result: &CleanResult) {
+    println!();
+    let status = if result.success {
+        "OK".green().bold()
+    } else {
+        "FAIL".red().bold()
+    };
+
+    println!("  [{}] {}", status, result.operation.bold());
+    println!("  {}", result.message.dimmed());
+
+    if result.freed_bytes > 0 {
+        println!(
+            "  Freed: {}",
+            format_bytes(result.freed_bytes as u64).green().bold()
+        );
+    }
+    println!(
+        "  Available: {} -> {}",
+        format_bytes(result.available_before).yellow(),
+        format_bytes(result.available_after).green()
+    );
+    println!(
+        "  Load: {}% -> {}%\n",
+        result.load_before, result.load_after
+    );
+}
+
+/// Print a formatted summary of all cleaning results with before/after comparison.
+pub fn print_clean_summary(
+    results: &[CleanResult],
+    before: &MemorySnapshot,
+    after: &MemorySnapshot,
+    total_freed: i64,
+) {
+    println!("{}", "─── Cleaning Summary ───────────────────".dimmed());
+    println!();
+
+    for r in results {
+        let status = if r.success {
+            "✓".green().bold().to_string()
+        } else {
+            "✗".red().bold().to_string()
+        };
+        let freed_str = match r.freed_bytes.cmp(&0) {
+            std::cmp::Ordering::Greater => format!("+{}", format_bytes(r.freed_bytes as u64))
+                .green()
+                .to_string(),
+            std::cmp::Ordering::Less => format!("-{}", format_bytes(r.freed_bytes.unsigned_abs()))
+                .yellow()
+                .to_string(),
+            std::cmp::Ordering::Equal => "0 B".dimmed().to_string(),
+        };
+
+        println!(
+            "  {} {:<35} {:>12}   {}",
+            status,
+            r.operation,
+            freed_str,
+            r.message.dimmed()
+        );
+    }
+
+    println!();
+    println!("{}", "─── Memory Before/After ────────────────".dimmed());
+    println!(
+        "  {} Used:      {} → {}",
+        "▸".cyan(),
+        format_bytes(before.used_physical).red(),
+        format_bytes(after.used_physical).green()
+    );
+    println!(
+        "  {} Available: {} → {}",
+        "▸".cyan(),
+        format_bytes(before.available_physical).yellow(),
+        format_bytes(after.available_physical).green()
+    );
+    println!(
+        "  {} Load:      {}% → {}%",
+        "▸".cyan(),
+        before.memory_load_percent.to_string().red(),
+        after.memory_load_percent.to_string().green()
+    );
+
+    if total_freed > 0 {
+        println!(
+            "\n  {} Total freed: {}",
+            "★".yellow().bold(),
+            format_bytes(total_freed as u64).green().bold()
+        );
+    } else {
+        println!(
+            "\n  {} Net change: {} (already clean or pages re-faulted)",
+            "•".dimmed(),
+            format_bytes(total_freed.unsigned_abs()).yellow()
+        );
+    }
+    println!();
 }
