@@ -127,6 +127,8 @@ pub fn format_bytes(bytes: u64) -> String {
 /// This gives exact page counts for each memory list (Zeroed, Free, Modified,
 /// `ModifiedNoWrite`, Bad, Standby priorities 0-7, Repurposed priorities 0-7).
 #[derive(Debug, Clone, Serialize)]
+// Every field genuinely represents a page count — the `_pages` suffix is intentional.
+#[allow(clippy::struct_field_names)]
 pub struct MemoryListInfo {
     pub zeroed_pages: u64,
     pub free_pages: u64,
@@ -135,7 +137,8 @@ pub struct MemoryListInfo {
     pub bad_pages: u64,
     pub standby_pages: [u64; 8],
     pub repurposed_pages: [u64; 8],
-    pub modified_pages_total: u64,
+    /// Modified pages destined for the pagefile (subset of `modified_pages`).
+    pub modified_pagefile_pages: u64,
 }
 
 impl MemoryListInfo {
@@ -205,7 +208,7 @@ impl MemoryListInfo {
             bad_pages: buf[4] as u64,
             standby_pages: standby,
             repurposed_pages: repurposed,
-            modified_pages_total: buf[21] as u64,
+            modified_pagefile_pages: buf[21] as u64,
         })
     }
 
