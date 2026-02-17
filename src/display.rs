@@ -4,7 +4,19 @@
 
 use crate::cleaner::{CleanLevel, CleanResult};
 use crate::stats::{MemoryListInfo, MemorySnapshot, format_bytes};
-use colored::Colorize;
+use colored::{ColoredString, Colorize};
+
+/// Colour a memory load percentage: red (>85%), yellow (>60%), green (≤60%).
+fn coloured_load(percent: u32) -> ColoredString {
+    let text = format!("{percent}%");
+    if percent > 85 {
+        text.red().bold()
+    } else if percent > 60 {
+        text.yellow()
+    } else {
+        text.green()
+    }
+}
 
 /// Print a comprehensive memory status report.
 pub fn print_status(snapshot: &MemorySnapshot, list_info: Option<&MemoryListInfo>) {
@@ -45,14 +57,10 @@ pub fn print_status(snapshot: &MemorySnapshot, list_info: Option<&MemoryListInfo
 /// Print the physical memory section.
 fn print_physical_memory(snapshot: &MemorySnapshot) {
     println!("{}", "─── Physical Memory ────────────────────".dimmed());
-    let load_color = if snapshot.memory_load_percent > 85 {
-        format!("{}%", snapshot.memory_load_percent).red().bold()
-    } else if snapshot.memory_load_percent > 60 {
-        format!("{}%", snapshot.memory_load_percent).yellow()
-    } else {
-        format!("{}%", snapshot.memory_load_percent).green()
-    };
-    println!("  Memory Load:    {load_color}");
+    println!(
+        "  Memory Load:    {}",
+        coloured_load(snapshot.memory_load_percent)
+    );
     println!(
         "  Total:          {}",
         format_bytes(snapshot.total_physical).white().bold()
@@ -203,20 +211,7 @@ fn print_kernel_and_system(snapshot: &MemorySnapshot, page_size: u64) {
 
 /// Print a compact one-line memory summary (for monitoring mode).
 pub fn print_compact_status(snapshot: &MemorySnapshot) {
-    let load_str = if snapshot.memory_load_percent > 85 {
-        format!("{}%", snapshot.memory_load_percent)
-            .red()
-            .bold()
-            .to_string()
-    } else if snapshot.memory_load_percent > 60 {
-        format!("{}%", snapshot.memory_load_percent)
-            .yellow()
-            .to_string()
-    } else {
-        format!("{}%", snapshot.memory_load_percent)
-            .green()
-            .to_string()
-    };
+    let load_str = coloured_load(snapshot.memory_load_percent);
 
     let now = local_now();
     println!(
