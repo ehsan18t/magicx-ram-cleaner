@@ -32,8 +32,14 @@ fn wait_for_settle(verbose: bool) -> Result<MemorySnapshot> {
     const POLL_INTERVAL_MS: u64 = 150;
     const MAX_POLLS: u32 = 20; // 20 × 150ms = 3 seconds max
     const STABLE_READS: u32 = 3; // require 3 consecutive identical reads
+    const MIN_JITTER_BYTES: u64 = 4 * 1024 * 1024; // 4 MB absolute floor
 
     let mut prev = MemorySnapshot::capture()?;
+
+    // Scale the jitter threshold to total RAM: 0.01% of physical memory,
+    // with a 4 MB floor. On a 16 GB system this is ~1.6 MB; on 128 GB ~13 MB.
+    let jitter_threshold = (prev.total_physical / 10_000).max(MIN_JITTER_BYTES);
+
     let mut stable_count: u32 = 0;
     let mut polls_done: u32 = 0;
 
@@ -43,10 +49,10 @@ fn wait_for_settle(verbose: bool) -> Result<MemorySnapshot> {
         let current = MemorySnapshot::capture()?;
 
         // Consider "settled" when available memory hasn't moved by more than
-        // 1 MB between polls (kernel page transitions produce small jitter)
+        // the jitter threshold between polls (kernel page transitions produce jitter)
         let diff =
             (current.available_physical as i64 - prev.available_physical as i64).unsigned_abs();
-        if diff < 1_048_576 {
+        if diff < jitter_threshold {
             stable_count += 1;
             if stable_count >= STABLE_READS {
                 if verbose {
