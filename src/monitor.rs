@@ -57,7 +57,11 @@ pub fn run_monitor(
 
     // Install Ctrl+C handler for graceful shutdown
     // SAFETY: ctrl_handler is a valid extern "system" fn with the correct signature.
-    unsafe { SetConsoleCtrlHandler(Some(ctrl_handler), 1) };
+    let handler_ok = unsafe { SetConsoleCtrlHandler(Some(ctrl_handler), 1) };
+    anyhow::ensure!(
+        handler_ok != 0,
+        "SetConsoleCtrlHandler failed — cannot guarantee graceful shutdown"
+    );
 
     println!("\n{} MagicX RAM Monitor started", "◉".green().bold());
     println!(
