@@ -30,6 +30,7 @@ MagicX RAM Cleaner goes far beyond tools like EmptyStandbyList by providing gran
 - [Comparison with Other Tools](#comparison-with-other-tools)
 - [FAQ](#faq)
 - [Building from Source](#building-from-source)
+- [Documentation](#documentation)
 - [Technical Architecture](#technical-architecture)
 - [Supported Systems](#supported-systems)
 - [License](#license)
@@ -671,6 +672,15 @@ cargo run -- clean -l gentle -v
 # Check for warnings
 cargo clippy
 ```
+
+---
+
+## Documentation
+
+- [Contributing Guide](docs/CONTRIBUTING.md)
+- [Rust Implementation Guide](docs/RUST_IMPLEMENTATION_GUIDE.md)
+- [Windows Memory Internals](docs/WINDOWS_MEMORY_INTERNALS.md)
+- [Security Policy](docs/SECURITY.md)
 
 ---
 

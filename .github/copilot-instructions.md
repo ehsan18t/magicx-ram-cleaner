@@ -149,15 +149,15 @@ refactor(cleaner): extract wait_for_settle helper
 
 **When you change behaviour, you MUST update documentation in the same commit.**
 
-| What changed                     | Update these                               |
-| -------------------------------- | ------------------------------------------ |
-| New CLI flag / subcommand        | `--help` text (clap doc attrs), README.md  |
-| New cleaning operation           | README.md, RUST_IMPLEMENTATION_GUIDE.md    |
-| NT API usage change              | WINDOWS_MEMORY_INTERNALS.md                |
-| Build / CI change                | CONTRIBUTING.md, README.md (badges)        |
-| New module or architecture shift | This file, RUST_IMPLEMENTATION_GUIDE.md    |
-| Dependency added / removed       | Cargo.toml, deny.toml (if license changes) |
-| Hook / workflow change           | CONTRIBUTING.md                            |
+| What changed                     | Update these                                 |
+| -------------------------------- | -------------------------------------------- |
+| New CLI flag / subcommand        | `--help` text (clap doc attrs), README.md    |
+| New cleaning operation           | README.md, docs/RUST_IMPLEMENTATION_GUIDE.md |
+| NT API usage change              | docs/WINDOWS_MEMORY_INTERNALS.md             |
+| Build / CI change                | docs/CONTRIBUTING.md, README.md (badges)     |
+| New module or architecture shift | This file, docs/RUST_IMPLEMENTATION_GUIDE.md |
+| Dependency added / removed       | Cargo.toml, deny.toml (if license changes)   |
+| Hook / workflow change           | docs/CONTRIBUTING.md                         |
 
 If you are unsure whether a doc update is needed, **update it anyway**. Stale docs
 are worse than verbose docs.
@@ -226,7 +226,7 @@ Always verify against current sources when the information is critical.
 2. Implement the function in `cleaner.rs` following existing patterns.
 3. Add a `Commands` variant in `main.rs` with clap attributes and doc comment.
 4. Wire it up in the `match` dispatch in `main()`.
-5. Update README.md, `AFTER_HELP_LONG`, and RUST_IMPLEMENTATION_GUIDE.md.
+5. Update README.md, `AFTER_HELP_LONG`, and docs/RUST_IMPLEMENTATION_GUIDE.md.
 6. Add tests for any pure logic.
 
 ### Adding a new CLI flag:
