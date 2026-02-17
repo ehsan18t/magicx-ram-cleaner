@@ -198,7 +198,15 @@ pub fn flush_file_cache(verbose: bool) -> Result<CleanResult> {
     }
 
     // Restore default cache behavior (let Windows manage it again)
-    unsafe { SetSystemFileCacheSize(0, 0, 0) };
+    let restore = unsafe { SetSystemFileCacheSize(0, 0, 0) };
+    if restore == 0 {
+        let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+        eprintln!(
+            "  {} Warning: failed to restore default cache size (error {})",
+            "⚠".yellow(),
+            err
+        );
+    }
 
     let after = wait_for_settle(verbose)?;
 
