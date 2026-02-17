@@ -105,15 +105,6 @@ fn wait_for_settle(verbose: bool, mode: SettleMode) -> Result<MemorySnapshot> {
     MemorySnapshot::capture()
 }
 
-/// Format an NTSTATUS code into a human-readable `NtSetSystemInformation` error message.
-fn ntstatus_error_message(status: ntapi::NtStatus) -> String {
-    format!(
-        "NtSetSystemInformation failed: 0x{:08X} — {}",
-        status as u32,
-        ntapi::ntstatus_message(status)
-    )
-}
-
 /// Display metadata for kernel memory commands.
 ///
 /// Centralises the operation name, success message, and verbose label for each
@@ -182,7 +173,11 @@ fn execute_kernel_memory_op(
         }
         Err(status) => Ok(CleanResult::failure(
             name,
-            ntstatus_error_message(status),
+            format!(
+                "NtSetSystemInformation failed: 0x{:08X} — {}",
+                status as u32,
+                ntapi::ntstatus_message(status)
+            ),
             &before,
         )),
     }
