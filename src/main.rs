@@ -79,13 +79,21 @@ mod privilege;
 #[allow(unsafe_code)]
 mod stats;
 
+use std::process::ExitCode;
+
 use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser};
 use colored::Colorize;
 
 use cli::{Cli, Commands};
 
-fn main() -> Result<()> {
+/// Entry point — returns [`ExitCode`] instead of calling `std::process::exit()`.
+///
+/// Exit codes:
+/// - `0` — all operations succeeded
+/// - `1` — one or more cleaning operations failed (already reported)
+/// - `2` — fatal error (printed to stderr)
+fn main() -> ExitCode {
     console::enable_ansi_colors();
     let standalone = console::is_standalone_console();
 
@@ -98,9 +106,12 @@ fn main() -> Result<()> {
     }
 
     match result {
-        Ok(false) => Ok(()),
-        Ok(true) => std::process::exit(1),
-        Err(e) => Err(e),
+        Ok(false) => ExitCode::SUCCESS,
+        Ok(true) => ExitCode::FAILURE,
+        Err(e) => {
+            eprintln!("{} {e:?}", "Error:".red().bold());
+            ExitCode::from(2)
+        }
     }
 }
 
