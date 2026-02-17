@@ -103,7 +103,7 @@ pub fn enable_all_privileges() -> Result<()> {
         .context("Required for memory list operations")?;
     enable_privilege("SeIncreaseQuotaPrivilege").context("Required for file cache management")?;
     // SeDebugPrivilege is optional — allows trimming protected processes
-    let _ = enable_privilege("SeDebugPrivilege");
+    drop(enable_privilege("SeDebugPrivilege"));
     Ok(())
 }
 

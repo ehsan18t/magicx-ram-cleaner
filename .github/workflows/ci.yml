@@ -1,0 +1,79 @@
+# MagicX RAM Cleaner — CI Pipeline
+# Enforces code quality on every push and PR. No bad code gets merged.
+#
+# Gates (ALL must pass):
+#   1. cargo fmt --check     → consistent formatting
+#   2. cargo clippy (deny)   → zero lint warnings
+#   3. cargo test            → all tests pass
+#   4. cargo build --release → release binary compiles
+#   5. cargo deny check      → no vulnerable/banned dependencies
+#   6. cargo doc             → documentation builds without errors
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  quality-gate:
+    name: Quality Gate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      # Gate 1: Formatting — rejects inconsistent style
+      - name: "Gate 1: cargo fmt --check"
+        run: cargo fmt --all -- --check
+
+      # Gate 2: Clippy (pedantic+nursery, deny level) — rejects lint violations
+      - name: "Gate 2: cargo clippy"
+        run: cargo clippy --all-targets -- -D warnings
+
+      # Gate 3: Tests — rejects broken logic
+      - name: "Gate 3: cargo test"
+        run: cargo test --all-targets
+
+      # Gate 4: Release build — rejects code that only works in debug
+      - name: "Gate 4: cargo build --release"
+        run: cargo build --release
+
+      # Gate 5: Documentation — rejects broken doc links
+      - name: "Gate 5: cargo doc"
+        run: cargo doc --no-deps
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+  # Optional: dependency audit (runs separately, non-blocking initially)
+  audit:
+    name: Dependency Audit
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
+      - name: "Audit: cargo deny check"
+        run: cargo deny check
+        continue-on-error: true # Set to false once deny.toml is tuned

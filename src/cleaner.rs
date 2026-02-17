@@ -624,7 +624,7 @@ mod tests {
     use super::*;
     use crate::stats::MemorySnapshot;
 
-    /// Helper to build a minimal MemorySnapshot for testing.
+    /// Helper to build a minimal `MemorySnapshot` for testing.
     fn mock_snapshot(available: u64, load: u32) -> MemorySnapshot {
         MemorySnapshot {
             memory_load_percent: load,

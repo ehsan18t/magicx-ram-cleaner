@@ -1,0 +1,54 @@
+# MagicX RAM Cleaner — cargo-deny configuration
+# Audits dependencies for security vulnerabilities, license issues, and bans.
+# Run: cargo deny check
+# Install: cargo install cargo-deny
+
+[advisories]
+# Deny any dependency with a known security vulnerability
+vulnerability = "deny"
+unmaintained = "warn"
+yanked = "deny"
+notice = "warn"
+
+[licenses]
+# Only allow these licenses — reject anything weird
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+]
+unlicensed = "deny"
+copyleft = "deny"
+
+# Windows-sys uses MIT, clap uses MIT/Apache-2.0, etc.
+# If a new dependency brings in a weird license, this will catch it.
+
+[[licenses.clarify]]
+name = "unicode-ident"
+expression = "(MIT OR Apache-2.0) AND Unicode-DFS-2016"
+license-files = [{ path = "LICENSE-UNICODE", hash = 0x3fb01745 }]
+
+[bans]
+# Deny duplicate versions of the same crate (keeps binary small)
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+
+# Ban known-problematic crates
+deny = [
+    # openssl — we don't need it and it's a security liability
+    { name = "openssl" },
+    { name = "openssl-sys" },
+]
+
+[sources]
+# Only allow crates from crates.io — no random git repos
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

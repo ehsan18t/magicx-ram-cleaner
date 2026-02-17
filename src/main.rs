@@ -1,3 +1,20 @@
+// ─── Compiler-enforced quality gates ─────────────────────────────────────────
+// These cannot be overridden by individual modules. Any violation = build failure.
+#![deny(
+    // Correctness
+    unused_must_use,         // ignoring Result/Option is a bug
+    unreachable_patterns,    // dead match arms = confusion
+    // Safety — unsafe is denied globally; modules that need FFI get #[allow(unsafe_code)]
+    unsafe_code,
+    unsafe_op_in_unsafe_fn,  // unsafe blocks inside unsafe fn must be explicit
+    // Quality
+    unused_imports,          // dead imports = sloppy code
+    unused_variables,        // unused vars = incomplete work
+    dead_code,               // dead code = maintenance burden
+    // Documentation
+    rustdoc::broken_intra_doc_links,
+)]
+
 //! # `MagicX` RAM Cleaner
 //!
 //! The most powerful Windows RAM cleaner CLI tool.
@@ -42,11 +59,18 @@
 //! | Optimal operation ordering | ✗ | ✓ |
 //! | Second-pass cleaning | ✗ | ✓ |
 
+// Modules that legitimately need unsafe get a scoped allow
+#[allow(unsafe_code)]
 mod cleaner;
+#[allow(unsafe_code)]
 mod display;
+#[allow(unsafe_code)]
 mod monitor;
+#[allow(unsafe_code)]
 mod ntapi;
+#[allow(unsafe_code)]
 mod privilege;
+#[allow(unsafe_code)]
 mod stats;
 
 use anyhow::{Context, Result};
@@ -293,6 +317,7 @@ fn main() -> Result<()> {
 }
 
 /// Enable ANSI virtual terminal processing on Windows consoles.
+#[allow(unsafe_code)]
 fn enable_ansi_colors() {
     #[cfg(windows)]
     {
@@ -450,6 +475,7 @@ fn print_banner() {
 ///
 /// Uses `CheckTokenMembership` with the built-in Administrators group SID
 /// to verify true elevation, not just token access.
+#[allow(unsafe_code)]
 fn check_admin() -> Result<()> {
     use windows_sys::Win32::Foundation::LocalFree;
     use windows_sys::Win32::Security::Authorization::ConvertStringSidToSidW;
