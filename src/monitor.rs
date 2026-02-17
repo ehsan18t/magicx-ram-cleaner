@@ -25,7 +25,7 @@ static RUNNING: AtomicBool = AtomicBool::new(true);
 unsafe extern "system" fn ctrl_handler(ctrl_type: u32) -> i32 {
     // CTRL_C_EVENT = 0, CTRL_BREAK_EVENT = 1, CTRL_CLOSE_EVENT = 2
     if ctrl_type <= 2 {
-        RUNNING.store(false, Ordering::SeqCst);
+        RUNNING.store(false, Ordering::Release);
         1 // TRUE — handled, prevent default process termination
     } else {
         0 // FALSE — not handled, pass to next handler
@@ -53,7 +53,7 @@ pub fn run_monitor(
     );
 
     // Reset the RUNNING flag in case run_monitor is called more than once
-    RUNNING.store(true, Ordering::SeqCst);
+    RUNNING.store(true, Ordering::Release);
 
     // Install Ctrl+C handler for graceful shutdown
     // SAFETY: ctrl_handler is a valid extern "system" fn with the correct signature.
@@ -73,7 +73,7 @@ pub fn run_monitor(
     let cooldown = std::time::Duration::from_secs(interval_secs * 2);
     let mut last_clean: Option<Instant> = None;
 
-    while RUNNING.load(Ordering::SeqCst) {
+    while RUNNING.load(Ordering::Acquire) {
         let snapshot = MemorySnapshot::capture()?;
         display::print_compact_status(&snapshot);
 
@@ -126,7 +126,7 @@ pub fn run_monitor(
 
         // Sleep in small increments so Ctrl+C is responsive
         for _ in 0..interval_secs * 10 {
-            if !RUNNING.load(Ordering::SeqCst) {
+            if !RUNNING.load(Ordering::Acquire) {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
