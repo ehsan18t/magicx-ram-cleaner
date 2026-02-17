@@ -96,7 +96,7 @@ const STATUS_INVALID_PARAMETER: NtStatus = 0xC000_000D_u32 as i32;
 const STATUS_NOT_IMPLEMENTED: NtStatus = 0xC000_0002_u32 as i32;
 const STATUS_UNSUCCESSFUL: NtStatus = 0xC000_0001_u32 as i32;
 const STATUS_PRIVILEGE_NOT_HELD: NtStatus = 0xC000_0061_u32 as i32;
-const STATUS_INFO_LENGTH_MISMATCH: NtStatus = 0xC000_0004_u32 as i32;
+pub const STATUS_INFO_LENGTH_MISMATCH: NtStatus = 0xC000_0004_u32 as i32;
 
 /// Translate an NTSTATUS code to a human-readable message.
 pub fn ntstatus_message(status: NtStatus) -> &'static str {

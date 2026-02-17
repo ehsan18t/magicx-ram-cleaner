@@ -151,20 +151,40 @@ pub struct MemoryListInfo {
 
 impl MemoryListInfo {
     /// Query the kernel for detailed memory list information.
+    ///
+    /// The struct layout varies by Windows version:
+    /// - Base: 5 + 8 + 8 + 1 = 22 ULONG_PTR entries
+    /// - Newer builds add StandbyRepurposedByPriority[8], making it 30 entries
+    ///
+    /// This implementation starts with a 30-entry buffer and falls back to
+    /// dynamic sizing via return_length if the kernel reports a mismatch.
     pub fn query() -> Result<Self> {
-        // SYSTEM_MEMORY_LIST_INFORMATION is information class 0x50 (80)
-        // The struct contains: ULONG_PTR[5] for zeroed/free/modified/modifiednowrite/bad
-        //                      ULONG_PTR[8] for standby priorities 0-7
-        //                      ULONG_PTR[8] for repurposed priorities 0-7
-        //                      ULONG_PTR for modified page count total
-        // Total: 5 + 8 + 8 + 1 = 22 ULONG_PTR entries
-        let mut info = [0usize; 22];
-        let status = super::ntapi::nt_query_system_information(
-            80, // SystemMemoryListInformation
-            info.as_mut_ptr() as *mut _,
-            std::mem::size_of_val(&info) as u32,
-            std::ptr::null_mut(),
+        use crate::ntapi::{SYSTEM_MEMORY_LIST_INFORMATION, STATUS_INFO_LENGTH_MISMATCH};
+
+        // Start with the larger known layout (30 entries covers newer Windows)
+        let mut buf: Vec<usize> = vec![0usize; 30];
+        let mut return_length: u32 = 0;
+
+        let mut status = crate::ntapi::nt_query_system_information(
+            SYSTEM_MEMORY_LIST_INFORMATION,
+            buf.as_mut_ptr() as *mut _,
+            (buf.len() * std::mem::size_of::<usize>()) as u32,
+            &mut return_length,
         );
+
+        // If buffer is too small, retry with the size the kernel told us
+        if status == STATUS_INFO_LENGTH_MISMATCH && return_length > 0 {
+            let needed_entries = (return_length as usize + std::mem::size_of::<usize>() - 1)
+                / std::mem::size_of::<usize>();
+            buf.resize(needed_entries, 0);
+            status = crate::ntapi::nt_query_system_information(
+                SYSTEM_MEMORY_LIST_INFORMATION,
+                buf.as_mut_ptr() as *mut _,
+                return_length,
+                &mut return_length,
+            );
+        }
+
         if status != 0 {
             bail!(
                 "NtQuerySystemInformation(SystemMemoryListInformation) failed: NTSTATUS 0x{:08X}",
@@ -172,22 +192,33 @@ impl MemoryListInfo {
             );
         }
 
+        // We need at least 22 entries to parse the base fields
+        let count = return_length as usize / std::mem::size_of::<usize>();
+        let count = if count > 0 { count } else { buf.len() };
+        if count < 22 {
+            bail!(
+                "NtQuerySystemInformation returned only {} bytes, need at least {} for base fields",
+                return_length,
+                22 * std::mem::size_of::<usize>()
+            );
+        }
+
         let mut standby = [0u64; 8];
         let mut repurposed = [0u64; 8];
         for i in 0..8 {
-            standby[i] = info[5 + i] as u64;
-            repurposed[i] = info[13 + i] as u64;
+            standby[i] = buf[5 + i] as u64;
+            repurposed[i] = buf[13 + i] as u64;
         }
 
         Ok(Self {
-            zeroed_pages: info[0] as u64,
-            free_pages: info[1] as u64,
-            modified_pages: info[2] as u64,
-            modified_no_write_pages: info[3] as u64,
-            bad_pages: info[4] as u64,
+            zeroed_pages: buf[0] as u64,
+            free_pages: buf[1] as u64,
+            modified_pages: buf[2] as u64,
+            modified_no_write_pages: buf[3] as u64,
+            bad_pages: buf[4] as u64,
             standby_pages: standby,
             repurposed_pages: repurposed,
-            modified_pages_total: info[21] as u64,
+            modified_pages_total: buf[21] as u64,
         })
     }
 
