@@ -50,12 +50,6 @@ pub fn run_monitor(
     /// Prevents infinite error-clean-error loops on a malfunctioning system.
     const MAX_CONSECUTIVE_ERRORS: u32 = 3;
 
-    // Validate interval to prevent spin-loop
-    anyhow::ensure!(
-        interval_secs > 0,
-        "Monitor interval must be at least 1 second"
-    );
-
     // Reset the RUNNING flag in case run_monitor is called more than once
     RUNNING.store(true, Ordering::Release);
 

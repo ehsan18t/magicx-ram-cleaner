@@ -309,13 +309,13 @@ pub enum Commands {
     /// Press Ctrl+C to stop monitoring.
     #[command(verbatim_doc_comment)]
     Monitor {
-        /// Check interval in seconds [default: 5]
-        #[arg(short, long, default_value = "5")]
+        /// Check interval in seconds (minimum 1) [default: 5]
+        #[arg(short, long, default_value = "5", value_parser = clap::value_parser!(u64).range(1..))]
         interval: u64,
 
         /// Auto-clean when memory load exceeds this percentage (1-100).
         /// Omit to only monitor without cleaning.
-        #[arg(short, long)]
+        #[arg(short, long, value_parser = clap::value_parser!(u32).range(1..=100))]
         threshold: Option<u32>,
 
         /// Cleaning level for auto-clean [default: aggressive]

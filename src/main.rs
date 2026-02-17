@@ -226,11 +226,6 @@ fn dispatch_command(command: &Commands) -> Result<bool> {
             level,
             verbose,
         } => {
-            if let Some(t) = threshold
-                && (*t == 0 || *t > 100)
-            {
-                anyhow::bail!("Threshold must be 1-100, got {t}");
-            }
             monitor::run_monitor(*interval, *threshold, *level, *verbose)?;
         }
     }
