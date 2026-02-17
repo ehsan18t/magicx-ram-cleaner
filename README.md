@@ -145,9 +145,10 @@ cargo build --release
 
 These flags can be used with **any** subcommand:
 
-| Flag         | Description                                                             |
-| ------------ | ----------------------------------------------------------------------- |
-| `--no-color` | Disable coloured terminal output (also respects `NO_COLOR` env var)     |
+| Flag            | Description                                                         |
+| --------------- | ------------------------------------------------------------------- |
+| `--no-color`    | Disable coloured terminal output (also respects `NO_COLOR` env var) |
+| `-q`, `--quiet` | Suppress banner and non-essential output (implies no verbose)       |
 
 ---
 

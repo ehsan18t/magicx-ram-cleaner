@@ -127,15 +127,19 @@ fn run() -> Result<bool> {
         colored::control::set_override(false);
     }
 
+    let quiet = cli.quiet;
+
     let Some(ref command) = cli.command else {
-        display::print_banner();
+        if !quiet {
+            display::print_banner();
+        }
         print_no_command_help()?;
         return Ok(false);
     };
 
     // Suppress banner when JSON output is requested so stdout stays machine-parseable
     let is_json = matches!(command, Commands::Status { json: true, .. });
-    if !is_json {
+    if !quiet && !is_json {
         display::print_banner();
     }
 
@@ -146,7 +150,7 @@ fn run() -> Result<bool> {
          Right-click the terminal/exe → 'Run as administrator'",
     )?;
 
-    dispatch_command(command)
+    dispatch_command(command, quiet)
 }
 
 /// Show a friendly help guide when no subcommand is given.
@@ -169,13 +173,19 @@ fn report_single(result: &cleaner::CleanResult) -> bool {
 }
 
 /// Dispatch the parsed CLI command. Returns `true` if any operation failed.
-fn dispatch_command(command: &Commands) -> Result<bool> {
+///
+/// When `quiet` is `true`, the banner is already suppressed and verbose progress
+/// is forced off. Only results, errors, and machine-readable data are printed.
+fn dispatch_command(command: &Commands, quiet: bool) -> Result<bool> {
     let mut had_failure = false;
 
     match command {
         Commands::Clean { level, verbose } => {
-            display::print_clean_start(*level);
-            let output = cleaner::smart_clean(*level, *verbose)?;
+            let effective_verbose = *verbose && !quiet;
+            if !quiet {
+                display::print_clean_start(*level);
+            }
+            let output = cleaner::smart_clean(*level, effective_verbose)?;
             display::print_clean_summary(
                 &output.results,
                 &output.overall_before,
@@ -193,36 +203,41 @@ fn dispatch_command(command: &Commands) -> Result<bool> {
             low_priority,
             verbose,
         } => {
+            let effective_verbose = *verbose && !quiet;
             let result = if *low_priority {
-                cleaner::purge_standby_low_priority(*verbose)?
+                cleaner::purge_standby_low_priority(effective_verbose)?
             } else {
-                cleaner::purge_standby_all(*verbose)?
+                cleaner::purge_standby_all(effective_verbose)?
             };
             had_failure = report_single(&result);
         }
 
         Commands::FlushModified { verbose } => {
-            had_failure = report_single(&cleaner::flush_modified_list(*verbose)?);
+            let effective_verbose = *verbose && !quiet;
+            had_failure = report_single(&cleaner::flush_modified_list(effective_verbose)?);
         }
 
         Commands::EmptyWorkingsets {
             per_process,
             verbose,
         } => {
+            let effective_verbose = *verbose && !quiet;
             let result = if *per_process {
-                cleaner::empty_working_sets_per_process(*verbose, &[])?
+                cleaner::empty_working_sets_per_process(effective_verbose, &[])?
             } else {
-                cleaner::empty_working_sets_kernel(*verbose)?
+                cleaner::empty_working_sets_kernel(effective_verbose)?
             };
             had_failure = report_single(&result);
         }
 
         Commands::FlushCache { verbose } => {
-            had_failure = report_single(&cleaner::flush_file_cache(*verbose)?);
+            let effective_verbose = *verbose && !quiet;
+            had_failure = report_single(&cleaner::flush_file_cache(effective_verbose)?);
         }
 
         Commands::Combine { verbose } => {
-            had_failure = report_single(&cleaner::combine_memory(*verbose)?);
+            let effective_verbose = *verbose && !quiet;
+            had_failure = report_single(&cleaner::combine_memory(effective_verbose)?);
         }
 
         Commands::Monitor {
@@ -231,7 +246,8 @@ fn dispatch_command(command: &Commands) -> Result<bool> {
             level,
             verbose,
         } => {
-            monitor::run_monitor(*interval, *threshold, *level, *verbose)?;
+            let effective_verbose = *verbose && !quiet;
+            monitor::run_monitor(*interval, *threshold, *level, effective_verbose)?;
         }
     }
 

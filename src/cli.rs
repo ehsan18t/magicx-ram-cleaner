@@ -192,6 +192,13 @@ pub struct Cli {
     /// Also respects the `NO_COLOR` environment variable.
     #[arg(long, global = true)]
     pub no_color: bool,
+
+    /// Suppress banner and non-essential output.
+    ///
+    /// Only results, errors, and machine-readable data are printed.
+    /// Implies `--verbose false` for cleaning operations.
+    #[arg(short, long, global = true)]
+    pub quiet: bool,
 }
 
 /// Available CLI subcommands.
