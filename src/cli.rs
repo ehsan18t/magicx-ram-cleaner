@@ -107,6 +107,8 @@ pub const AFTER_HELP_LONG: &str = "\
     \
 \x1b[32mmagicx-ram-cleaner flush-cache\x1b[0m                  \x1b[90m# Release file cache\x1b[0m
     \
+\x1b[32mmagicx-ram-cleaner flush-registry\x1b[0m               \x1b[90m# Flush registry hive cache\x1b[0m
+    \
 \x1b[32mmagicx-ram-cleaner empty-workingsets\x1b[0m            \x1b[90m# Trim all process memory\x1b[0m
     \
 \x1b[32mmagicx-ram-cleaner combine\x1b[0m                      \x1b[90m# Deduplicate pages (Win10+)\x1b[0m
@@ -152,6 +154,8 @@ pub const AFTER_HELP_LONG: &str = "\
 \x1b[1mModified Pages\x1b[0m   Dirty pages not yet written to disk or pagefile
   \
 \x1b[1mFile Cache\x1b[0m       RAM used by Windows to cache recent file I/O
+  \
+\x1b[1mRegistry Cache\x1b[0m   RAM used to cache modified registry hive pages
   \
 \x1b[1mPage Combining\x1b[0m   Deduplicating identical pages via copy-on-write
 
@@ -328,6 +332,20 @@ pub enum Commands {
     /// This is unique to `MagicX` — `EmptyStandbyList` cannot do this.
     #[command(verbatim_doc_comment)]
     FlushCache {
+        /// Show detailed progress.
+        #[arg(short, long)]
+        verbose: bool,
+    },
+
+    /// Flush registry cache — write dirty hive pages to disk.
+    ///
+    /// Forces Windows to write all cached registry modifications to disk,
+    /// freeing the RAM used for registry hive caching. Included automatically
+    /// in aggressive and nuclear cleaning levels.
+    ///
+    /// This is unique to `MagicX` — `EmptyStandbyList` cannot do this.
+    #[command(verbatim_doc_comment)]
+    FlushRegistry {
         /// Show detailed progress.
         #[arg(short, long)]
         verbose: bool,

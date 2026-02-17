@@ -388,6 +388,51 @@ fn flush_file_cache_with_settle(verbose: bool, settle: SettleMode) -> Result<Cle
     ))
 }
 
+/// **Operation 1b: Flush the Windows registry cache to disk.**
+///
+/// Calls `NtSetSystemInformation(SystemRegistryReconciliationInformation)` to
+/// force all dirty registry hive pages to be written to disk. This frees
+/// modified memory occupied by cached registry data.
+///
+/// Unique to `MagicX` — `EmptyStandbyList` cannot do this.
+pub fn flush_registry_cache(verbose: bool) -> Result<CleanResult> {
+    flush_registry_cache_with_settle(verbose, SettleMode::Full)
+}
+
+/// Inner implementation of registry cache flush with configurable settle mode.
+fn flush_registry_cache_with_settle(verbose: bool, settle: SettleMode) -> Result<CleanResult> {
+    if verbose {
+        println!("  {} Flushing registry cache to disk...", "→".cyan());
+    }
+
+    let before = MemorySnapshot::capture()?;
+    let start = std::time::Instant::now();
+
+    match ntapi::execute_registry_flush() {
+        Ok(()) => {
+            let after = wait_for_settle(verbose, settle)?;
+            let elapsed = start.elapsed();
+            Ok(CleanResult::success(
+                "Flush Registry Cache",
+                "Registry hive cache flushed to disk",
+                &before,
+                &after,
+                elapsed,
+            ))
+        }
+        Err(status) => Ok(CleanResult::failure(
+            "Flush Registry Cache",
+            format!(
+                "NtSetSystemInformation(SystemRegistryReconciliationInformation) failed: \
+                 0x{:08X} — {}",
+                status as u32,
+                ntapi::ntstatus_message(status)
+            ),
+            &before,
+        )),
+    }
+}
+
 /// **Operation 2: Empty all process working sets (kernel-level).**
 ///
 /// Uses NtSetSystemInformation(MemoryEmptyWorkingSets) which is MORE powerful
@@ -626,9 +671,10 @@ fn empty_working_sets_op(
     }
 }
 
-/// Execute the aggressive cleaning sequence (4 operations).
+/// Execute the aggressive cleaning sequence (5 operations).
 ///
-/// File cache flush → Empty working sets → Flush modified → Purge ALL standby.
+/// File cache flush → Registry flush → Empty working sets → Flush modified →
+/// Purge ALL standby.
 /// All intermediate operations use [`SettleMode::Quick`]; only the final purge
 /// uses [`SettleMode::Full`] for an accurate delta measurement.
 ///
@@ -637,6 +683,7 @@ fn empty_working_sets_op(
 fn execute_aggressive_chain(verbose: bool, exclude_names: &[String]) -> Result<Vec<CleanResult>> {
     Ok(vec![
         flush_file_cache_with_settle(verbose, SettleMode::Quick)?,
+        flush_registry_cache_with_settle(verbose, SettleMode::Quick)?,
         empty_working_sets_op(verbose, exclude_names, SettleMode::Quick)?,
         execute_kernel_memory_op(
             MemoryListCommand::FlushModifiedList,
@@ -651,17 +698,21 @@ fn execute_aggressive_chain(verbose: bool, exclude_names: &[String]) -> Result<V
     ])
 }
 
-/// Execute the nuclear cleaning sequence (7 operations).
+/// Execute the nuclear cleaning sequence (8 operations).
 ///
 /// All of aggressive + memory combining + a second pass of flush modified +
 /// purge all standby. Only the very last purge uses [`SettleMode::Full`].
 ///
 /// When `exclude_names` is non-empty, working sets are emptied per-process.
 fn execute_nuclear_chain(verbose: bool, exclude_names: &[String]) -> Result<Vec<CleanResult>> {
-    let mut results = Vec::with_capacity(7);
+    let mut results = Vec::with_capacity(8);
 
-    // Phase 1: Cache + Working sets
+    // Phase 1: Cache + Registry + Working sets
     results.push(flush_file_cache_with_settle(verbose, SettleMode::Quick)?);
+    results.push(flush_registry_cache_with_settle(
+        verbose,
+        SettleMode::Quick,
+    )?);
     results.push(empty_working_sets_op(
         verbose,
         exclude_names,
@@ -713,12 +764,14 @@ pub fn dry_run_plan(level: CleanLevel) -> Vec<&'static str> {
         CleanLevel::Moderate => vec!["Empty Working Sets (Kernel)", "Purge Low-Priority Standby"],
         CleanLevel::Aggressive => vec![
             "Flush File Cache",
+            "Flush Registry Cache",
             "Empty Working Sets (Kernel)",
             "Flush Modified List",
             "Purge ALL Standby",
         ],
         CleanLevel::Nuclear => vec![
             "Flush File Cache",
+            "Flush Registry Cache",
             "Empty Working Sets (Kernel)",
             "Flush Modified List",
             "Purge ALL Standby",
@@ -738,7 +791,7 @@ pub fn dry_run_plan(level: CleanLevel) -> Vec<&'static str> {
 /// |---|---|
 /// | **Gentle** | Purge low-priority standby only |
 /// | **Moderate** | Empty working sets (kernel) → Purge low-priority standby |
-/// | **Aggressive** | File cache flush → Empty working sets → Flush modified → Purge ALL standby |
+/// | **Aggressive** | File cache flush → Registry flush → Empty working sets → Flush modified → Purge ALL standby |
 /// | **Nuclear** | All of aggressive + memory combining + second pass |
 ///
 /// ## Settle Optimisation
@@ -913,13 +966,13 @@ mod tests {
         );
         assert_eq!(
             dry_run_plan(CleanLevel::Aggressive).len(),
-            4,
-            "aggressive = 4 ops"
+            5,
+            "aggressive = 5 ops"
         );
         assert_eq!(
             dry_run_plan(CleanLevel::Nuclear).len(),
-            7,
-            "nuclear = 7 ops"
+            8,
+            "nuclear = 8 ops"
         );
     }
 

@@ -256,6 +256,11 @@ fn dispatch_command(command: &Commands, quiet: bool) -> Result<bool> {
             had_failure = report_single(&cleaner::flush_file_cache(effective_verbose)?);
         }
 
+        Commands::FlushRegistry { verbose } => {
+            let effective_verbose = *verbose && !quiet;
+            had_failure = report_single(&cleaner::flush_registry_cache(effective_verbose)?);
+        }
+
         Commands::Combine { verbose } => {
             let effective_verbose = *verbose && !quiet;
             had_failure = report_single(&cleaner::combine_memory(effective_verbose)?);

@@ -15,6 +15,10 @@ pub const SYSTEM_MEMORY_LIST_INFORMATION: u32 = 80; // 0x50
 // SystemCombinePhysicalMemoryInformation information class for NtSetSystemInformation
 pub const SYSTEM_COMBINE_PHYSICAL_MEMORY_INFORMATION: u32 = 130; // 0x82
 
+// SystemRegistryReconciliationInformation information class for NtSetSystemInformation
+// Flushes the registry cache (dirty hive pages) to disk.
+pub const SYSTEM_REGISTRY_RECONCILIATION_INFORMATION: u32 = 155; // 0x9B
+
 /// Memory list commands passed to NtSetSystemInformation(SystemMemoryListInformation).
 ///
 /// These are the core operations that `EmptyStandbyList` uses.
@@ -123,6 +127,29 @@ pub fn execute_combine_memory() -> Result<usize, NtStatus> {
 
     if status == STATUS_SUCCESS {
         Ok(info.pages_combined)
+    } else {
+        Err(status)
+    }
+}
+
+/// Flush the Windows registry cache to disk.
+///
+/// Calls `NtSetSystemInformation(SystemRegistryReconciliationInformation)` with
+/// a null buffer and zero length. This forces all dirty registry hive pages to
+/// be written to disk, freeing the modified memory they occupied.
+pub fn execute_registry_flush() -> Result<(), NtStatus> {
+    // SAFETY: SystemRegistryReconciliationInformation takes no input buffer.
+    // Passing null pointer and zero length is the documented usage (see Mem Reduct,
+    // SystemInformer/phnt headers).
+    let status = unsafe {
+        NtSetSystemInformation(
+            SYSTEM_REGISTRY_RECONCILIATION_INFORMATION,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if status == STATUS_SUCCESS {
+        Ok(())
     } else {
         Err(status)
     }

@@ -25,6 +25,7 @@ MagicX RAM Cleaner goes far beyond tools like EmptyStandbyList by providing gran
     - [`flush-modified` — Modified Page Flush](#flush-modified--modified-page-flush)
     - [`empty-workingsets` — Working Set Trim](#empty-workingsets--working-set-trim)
     - [`flush-cache` — File System Cache Flush](#flush-cache--file-system-cache-flush)
+    - [`flush-registry` — Registry Cache Flush](#flush-registry--registry-cache-flush)
     - [`combine` — Memory Page Deduplication](#combine--memory-page-deduplication)
     - [`monitor` — Continuous Monitoring](#monitor--continuous-monitoring)
   - [Cleaning Levels Explained](#cleaning-levels-explained)
@@ -355,6 +356,24 @@ magicx-ram-cleaner flush-cache -v
 
 ---
 
+### `flush-registry` — Registry Cache Flush
+
+Flushes the Windows registry cache, writing dirty hive pages to disk and freeing the RAM they occupy.
+
+```
+magicx-ram-cleaner flush-registry [OPTIONS]
+```
+
+**This is unique to MagicX** — EmptyStandbyList cannot do this. Uses `NtSetSystemInformation(SystemRegistryReconciliationInformation)` to force all cached registry modifications to disk. Included automatically in aggressive and nuclear cleaning levels.
+
+**Examples:**
+```powershell
+magicx-ram-cleaner flush-registry
+magicx-ram-cleaner flush-registry -v
+```
+
+---
+
 ### `combine` — Memory Page Deduplication
 
 Scans physical memory for identical pages and combines them using copy-on-write.
@@ -409,12 +428,12 @@ magicx-ram-cleaner monitor -t 85 -l nuclear -v
 
 ## Cleaning Levels Explained
 
-| Level          | Operations                                                           | Impact                                             | Best For                                       |
-| -------------- | -------------------------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------- |
-| **gentle**     | Purge low-priority standby                                           | Minimal — only frees what Windows would free first | Gaming, production servers                     |
-| **moderate**   | Empty working sets → Purge low-priority standby                      | Low — trims bloated processes                      | Daily maintenance                              |
-| **aggressive** | File cache → Empty working sets → Flush modified → Purge ALL standby | Medium — brief I/O spike as apps re-fault pages    | Most users (default)                           |
-| **nuclear**    | Everything + memory combining + second pass                          | Highest — may cause temporary slowdown             | Before running demanding apps, troubleshooting |
+| Level          | Operations                                                                            | Impact                                             | Best For                                       |
+| -------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------- |
+| **gentle**     | Purge low-priority standby                                                            | Minimal — only frees what Windows would free first | Gaming, production servers                     |
+| **moderate**   | Empty working sets → Purge low-priority standby                                       | Low — trims bloated processes                      | Daily maintenance                              |
+| **aggressive** | File cache → Registry flush → Empty working sets → Flush modified → Purge ALL standby | Medium — brief I/O spike as apps re-fault pages    | Most users (default)                           |
+| **nuclear**    | Everything + memory combining + second pass                                           | Highest — may cause temporary slowdown             | Before running demanding apps, troubleshooting |
 
 ### What happens at each level?
 
@@ -434,21 +453,23 @@ Adds working set trimming — forces processes to give back memory they allocate
 #### Aggressive (Default)
 ```
 1. Flush file system cache
-2. Empty all process working sets (kernel-level)
-3. Flush modified page list to disk
-4. Purge ALL standby pages
+2. Flush registry cache
+3. Empty all process working sets (kernel-level)
+4. Flush modified page list to disk
+5. Purge ALL standby pages
 ```
-The full sequence. Flushes the file cache first (can reclaim GBs on I/O-heavy systems), trims all processes, writes dirty pages to disk, then purges the entire standby list. This is what you want when you need RAM NOW.
+The full sequence. Flushes the file cache and registry cache first (can reclaim GBs on I/O-heavy systems), trims all processes, writes dirty pages to disk, then purges the entire standby list. This is what you want when you need RAM NOW.
 
 #### Nuclear
 ```
 1. Flush file system cache
-2. Empty all process working sets (kernel-level)
-3. Flush modified page list to disk
-4. Purge ALL standby pages
-5. Memory page combining (dedup)
-6. Second-pass: Flush modified list again
-7. Second-pass: Purge standby list again
+2. Flush registry cache
+3. Empty all process working sets (kernel-level)
+4. Flush modified page list to disk
+5. Purge ALL standby pages
+6. Memory page combining (dedup)
+7. Second-pass: Flush modified list again
+8. Second-pass: Purge standby list again
 ```
 Everything plus memory deduplication. The second pass catches pages that were modified during the combining step. Use this when you absolutely need maximum free RAM.
 
@@ -621,11 +642,12 @@ MagicX moves pages from Standby (cached) to Free, increasing truly-free RAM at t
 MagicX's aggressive/nuclear levels follow this sequence for a reason:
 
 1. **Flush file cache** → Releases cached file data, immediately freeing RAM
-2. **Empty working sets** → Forces processes to give back unused pages (these move to Modified/Standby)
-3. **Flush modified** → Writes dirty pages to disk (Modified → Standby)
-4. **Purge standby** → Frees all cached pages (Standby → Free)
+2. **Flush registry cache** → Writes dirty registry hive pages to disk
+3. **Empty working sets** → Forces processes to give back unused pages (these move to Modified/Standby)
+4. **Flush modified** → Writes dirty pages to disk (Modified → Standby)
+5. **Purge standby** → Frees all cached pages (Standby → Free)
 
-If you skip step 3, modified pages can't be freed by step 4. This is why MagicX cleans more effectively than just running `EmptyStandbyList standbylist`.
+If you skip step 4, modified pages can't be freed by step 5. This is why MagicX cleans more effectively than just running `EmptyStandbyList standbylist`.
 
 ---
 
@@ -638,6 +660,7 @@ If you skip step 3, modified pages can't be freed by step 4. This is why MagicX 
 | Working set trim      |    ✅    |        ✅         |   ✅    |     ✅      |
 | Modified flush        |    ✅    |        ✅         |   ❌    |     ❌      |
 | File cache flush      |    ✅    |        ❌         |   ❌    |     ❌      |
+| Registry cache flush  |    ✅    |        ❌         |   ❌    |     ❌      |
 | Memory combining      |    ✅    |        ❌         |   ❌    |     ❌      |
 | Smart levels          |    ✅    |        ❌         |   ❌    |     ❌      |
 | Before/after stats    |    ✅    |        ❌         |   ❌    |  Partial   |

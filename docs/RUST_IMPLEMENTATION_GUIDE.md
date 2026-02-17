@@ -9,7 +9,8 @@
 5. [NtSetSystemInformation FFI Declaration](#5-ntset-system-information-ffi)
 6. [GlobalMemoryStatusEx](#6-globalmemorystatusex)
 7. [SetSystemFileCacheSize — File Cache Trimming](#7-setsystemfilecachesize)
-8. [Process Enumeration & Working Set Trimming](#8-process-enumeration--working-set-trimming)
+8. [Registry Cache Flush — NtSetSystemInformation(SystemRegistryReconciliationInformation)](#7b-registry-cache-flush--ntsetsysteminformationsystemregistryreconciliationinformation)
+9. [Process Enumeration & Working Set Trimming](#8-process-enumeration--working-set-trimming)
 9. [Memory Combining (Windows 10+)](#9-memory-combining)
 10. [Complete Cleaning Sequence](#10-complete-cleaning-sequence)
 11. [Full Compilable Source (Simplified Prototype)](#11-full-compilable-source-simplified-prototype)
@@ -547,6 +548,43 @@ const FILE_CACHE_MAX_HARD_DISABLE: u32 = 0x00000002; // Remove hard max limit
 const FILE_CACHE_MIN_HARD_ENABLE: u32  = 0x00000004; // Enforce a hard min cache size
 const FILE_CACHE_MIN_HARD_DISABLE: u32 = 0x00000008; // Remove hard min limit
 ```
+
+---
+
+## 7b. Registry Cache Flush — NtSetSystemInformation(SystemRegistryReconciliationInformation)
+
+### What It Does
+
+Windows caches registry hive modifications in memory before writing them to disk. `NtSetSystemInformation` with information class `SystemRegistryReconciliationInformation` (155 / 0x9B) forces all dirty registry hive pages to be written to disk, freeing the modified memory they occupy.
+
+### Code
+
+```rust
+/// SystemRegistryReconciliationInformation = 155 (0x9B)
+const SYSTEM_REGISTRY_RECONCILIATION_INFORMATION: u32 = 155;
+
+/// Flush registry cache to disk. No input buffer required.
+fn flush_registry_cache() -> Result<(), i32> {
+    let status = unsafe {
+        NtSetSystemInformation(
+            SYSTEM_REGISTRY_RECONCILIATION_INFORMATION,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if status == 0 { Ok(()) } else { Err(status) }
+}
+```
+
+### Details
+
+- **Information class**: 155 (`SystemRegistryReconciliationInformation`)
+- **Input buffer**: NULL (no input data required)
+- **Buffer length**: 0
+- **Required privilege**: Administrator (no specific privilege token beyond elevation)
+- **Source**: phnt headers from SystemInformer project; also used by Mem Reduct
+
+This operation is included in MagicX's aggressive and nuclear cleaning levels, executed after the file cache flush and before working set trimming.
 
 ---
 
