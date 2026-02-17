@@ -184,22 +184,28 @@ fn dispatch_command(command: &Commands, quiet: bool) -> Result<bool> {
             level,
             verbose,
             report,
+            dry_run,
         } => {
-            let effective_verbose = *verbose && !quiet;
-            if !quiet {
-                display::print_clean_start(*level);
+            if *dry_run {
+                let plan = cleaner::dry_run_plan(*level);
+                display::print_dry_run(*level, &plan);
+            } else {
+                let effective_verbose = *verbose && !quiet;
+                if !quiet {
+                    display::print_clean_start(*level);
+                }
+                let output = cleaner::smart_clean(*level, effective_verbose)?;
+                display::print_clean_summary(
+                    &output.results,
+                    &output.overall_before,
+                    &output.overall_after,
+                    output.total_freed,
+                );
+                if let Some(path) = report {
+                    write_report(path, &output)?;
+                }
+                had_failure = output.results.iter().any(|r| !r.success);
             }
-            let output = cleaner::smart_clean(*level, effective_verbose)?;
-            display::print_clean_summary(
-                &output.results,
-                &output.overall_before,
-                &output.overall_after,
-                output.total_freed,
-            );
-            if let Some(path) = report {
-                write_report(path, &output)?;
-            }
-            had_failure = output.results.iter().any(|r| !r.success);
         }
 
         Commands::Status {

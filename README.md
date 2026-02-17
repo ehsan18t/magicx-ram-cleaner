@@ -167,8 +167,7 @@ magicx-ram-cleaner clean [OPTIONS]
 | --------------------- | -------------------------------------------------------------------------------- |
 | `-l, --level <LEVEL>` | Cleaning aggressiveness: `gentle`, `moderate`, `aggressive` (default), `nuclear` |
 | `-v, --verbose`       | Show detailed progress of each operation                                         |
-| `--report <FILE>`     | Write cleaning results to a JSON report file                                     |
-
+| `--report <FILE>`     | Write cleaning results to a JSON report file                                     |  | `--dry-run` | Preview what operations would run without executing them |
 **Examples:**
 ```powershell
 # Default aggressive clean — best for most situations
@@ -185,6 +184,9 @@ magicx-ram-cleaner clean -l nuclear -v
 
 # Nuclear clean with JSON report for logging
 magicx-ram-cleaner clean -l nuclear --report clean-report.json
+
+# Preview what a nuclear clean would do (no execution)
+magicx-ram-cleaner clean -l nuclear --dry-run
 
 # Short form
 magicx-ram-cleaner clean -l gentle

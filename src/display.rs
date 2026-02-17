@@ -338,6 +338,24 @@ fn truncate_name(name: &str, max_len: usize) -> String {
     }
 }
 
+/// Print a dry-run preview of the operations that would be performed.
+pub fn print_dry_run(level: CleanLevel, operations: &[&str]) {
+    println!(
+        "\n{} Dry run — {} level ({} operations):\n",
+        "🔍".dimmed(),
+        level.to_string().bold(),
+        operations.len()
+    );
+    for (i, op) in operations.iter().enumerate() {
+        println!("  {}. {}", (i + 1).to_string().cyan(), op.white().bold());
+    }
+    println!(
+        "\n  {}",
+        "No operations were executed. Remove --dry-run to clean.".yellow()
+    );
+    println!();
+}
+
 /// Print a formatted summary of all cleaning results with before/after comparison.
 pub fn print_clean_summary(
     results: &[CleanResult],

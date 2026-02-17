@@ -229,6 +229,10 @@ pub enum Commands {
         /// Write cleaning results to a JSON report file.
         #[arg(long, value_name = "FILE")]
         report: Option<String>,
+
+        /// Preview what operations would run without executing them.
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Show detailed memory usage status.

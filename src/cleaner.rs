@@ -586,6 +586,32 @@ fn execute_nuclear_chain(verbose: bool) -> Result<Vec<CleanResult>> {
     Ok(results)
 }
 
+/// Return the ordered list of operation names that would run for a given level.
+///
+/// This is used by `--dry-run` to preview the cleaning plan without executing
+/// any kernel operations.
+pub fn dry_run_plan(level: CleanLevel) -> Vec<&'static str> {
+    match level {
+        CleanLevel::Gentle => vec!["Purge Low-Priority Standby"],
+        CleanLevel::Moderate => vec!["Empty Working Sets (Kernel)", "Purge Low-Priority Standby"],
+        CleanLevel::Aggressive => vec![
+            "Flush File Cache",
+            "Empty Working Sets (Kernel)",
+            "Flush Modified List",
+            "Purge ALL Standby",
+        ],
+        CleanLevel::Nuclear => vec![
+            "Flush File Cache",
+            "Empty Working Sets (Kernel)",
+            "Flush Modified List",
+            "Purge ALL Standby",
+            "Memory Combining",
+            "Flush Modified List (2nd pass)",
+            "Purge ALL Standby (2nd pass)",
+        ],
+    }
+}
+
 /// This is the main cleaning entry point that orchestrates multiple operations
 /// in the optimal order for maximum RAM recovery.
 ///
@@ -728,5 +754,25 @@ mod tests {
         assert!(CleanLevel::Gentle < CleanLevel::Moderate);
         assert!(CleanLevel::Moderate < CleanLevel::Aggressive);
         assert!(CleanLevel::Aggressive < CleanLevel::Nuclear);
+    }
+
+    #[test]
+    fn dry_run_plan_operation_counts() {
+        assert_eq!(dry_run_plan(CleanLevel::Gentle).len(), 1, "gentle = 1 op");
+        assert_eq!(
+            dry_run_plan(CleanLevel::Moderate).len(),
+            2,
+            "moderate = 2 ops"
+        );
+        assert_eq!(
+            dry_run_plan(CleanLevel::Aggressive).len(),
+            4,
+            "aggressive = 4 ops"
+        );
+        assert_eq!(
+            dry_run_plan(CleanLevel::Nuclear).len(),
+            7,
+            "nuclear = 7 ops"
+        );
     }
 }
