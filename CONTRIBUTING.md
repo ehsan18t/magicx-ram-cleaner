@@ -35,20 +35,27 @@ Before every commit, this automatically runs:
 
 If any step fails, the commit is **rejected**.
 
+Additionally, a **commit-msg** hook validates that all commit messages follow
+[Conventional Commits](https://www.conventionalcommits.org/) format:
+```
+<type>(<optional-scope>): <lowercase description>
+```
+Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`,
+`build`, `ci`, `chore`, `revert`, `enforce`.
+
 ### Layer 3: CI Pipeline (GitHub Actions)
 
-Every push and PR runs 5 gates:
+Every pull request to `main` runs 6 gates:
 1. **Formatting** — `cargo fmt --check`
 2. **Clippy** — deny-level lints with `RUSTFLAGS="-D warnings"`
 3. **Tests** — `cargo test --all-targets`
 4. **Release build** — confirms release profile compiles
 5. **Documentation** — `cargo doc` with `-D warnings`
-
-Plus a dependency audit via `cargo deny check`.
+6. **Dependency audit** — `cargo deny check`
 
 ### Layer 4: Dependency auditing (`deny.toml`)
 
-- Only MIT/Apache-2.0/BSD licenses allowed
+- Only MIT/Apache-2.0/BSD/MPL-2.0 licenses allowed
 - Known-vulnerable crates are **denied**
 - Only crates.io sources (no random git repos)
 - Duplicate dependency versions flagged
