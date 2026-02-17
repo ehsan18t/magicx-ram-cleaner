@@ -538,13 +538,18 @@ fn combine_memory_with_settle(verbose: bool, settle: SettleMode) -> Result<Clean
     }
 
     let before = MemorySnapshot::capture()?;
+    let start = std::time::Instant::now();
 
     match ntapi::execute_combine_memory() {
         Ok(pages_combined) => {
             let after = wait_for_settle(verbose, settle)?;
+            let elapsed = start.elapsed();
             Ok(CleanResult::success(
                 "Memory Combining",
-                format!("Pages combined: {pages_combined}"),
+                format!(
+                    "Pages combined: {pages_combined} ({:.1}s)",
+                    elapsed.as_secs_f64()
+                ),
                 &before,
                 &after,
             ))
