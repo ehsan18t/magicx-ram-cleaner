@@ -74,7 +74,7 @@ pub fn run_monitor(
 
     // Cooldown: skip auto-clean for 2× interval after the last clean to avoid
     // repeated cleaning when memory stays above the threshold.
-    let cooldown = std::time::Duration::from_secs(interval_secs * 2);
+    let cooldown = std::time::Duration::from_secs(interval_secs.saturating_mul(2));
     let mut last_clean: Option<Instant> = None;
 
     while RUNNING.load(Ordering::Acquire) {
@@ -129,7 +129,7 @@ pub fn run_monitor(
         }
 
         // Sleep in small increments so Ctrl+C is responsive
-        for _ in 0..interval_secs * 10 {
+        for _ in 0..interval_secs.saturating_mul(10) {
             if !RUNNING.load(Ordering::Acquire) {
                 break;
             }
