@@ -103,6 +103,35 @@ impl MemorySnapshot {
     }
 }
 
+/// Lightweight memory reading for settle-detection polling.
+///
+/// Only calls `GlobalMemoryStatusEx` (skips `K32GetPerformanceInfo`) to avoid
+/// unnecessary work when we only need `available_physical` for convergence checks.
+#[derive(Debug, Clone, Copy)]
+pub struct QuickMemoryReading {
+    /// Available physical RAM in bytes.
+    pub available_physical: u64,
+}
+
+impl QuickMemoryReading {
+    /// Capture only available physical memory (single Win32 call).
+    pub fn capture() -> Result<Self> {
+        // SAFETY: MEMORYSTATUSEX is zeroed and has dwLength set before calling
+        // GlobalMemoryStatusEx. This is a standard documented Win32 API.
+        let ms = unsafe {
+            let mut ms: MEMORYSTATUSEX = std::mem::zeroed();
+            ms.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+            if GlobalMemoryStatusEx(&raw mut ms) == 0 {
+                bail!("GlobalMemoryStatusEx failed");
+            }
+            ms
+        };
+        Ok(Self {
+            available_physical: ms.ullAvailPhys,
+        })
+    }
+}
+
 /// Format bytes into a human-readable string (e.g., "3.42 GB").
 pub fn format_bytes(bytes: u64) -> String {
     const KB: u64 = 1024;

@@ -17,7 +17,7 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use crate::ntapi::{self, MemoryListCommand};
-use crate::stats::MemorySnapshot;
+use crate::stats::{MemorySnapshot, QuickMemoryReading};
 
 // ─── Kernel Settle Detection ─────────────────────────────────────────────────
 
@@ -27,31 +27,37 @@ use crate::stats::MemorySnapshot;
 /// asynchronously. This function polls `available_physical` until it stabilizes
 /// (stops changing between consecutive reads) or a timeout is reached.
 ///
-/// Returns the settled `MemorySnapshot`.
+/// Uses [`QuickMemoryReading`] for polling (single Win32 call) and only captures
+/// a full [`MemorySnapshot`] once memory has settled.
 fn wait_for_settle(verbose: bool) -> Result<MemorySnapshot> {
     const POLL_INTERVAL_MS: u64 = 150;
     const MAX_POLLS: u32 = 20; // 20 × 150ms = 3 seconds max
     const STABLE_READS: u32 = 3; // require 3 consecutive identical reads
     const MIN_JITTER_BYTES: u64 = 4 * 1024 * 1024; // 4 MB absolute floor
 
-    let mut prev = MemorySnapshot::capture()?;
+    let first = QuickMemoryReading::capture()?;
 
     // Scale the jitter threshold to total RAM: 0.01% of physical memory,
     // with a 4 MB floor. On a 16 GB system this is ~1.6 MB; on 128 GB ~13 MB.
-    let jitter_threshold = (prev.total_physical / 10_000).max(MIN_JITTER_BYTES);
+    // Use the full snapshot's total_physical via a one-time read.
+    let total_physical = {
+        let snap = MemorySnapshot::capture()?;
+        snap.total_physical
+    };
+    let jitter_threshold = (total_physical / 10_000).max(MIN_JITTER_BYTES);
 
+    let mut prev_available = first.available_physical;
     let mut stable_count: u32 = 0;
     let mut polls_done: u32 = 0;
 
     for _ in 0..MAX_POLLS {
         std::thread::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS));
         polls_done += 1;
-        let current = MemorySnapshot::capture()?;
+        let current = QuickMemoryReading::capture()?;
 
         // Consider "settled" when available memory hasn't moved by more than
         // the jitter threshold between polls (kernel page transitions produce jitter)
-        let diff =
-            (current.available_physical as i64 - prev.available_physical as i64).unsigned_abs();
+        let diff = (current.available_physical as i64 - prev_available as i64).unsigned_abs();
         if diff < jitter_threshold {
             stable_count += 1;
             if stable_count >= STABLE_READS {
@@ -62,12 +68,13 @@ fn wait_for_settle(verbose: bool) -> Result<MemorySnapshot> {
                         u64::from(polls_done) * POLL_INTERVAL_MS
                     );
                 }
-                return Ok(current);
+                // Only do the expensive full capture once settled
+                return MemorySnapshot::capture();
             }
         } else {
             stable_count = 0; // reset — still changing
         }
-        prev = current;
+        prev_available = current.available_physical;
     }
 
     // Timed out but still return the latest snapshot
@@ -78,7 +85,7 @@ fn wait_for_settle(verbose: bool) -> Result<MemorySnapshot> {
             u64::from(MAX_POLLS) * POLL_INTERVAL_MS
         );
     }
-    Ok(prev)
+    MemorySnapshot::capture()
 }
 
 /// Format an NTSTATUS code into a human-readable `NtSetSystemInformation` error message.
