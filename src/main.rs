@@ -323,6 +323,7 @@ fn dispatch_status(detailed: bool, json: bool, top: Option<usize>) -> Result<()>
     }
     Ok(())
 }
+
 /// Write a cleaning report to a JSON file.
 fn write_report(path: &str, output: &cleaner::SmartCleanResult) -> Result<()> {
     let json = serde_json::to_string_pretty(output).context("Failed to serialize report")?;

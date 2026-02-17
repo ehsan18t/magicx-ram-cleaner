@@ -8,7 +8,7 @@ license = "MIT"
 readme = "README.md"
 keywords = ["ram", "memory", "cleaner", "windows", "standby-list"]
 categories = ["command-line-utilities", "os::windows-apis"]
-repository = "https://github.com/magicx-dev/magicx-ram-cleaner"
+repository = "https://github.com/ehsan18t/magicx-ram-cleaner"
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }

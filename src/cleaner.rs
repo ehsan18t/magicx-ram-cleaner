@@ -568,8 +568,6 @@ fn combine_memory_with_settle(verbose: bool, settle: SettleMode) -> Result<Clean
 
 // ─── Smart Cleaning Engine ───────────────────────────────────────────────────
 
-/// Run a smart cleaning sequence based on the given level.
-///
 /// Execute the aggressive cleaning sequence (4 operations).
 ///
 /// File cache flush → Empty working sets → Flush modified → Purge ALL standby.

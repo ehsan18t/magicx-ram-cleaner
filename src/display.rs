@@ -330,12 +330,22 @@ pub fn print_top_processes(processes: &[ProcessMemoryInfo]) {
 }
 
 /// Truncate a string to `max_len` characters, adding an ellipsis if needed.
+///
+/// Uses [`char_indices`](str::char_indices) so the slice never lands inside a
+/// multi-byte UTF-8 sequence.
 fn truncate_name(name: &str, max_len: usize) -> String {
     if name.len() <= max_len {
-        name.to_string()
-    } else {
-        format!("{}…", &name[..max_len - 1])
+        return name.to_string();
     }
+    // Find the last char boundary that fits within (max_len - 1) bytes,
+    // leaving room for the '…' character.
+    let boundary = name
+        .char_indices()
+        .map(|(i, _)| i)
+        .take_while(|&i| i < max_len)
+        .last()
+        .unwrap_or(0);
+    format!("{}…", &name[..boundary])
 }
 
 /// Print a dry-run preview of the operations that would be performed.
