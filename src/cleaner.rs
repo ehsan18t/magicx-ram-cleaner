@@ -114,20 +114,61 @@ fn ntstatus_error_message(status: ntapi::NtStatus) -> String {
     )
 }
 
+/// Display metadata for kernel memory commands.
+///
+/// Centralises the operation name, success message, and verbose label for each
+/// [`MemoryListCommand`] variant so they are defined once and reused across
+/// public wrappers, chain helpers, and `smart_clean` dispatch.
+impl MemoryListCommand {
+    /// Returns `(operation_name, success_message, verbose_label)`.
+    const fn display_info(self) -> (&'static str, &'static str, &'static str) {
+        match self {
+            Self::CaptureAccessedBits | Self::CaptureAndResetAccessedBits => (
+                "Capture Accessed Bits",
+                "PTE accessed bits captured",
+                "Capturing PTE accessed bits...",
+            ),
+            Self::EmptyWorkingSets => (
+                "Empty Working Sets (Kernel)",
+                "All process working sets emptied via kernel",
+                "Emptying working sets (kernel-level)...",
+            ),
+            Self::FlushModifiedList => (
+                "Flush Modified List",
+                "Modified pages flushed to disk",
+                "Flushing modified page list...",
+            ),
+            Self::PurgeLowPriorityStandbyList => (
+                "Purge Low-Priority Standby",
+                "Low-priority standby pages purged",
+                "Purging low-priority standby pages...",
+            ),
+            Self::PurgeStandbyList => (
+                "Purge ALL Standby",
+                "All standby pages purged",
+                "Purging ALL standby pages...",
+            ),
+        }
+    }
+}
+
 /// Execute a kernel memory command with before/after measurement.
 ///
 /// This is the common pattern for operations that go through
 /// `NtSetSystemInformation(SystemMemoryListInformation)`: capture a before
 /// snapshot, execute the command, wait for the kernel to settle, and return
 /// a [`CleanResult`] with the delta.
+///
+/// Display strings (operation name, success message, verbose label) are derived
+/// from [`MemoryListCommand::display_info`] so callers need only pass the
+/// command variant, `verbose`, and [`SettleMode`].
 fn execute_kernel_memory_op(
     command: MemoryListCommand,
-    name: &str,
-    success_msg: &str,
     verbose: bool,
-    verbose_label: &str,
     settle: SettleMode,
 ) -> Result<CleanResult> {
+    let (name, success_msg, verbose_label) = command.display_info();
+
     if verbose {
         println!("  {} {verbose_label}", "→".cyan());
     }
@@ -317,10 +358,7 @@ fn flush_file_cache_with_settle(verbose: bool, settle: SettleMode) -> Result<Cle
 pub fn empty_working_sets_kernel(verbose: bool) -> Result<CleanResult> {
     execute_kernel_memory_op(
         MemoryListCommand::EmptyWorkingSets,
-        "Empty Working Sets (Kernel)",
-        "All process working sets emptied via kernel",
         verbose,
-        "Emptying working sets (kernel-level)...",
         SettleMode::Full,
     )
 }
@@ -398,10 +436,7 @@ pub fn empty_working_sets_per_process(verbose: bool, exclude_pids: &[u32]) -> Re
 pub fn flush_modified_list(verbose: bool) -> Result<CleanResult> {
     execute_kernel_memory_op(
         MemoryListCommand::FlushModifiedList,
-        "Flush Modified List",
-        "Modified pages flushed to disk",
         verbose,
-        "Flushing modified page list...",
         SettleMode::Full,
     )
 }
@@ -414,10 +449,7 @@ pub fn flush_modified_list(verbose: bool) -> Result<CleanResult> {
 pub fn purge_standby_low_priority(verbose: bool) -> Result<CleanResult> {
     execute_kernel_memory_op(
         MemoryListCommand::PurgeLowPriorityStandbyList,
-        "Purge Low-Priority Standby",
-        "Low-priority standby pages purged",
         verbose,
-        "Purging low-priority standby pages...",
         SettleMode::Full,
     )
 }
@@ -432,10 +464,7 @@ pub fn purge_standby_low_priority(verbose: bool) -> Result<CleanResult> {
 pub fn purge_standby_all(verbose: bool) -> Result<CleanResult> {
     execute_kernel_memory_op(
         MemoryListCommand::PurgeStandbyList,
-        "Purge ALL Standby",
-        "All standby pages purged",
         verbose,
-        "Purging ALL standby pages...",
         SettleMode::Full,
     )
 }
@@ -495,27 +524,18 @@ fn execute_aggressive_chain(verbose: bool) -> Result<Vec<CleanResult>> {
         flush_file_cache_with_settle(verbose, SettleMode::Quick)?,
         execute_kernel_memory_op(
             MemoryListCommand::EmptyWorkingSets,
-            "Empty Working Sets (Kernel)",
-            "All process working sets emptied via kernel",
             verbose,
-            "Emptying working sets (kernel-level)...",
             SettleMode::Quick,
         )?,
         execute_kernel_memory_op(
             MemoryListCommand::FlushModifiedList,
-            "Flush Modified List",
-            "Modified pages flushed to disk",
             verbose,
-            "Flushing modified page list...",
             SettleMode::Quick,
         )?,
         execute_kernel_memory_op(
             MemoryListCommand::PurgeStandbyList,
-            "Purge ALL Standby",
-            "All standby pages purged",
             verbose,
-            "Purging ALL standby pages...",
-            SettleMode::Full, // last op
+            SettleMode::Full,
         )?,
     ])
 }
@@ -531,30 +551,21 @@ fn execute_nuclear_chain(verbose: bool) -> Result<Vec<CleanResult>> {
     results.push(flush_file_cache_with_settle(verbose, SettleMode::Quick)?);
     results.push(execute_kernel_memory_op(
         MemoryListCommand::EmptyWorkingSets,
-        "Empty Working Sets (Kernel)",
-        "All process working sets emptied via kernel",
         verbose,
-        "Emptying working sets (kernel-level)...",
         SettleMode::Quick,
     )?);
 
     // Phase 2: Flush modified to disk
     results.push(execute_kernel_memory_op(
         MemoryListCommand::FlushModifiedList,
-        "Flush Modified List",
-        "Modified pages flushed to disk",
         verbose,
-        "Flushing modified page list...",
         SettleMode::Quick,
     )?);
 
     // Phase 3: Purge all standby pages (covers low-priority too)
     results.push(execute_kernel_memory_op(
         MemoryListCommand::PurgeStandbyList,
-        "Purge ALL Standby",
-        "All standby pages purged",
         verbose,
-        "Purging ALL standby pages...",
         SettleMode::Quick,
     )?);
 
@@ -567,19 +578,13 @@ fn execute_nuclear_chain(verbose: bool) -> Result<Vec<CleanResult>> {
     }
     results.push(execute_kernel_memory_op(
         MemoryListCommand::FlushModifiedList,
-        "Flush Modified List",
-        "Modified pages flushed to disk",
         verbose,
-        "Flushing modified page list...",
         SettleMode::Quick,
     )?);
     results.push(execute_kernel_memory_op(
         MemoryListCommand::PurgeStandbyList,
-        "Purge ALL Standby",
-        "All standby pages purged",
         verbose,
-        "Purging ALL standby pages...",
-        SettleMode::Full, // last op — full settle for accurate final delta
+        SettleMode::Full,
     )?);
 
     Ok(results)
@@ -612,10 +617,7 @@ pub fn smart_clean(level: CleanLevel, verbose: bool) -> Result<SmartCleanResult>
             // Single operation — always Full
             vec![execute_kernel_memory_op(
                 MemoryListCommand::PurgeLowPriorityStandbyList,
-                "Purge Low-Priority Standby",
-                "Low-priority standby pages purged",
                 verbose,
-                "Purging low-priority standby pages...",
                 SettleMode::Full,
             )?]
         }
@@ -623,18 +625,12 @@ pub fn smart_clean(level: CleanLevel, verbose: bool) -> Result<SmartCleanResult>
             vec![
                 execute_kernel_memory_op(
                     MemoryListCommand::EmptyWorkingSets,
-                    "Empty Working Sets (Kernel)",
-                    "All process working sets emptied via kernel",
                     verbose,
-                    "Emptying working sets (kernel-level)...",
                     SettleMode::Quick,
                 )?,
                 execute_kernel_memory_op(
                     MemoryListCommand::PurgeLowPriorityStandbyList,
-                    "Purge Low-Priority Standby",
-                    "Low-priority standby pages purged",
                     verbose,
-                    "Purging low-priority standby pages...",
                     SettleMode::Full, // last op
                 )?,
             ]
