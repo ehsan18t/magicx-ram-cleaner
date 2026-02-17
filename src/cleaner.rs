@@ -96,7 +96,7 @@ impl CleanResult {
     /// Create a successful result from before/after snapshots.
     fn success(
         operation: &str,
-        message: &str,
+        message: impl Into<String>,
         before: &MemorySnapshot,
         after: &MemorySnapshot,
     ) -> Self {
@@ -105,25 +105,6 @@ impl CleanResult {
             success: true,
             freed_bytes: after.available_physical as i64 - before.available_physical as i64,
             message: message.into(),
-            available_before: before.available_physical,
-            available_after: after.available_physical,
-            load_before: before.memory_load_percent,
-            load_after: after.memory_load_percent,
-        }
-    }
-
-    /// Create a successful result with a dynamic message from before/after snapshots.
-    fn success_msg(
-        operation: &str,
-        message: String,
-        before: &MemorySnapshot,
-        after: &MemorySnapshot,
-    ) -> Self {
-        Self {
-            operation: operation.into(),
-            success: true,
-            freed_bytes: after.available_physical as i64 - before.available_physical as i64,
-            message,
             available_before: before.available_physical,
             available_after: after.available_physical,
             load_before: before.memory_load_percent,
@@ -323,7 +304,7 @@ pub fn empty_working_sets_per_process(verbose: bool, exclude_pids: &[u32]) -> Re
 
     let after = wait_for_settle(verbose)?;
 
-    Ok(CleanResult::success_msg(
+    Ok(CleanResult::success(
         "Empty Working Sets (Per-Process)",
         format!("Trimmed {success_count} processes, {fail_count} skipped (protected/system)"),
         &before,
@@ -487,7 +468,7 @@ pub fn combine_memory(verbose: bool) -> Result<CleanResult> {
 
     let after = wait_for_settle(verbose)?;
 
-    Ok(CleanResult::success_msg(
+    Ok(CleanResult::success(
         "Memory Combining",
         format!("Pages combined: {}", info.page_combined),
         &before,
