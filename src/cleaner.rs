@@ -18,7 +18,7 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use crate::ntapi::{self, MemoryListCommand};
-use crate::stats::{MemorySnapshot, QuickMemoryReading};
+use crate::stats::{MemorySnapshot, QuickMemoryReading, extract_exe_name};
 
 // ─── File Cache Safety Guard ─────────────────────────────────────────────────
 
@@ -486,15 +486,6 @@ pub fn empty_working_sets_per_process(
     ))
 }
 
-/// Extract a UTF-8 process name from a null-terminated UTF-16 `szExeFile` buffer.
-fn extract_exe_name(sz_exe_file: &[u16]) -> String {
-    let len = sz_exe_file
-        .iter()
-        .position(|&c| c == 0)
-        .unwrap_or(sz_exe_file.len());
-    String::from_utf16_lossy(&sz_exe_file[..len])
-}
-
 /// Check whether a process name matches any entry in the normalised exclude list.
 ///
 /// Comparison is case-insensitive and matches with or without the `.exe` suffix.
@@ -860,13 +851,6 @@ mod tests {
             7,
             "nuclear = 7 ops"
         );
-    }
-
-    #[test]
-    fn extract_exe_name_from_utf16() {
-        // Simulate a null-terminated UTF-16 "chrome.exe"
-        let name: Vec<u16> = "chrome.exe\0\0\0\0".encode_utf16().collect();
-        assert_eq!(extract_exe_name(&name), "chrome.exe");
     }
 
     #[test]

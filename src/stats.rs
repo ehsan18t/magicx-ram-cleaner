@@ -146,6 +146,15 @@ impl QuickMemoryReading {
     }
 }
 
+/// Extract a UTF-8 process name from a null-terminated UTF-16 `szExeFile` buffer.
+pub fn extract_exe_name(sz_exe_file: &[u16]) -> String {
+    let len = sz_exe_file
+        .iter()
+        .position(|&c| c == 0)
+        .unwrap_or(sz_exe_file.len());
+    String::from_utf16_lossy(&sz_exe_file[..len])
+}
+
 /// Format bytes into a human-readable string (e.g., "3.42 GB").
 pub fn format_bytes(bytes: u64) -> String {
     const KB: u64 = 1024;
@@ -349,11 +358,7 @@ fn query_single_process(pid: u32, exe_name: &[u16]) -> Option<ProcessMemoryInfo>
     };
 
     // Extract process name from the wide-char szExeFile buffer
-    let name_len = exe_name
-        .iter()
-        .position(|&c| c == 0)
-        .unwrap_or(exe_name.len());
-    let name = String::from_utf16_lossy(&exe_name[..name_len]);
+    let name = extract_exe_name(exe_name);
 
     Some(ProcessMemoryInfo {
         pid,
@@ -366,6 +371,13 @@ fn query_single_process(pid: u32, exe_name: &[u16]) -> Option<ProcessMemoryInfo>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extract_exe_name_from_utf16() {
+        // Simulate a null-terminated UTF-16 "chrome.exe"
+        let name: Vec<u16> = "chrome.exe\0\0\0\0".encode_utf16().collect();
+        assert_eq!(extract_exe_name(&name), "chrome.exe");
+    }
 
     #[test]
     fn format_bytes_zero() {
