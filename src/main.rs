@@ -284,8 +284,11 @@ fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
-    // Print banner
-    print_banner();
+    // Suppress banner when JSON output is requested so stdout stays machine-parseable
+    let is_json = matches!(cli.command, Commands::Status { json: true, .. });
+    if !is_json {
+        print_banner();
+    }
 
     // Check for admin privileges
     check_admin()?;
