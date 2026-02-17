@@ -249,11 +249,14 @@ pub fn flush_file_cache(verbose: bool) -> Result<CleanResult> {
     let restore = unsafe { SetSystemFileCacheSize(0, 0, 0) };
     if restore == 0 {
         let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
-        eprintln!(
-            "  {} Warning: failed to restore default cache size (error {})",
-            "⚠".yellow(),
-            err
-        );
+        return Ok(CleanResult::failure(
+            "Flush File Cache",
+            format!(
+                "Cache purged but restore to default failed (error {err}). \
+                 System file cache may be in a degraded state until next reboot."
+            ),
+            &before,
+        ));
     }
 
     let after = wait_for_settle(verbose)?;
