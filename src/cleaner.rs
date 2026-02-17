@@ -440,34 +440,23 @@ pub fn purge_standby_all(verbose: bool) -> Result<CleanResult> {
 ///
 /// This is a heavier operation that scans all memory — may take several seconds.
 pub fn combine_memory(verbose: bool) -> Result<CleanResult> {
-    // MEMORY_COMBINE_INFORMATION_INPUT: Handle (HANDLE, pointer-width), PagesCombined (ULONG_PTR)
-    #[repr(C)]
-    struct CombineInfo {
-        handle: usize,        // HANDLE — 0 for full scan
-        page_combined: usize, // ULONG_PTR output
-    }
-
     if verbose {
         println!("  {} Running memory page combining...", "→".cyan());
     }
 
     let before = MemorySnapshot::capture()?;
 
-    let mut info = CombineInfo {
-        handle: 0,
-        page_combined: 0,
-    };
-
-    let status = unsafe {
-        ntapi::NtSetSystemInformation(
-            ntapi::SYSTEM_COMBINE_PHYSICAL_MEMORY_INFORMATION,
-            (&raw mut info).cast::<std::ffi::c_void>(),
-            std::mem::size_of::<CombineInfo>() as u32,
-        )
-    };
-
-    if status != 0 {
-        return Ok(CleanResult::failure(
+    match ntapi::execute_combine_memory() {
+        Ok(pages_combined) => {
+            let after = wait_for_settle(verbose)?;
+            Ok(CleanResult::success(
+                "Memory Combining",
+                format!("Pages combined: {pages_combined}"),
+                &before,
+                &after,
+            ))
+        }
+        Err(status) => Ok(CleanResult::failure(
             "Memory Combining",
             format!(
                 "NtSetSystemInformation(SystemCombinePhysicalMemoryInformation) failed: 0x{:08X} — {}",
@@ -475,17 +464,8 @@ pub fn combine_memory(verbose: bool) -> Result<CleanResult> {
                 ntapi::ntstatus_message(status)
             ),
             &before,
-        ));
+        )),
     }
-
-    let after = wait_for_settle(verbose)?;
-
-    Ok(CleanResult::success(
-        "Memory Combining",
-        format!("Pages combined: {}", info.page_combined),
-        &before,
-        &after,
-    ))
 }
 
 // ─── Smart Cleaning Engine ───────────────────────────────────────────────────

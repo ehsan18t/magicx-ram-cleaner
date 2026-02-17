@@ -83,6 +83,43 @@ pub fn execute_memory_command(command: MemoryListCommand) -> Result<(), NtStatus
     }
 }
 
+/// FFI struct for `NtSetSystemInformation(SystemCombinePhysicalMemoryInformation)`.
+///
+/// Maps to Windows `MEMORY_COMBINE_INFORMATION_INPUT` / `MEMORY_COMBINE_INFORMATION`.
+#[repr(C)]
+struct CombinePhysicalMemoryInfo {
+    /// Process handle — 0 for system-wide scan.
+    handle: usize,
+    /// Output: number of pages combined.
+    pages_combined: usize,
+}
+
+/// Execute a physical memory combine operation via the NT kernel.
+///
+/// Returns the number of pages combined on success.
+pub fn execute_combine_memory() -> Result<usize, NtStatus> {
+    let mut info = CombinePhysicalMemoryInfo {
+        handle: 0,
+        pages_combined: 0,
+    };
+
+    // SAFETY: `info` is a valid repr(C) struct on the stack with correct size.
+    // NtSetSystemInformation reads/writes exactly `size_of::<CombinePhysicalMemoryInfo>()` bytes.
+    let status = unsafe {
+        NtSetSystemInformation(
+            SYSTEM_COMBINE_PHYSICAL_MEMORY_INFORMATION,
+            (&raw mut info).cast::<std::ffi::c_void>(),
+            std::mem::size_of::<CombinePhysicalMemoryInfo>() as u32,
+        )
+    };
+
+    if status == STATUS_SUCCESS {
+        Ok(info.pages_combined)
+    } else {
+        Err(status)
+    }
+}
+
 /// Safe wrapper around `NtQuerySystemInformation`.
 pub fn nt_query_system_information(
     class: u32,
