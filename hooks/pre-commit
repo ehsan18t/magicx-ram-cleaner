@@ -19,7 +19,7 @@ echo ""
 
 # Gate 1: Formatting
 echo "→ Checking formatting..."
-if ! cargo fmt --all -- --check 2>/dev/null; then
+if ! cargo fmt --all -- --check; then
     echo ""
     echo "✗ FORMATTING FAILED"
     echo "  Run: cargo fmt"
@@ -30,7 +30,7 @@ echo "  ✓ Formatting OK"
 
 # Gate 2: Clippy (uses deny-level lints from Cargo.toml)
 echo "→ Running clippy..."
-if ! cargo clippy --all-targets 2>/dev/null; then
+if ! cargo clippy --all-targets; then
     echo ""
     echo "✗ CLIPPY FAILED"
     echo "  Fix the lint errors above, then try committing again."
@@ -40,7 +40,7 @@ echo "  ✓ Clippy OK"
 
 # Gate 3: Tests
 echo "→ Running tests..."
-if ! cargo test --all-targets 2>/dev/null; then
+if ! cargo test --all-targets; then
     echo ""
     echo "✗ TESTS FAILED"
     echo "  Fix the failing tests, then try committing again."

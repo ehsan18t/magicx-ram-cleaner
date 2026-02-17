@@ -76,4 +76,3 @@ jobs:
 
       - name: "Audit: cargo deny check"
         run: cargo deny check
-        continue-on-error: true # Set to false once deny.toml is tuned

@@ -143,7 +143,7 @@ impl MemoryListInfo {
     ///
     /// The struct layout varies by Windows version:
     /// - Base: 5 + 8 + 8 + 1 = 22 `ULONG_PTR` entries
-    /// - Newer builds add `StandbyRepurposedByPriority`[8], making it 30 entries
+    /// - Newer builds add `StandbyRepurposedByPriority`\[8\], making it 30 entries
     ///
     /// This implementation starts with a 30-entry buffer and falls back to
     /// dynamic sizing via `return_length` if the kernel reports a mismatch.

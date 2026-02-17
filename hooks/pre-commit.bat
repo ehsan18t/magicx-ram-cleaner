@@ -12,7 +12,7 @@ echo.
 
 REM Gate 1: Formatting
 echo -^> Checking formatting...
-cargo fmt --all -- --check >nul 2>&1
+cargo fmt --all -- --check
 if %ERRORLEVEL% neq 0 (
     echo.
     echo X FORMATTING FAILED
@@ -24,7 +24,7 @@ echo   OK Formatting
 
 REM Gate 2: Clippy
 echo -^> Running clippy...
-cargo clippy --all-targets >nul 2>&1
+cargo clippy --all-targets
 if %ERRORLEVEL% neq 0 (
     echo.
     echo X CLIPPY FAILED
@@ -35,7 +35,7 @@ echo   OK Clippy
 
 REM Gate 3: Tests
 echo -^> Running tests...
-cargo test --all-targets >nul 2>&1
+cargo test --all-targets
 if %ERRORLEVEL% neq 0 (
     echo.
     echo X TESTS FAILED

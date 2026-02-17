@@ -388,11 +388,10 @@ The full sequence. Flushes the file cache first (can reclaim GBs on I/O-heavy sy
 1. Flush file system cache
 2. Empty all process working sets (kernel-level)
 3. Flush modified page list to disk
-4. Purge low-priority standby pages
-5. Purge ALL standby pages
-6. Memory page combining (dedup)
-7. Second-pass: Flush modified list again
-8. Second-pass: Purge standby list again
+4. Purge ALL standby pages
+5. Memory page combining (dedup)
+6. Second-pass: Flush modified list again
+7. Second-pass: Purge standby list again
 ```
 Everything plus memory deduplication. The second pass catches pages that were modified during the combining step. Use this when you absolutely need maximum free RAM.
 
