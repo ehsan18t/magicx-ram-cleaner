@@ -292,7 +292,7 @@ enum Commands {
         json: bool,
     },
 
-    /// Purge standby list — equivalent to EmptyStandbyList but better.
+    /// Purge standby list — equivalent to `EmptyStandbyList` but better.
     ///
     /// Removes cached pages from the standby list, making them available
     /// for new allocations. By default purges ALL priorities.
@@ -342,9 +342,9 @@ enum Commands {
     /// Flush file system cache — release cached file data.
     ///
     /// Tells Windows to release its file system cache, freeing the
-    /// RAM used to cache recently-read files. Requires SeIncreaseQuotaPrivilege.
+    /// RAM used to cache recently-read files. Requires `SeIncreaseQuotaPrivilege`.
     ///
-    /// This is unique to MagicX — EmptyStandbyList cannot do this.
+    /// This is unique to `MagicX` — `EmptyStandbyList` cannot do this.
     #[command(verbatim_doc_comment)]
     FlushCache {
         /// Show detailed progress.
@@ -358,7 +358,7 @@ enum Commands {
     /// copy-on-write, freeing duplicate pages. Windows 10+ only.
     ///
     /// This can take several seconds on systems with lots of RAM.
-    /// Unique to MagicX — EmptyStandbyList cannot do this.
+    /// Unique to `MagicX` — `EmptyStandbyList` cannot do this.
     #[command(verbatim_doc_comment)]
     Combine {
         /// Show detailed progress.

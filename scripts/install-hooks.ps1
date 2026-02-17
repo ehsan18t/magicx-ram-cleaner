@@ -4,8 +4,8 @@
 
 $ErrorActionPreference = "Stop"
 
-$hooksDir = Join-Path $PSScriptRoot ".." "hooks"
-$gitHooksDir = Join-Path $PSScriptRoot ".." ".git" "hooks"
+$hooksDir = Join-Path (Join-Path $PSScriptRoot "..") "hooks"
+$gitHooksDir = Join-Path (Join-Path (Join-Path $PSScriptRoot "..") ".git") "hooks"
 
 # Ensure .git/hooks directory exists
 if (-not (Test-Path $gitHooksDir)) {
@@ -32,10 +32,24 @@ if (Test-Path $prePushTarget) {
 Copy-Item $prePushSource $prePushTarget -Force
 Write-Host "Pre-push hook installed." -ForegroundColor Green
 
+# Install commit-msg hook
+$commitMsgSource = Join-Path $hooksDir "commit-msg"
+$commitMsgTarget = Join-Path $gitHooksDir "commit-msg"
+
+if (Test-Path $commitMsgTarget) {
+    Write-Host "Commit-msg hook already exists, overwriting..." -ForegroundColor Yellow
+}
+Copy-Item $commitMsgSource $commitMsgTarget -Force
+Write-Host "Commit-msg hook installed." -ForegroundColor Green
+
 Write-Host ""
 Write-Host "Git hooks installed successfully!" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Quality gates will now run automatically:" -ForegroundColor Cyan
+Write-Host "  Commit-msg (validates commit message format):" -ForegroundColor White
+Write-Host "    Format: <type>(<scope>): <description>"
+Write-Host "    Types:  feat, fix, docs, style, refactor, perf, test, build, ci, chore"
+Write-Host ""
 Write-Host "  Pre-commit (fast checks before each commit):" -ForegroundColor White
 Write-Host "    1. cargo fmt --check    (formatting)"
 Write-Host "    2. cargo clippy         (lints)"
