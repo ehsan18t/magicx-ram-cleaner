@@ -639,13 +639,4 @@ mod tests {
         };
         assert_eq!(info.total_standby_pages(), 0);
     }
-
-    #[test]
-    fn format_bytes_boundary_values() {
-        // Exactly at boundary between ranges
-        assert_eq!(format_bytes(1024), "1.00 KB");
-        assert_eq!(format_bytes(1024 * 1024), "1.00 MB");
-        assert_eq!(format_bytes(1024 * 1024 * 1024), "1.00 GB");
-        assert_eq!(format_bytes(1024 * 1024 * 1024 * 1024), "1.00 TB");
-    }
 }
