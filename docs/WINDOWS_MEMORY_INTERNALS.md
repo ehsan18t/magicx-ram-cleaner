@@ -398,39 +398,52 @@ PFN_NtQuerySystemInformation NtQuerySystemInformation =
 
 ### Rust (FFI with windows-sys or raw FFI)
 
-#### Option A: Using the `ntapi` crate (recommended)
+#### Option A: Using `windows-sys` + manual ntdll FFI (recommended — used by this project)
+
+`windows-sys` provides official Microsoft bindings for Win32 APIs. For undocumented
+NT APIs (`NtSetSystemInformation`, `NtQuerySystemInformation`), declare them manually
+via `#[link(name = "ntdll")]`.
+
 ```toml
 # Cargo.toml
 [dependencies]
-ntapi = "0.4"
-winapi = { version = "0.3", features = ["ntdef", "winnt", "processthreadsapi", 
-           "securitybaseapi", "winbase", "psapi", "sysinfoapi", "memoryapi",
-           "handleapi", "libloaderapi", "errhandlingapi"] }
-```
-
-```rust
-use ntapi::ntexapi::{
-    NtSetSystemInformation,
-    NtQuerySystemInformation,
-    SYSTEM_MEMORY_LIST_COMMAND,
-    SYSTEM_MEMORY_LIST_INFORMATION,
-};
-```
-
-#### Option B: Using `windows-sys` crate (Microsoft official, no ntdll bindings)
-```toml
-[dependencies]
-windows-sys = { version = "0.52", features = [
-    "Win32_System_SystemInformation",
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
     "Win32_System_Memory",
     "Win32_System_Threading",
     "Win32_Security",
+    "Win32_Security_Authorization",
     "Win32_System_ProcessStatus",
-    "Win32_Foundation",
+    "Win32_System_SystemInformation",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_ToolHelp",
 ]}
 ```
 
-#### Option C: Raw FFI (no external crate dependencies)
+```rust
+// Manual FFI for undocumented NT APIs (not in windows-sys)
+#[link(name = "ntdll")]
+extern "system" {
+    fn NtSetSystemInformation(
+        SystemInformationClass: u32,
+        SystemInformation: *mut std::ffi::c_void,
+        SystemInformationLength: u32,
+    ) -> i32; // NTSTATUS
+
+    fn NtQuerySystemInformation(
+        SystemInformationClass: u32,
+        SystemInformation: *mut std::ffi::c_void,
+        SystemInformationLength: u32,
+        ReturnLength: *mut u32,
+    ) -> i32; // NTSTATUS
+}
+```
+
+> **Note:** The `ntapi` crate (stale since 2021) and `winapi` (legacy, replaced by
+> `windows-sys`) are **not recommended**. `windows-sys` + manual FFI for the 2-3
+> undocumented functions is cleaner and better maintained.
+
+#### Option B: Raw FFI (no external crate dependencies)
 ```rust
 #![allow(non_snake_case, non_camel_case_types)]
 
@@ -1032,7 +1045,7 @@ loop {
 ## Sources
 
 - **System Informer (Process Hacker) phnt headers:** https://github.com/winsiderss/systeminformer/blob/master/phnt/include/ntexapi.h
-- **Rust ntapi crate:** https://github.com/MSxDOS/ntapi (FFI bindings for NT Native API)
+- **windows-sys crate (official Microsoft Rust bindings):** https://crates.io/crates/windows-sys
 - **Standby RAM Cleaner Service (C reference):** https://github.com/theKorzh/Standby-RAM-Cleaner-service
 - **Microsoft Docs - GlobalMemoryStatusEx:** https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-globalmemorystatusex
 - **Microsoft Docs - PERFORMANCE_INFORMATION:** https://learn.microsoft.com/en-us/windows/win32/api/psapi/ns-psapi-performance_information

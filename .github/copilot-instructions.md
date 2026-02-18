@@ -50,16 +50,21 @@
 
 ```
 src/
-  main.rs        — CLI entry, clap Parser, command dispatch (no business logic)
-  cleaner.rs     — cleaning operations & orchestration (smart_clean, CleanLevel)
-  display.rs     — terminal formatting, box drawing, colour-coded output
-  monitor.rs     — continuous monitoring loop, Ctrl+C handler, auto-clean
-  ntapi.rs       — NT kernel FFI (NtSetSystemInformation, NtQuerySystemInformation)
-  privilege.rs   — Windows privilege elevation (Se*Privilege)
-  stats.rs       — memory statistics, Win32 API calls, MemorySnapshot
-build.rs         — embeds admin-elevation manifest, application icon, and version metadata
+  main.rs          — thin entry point: mod declarations, main(), run(), command dispatch
+  cli.rs           — clap Parser, Commands enum, help text constants, STYLES
+  cleaner.rs       — cleaning operations & orchestration (smart_clean, CleanLevel)
+  console.rs       — Windows console management (dynamic attach/alloc for SUBSYSTEM:WINDOWS, ANSI, notifications)
+  context_menu.rs  — Windows Desktop context menu integration (registry install/uninstall)
+  display.rs       — ALL terminal formatting: banner, status, clean output, box drawing
+  monitor.rs       — continuous monitoring loop, Ctrl+C handler, auto-clean
+  ntapi.rs         — NT kernel FFI (NtSetSystemInformation, NtQuerySystemInformation)
+  privilege.rs     — Windows privilege elevation (Se*Privilege) + admin check
+  stats.rs         — memory statistics, Win32 API calls, MemorySnapshot
+build.rs           — embeds admin-elevation manifest, application icon, and version metadata
 assets/
-  app.ico        — multi-size application icon (16–256 px) embedded into the binary
+  app.ico          — multi-size application icon (16–256 px) embedded as resource ID 1
+  lite.ico         — gentle/moderate context menu icon, embedded as resource ID 2
+  aggressive.ico   — aggressive context menu icon, embedded as resource ID 3
 ```
 
 - **Do not create new modules** without explicit human approval.
@@ -105,7 +110,21 @@ assets/
 
 ---
 
-## 7 · Commit Message Rules
+## 7 · Commit Rules
+
+### 7.1 · Commit After Every Completed Task
+
+Agents **must** commit immediately after completing each discrete task or fix.
+Do not batch multiple unrelated changes into a single commit. Each commit
+should represent **one logical change** that can be understood, reviewed, and
+reverted independently.
+
+- Fix one bug → commit. Fix the next bug → commit again.
+- Refactor one module → commit. Then move to the next.
+- Add a feature → commit. Update its docs → commit (or same commit if tightly coupled).
+- Never leave uncommitted work when moving to a different task.
+
+### 7.2 · Conventional Commits Format
 
 This project enforces **Conventional Commits** via a `commit-msg` git hook.
 
@@ -122,13 +141,29 @@ Rules:
 - No trailing period.
 - Scope is optional, lowercase, alphanumeric + hyphens.
 
-Examples:
+### 7.3 · Commit Description Quality
+
+Commit messages must be **concise yet descriptive**. The subject line should
+clearly explain _what_ changed so a reviewer can understand without reading
+the diff. Use the commit body (via `-m` flags) for _why_ and _how_ when the
+change is non-trivial.
+
+Good examples:
 
 ```
-feat(monitor): add cooldown configuration flag
-fix(ntapi): handle STATUS_ACCESS_DENIED gracefully
-docs: update README with new subcommands
+fix(privilege): free SID memory on all error paths
 refactor(cleaner): extract wait_for_settle helper
+perf(stats): avoid redundant GlobalMemoryStatusEx call
+fix(ntapi): validate command enum before FFI call
+docs: update architecture section for new modules
+```
+
+Bad examples (too vague):
+
+```
+fix: fix bug
+refactor: cleanup
+chore: updates
 ```
 
 ---
@@ -166,7 +201,7 @@ are worse than verbose docs.
 
 Update the relevant `--help` text when changing any CLI-facing behaviour. The help
 text is defined as constants (`LONG_ABOUT`, `AFTER_HELP_SHORT`, `AFTER_HELP_LONG`)
-in `main.rs`.
+in `cli.rs`.
 
 ---
 
@@ -226,14 +261,14 @@ Always verify against current sources when the information is critical.
 
 1. Add the kernel command to `ntapi::MemoryListCommand` if needed.
 2. Implement the function in `cleaner.rs` following existing patterns.
-3. Add a `Commands` variant in `main.rs` with clap attributes and doc comment.
+3. Add a `Commands` variant in `cli.rs` with clap attributes and doc comment.
 4. Wire it up in the `match` dispatch in `main()`.
 5. Update README.md, `AFTER_HELP_LONG`, and docs/RUST_IMPLEMENTATION_GUIDE.md.
 6. Add tests for any pure logic.
 
 ### Adding a new CLI flag:
 
-1. Add the field to the relevant clap struct in `main.rs`.
+1. Add the field to the relevant clap struct in `cli.rs`.
 2. Use it in the dispatch logic.
 3. Update `--help` text, README.md.
 4. Test with `cargo run -- --help`.

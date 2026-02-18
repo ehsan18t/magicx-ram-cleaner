@@ -2,11 +2,30 @@
 //!
 //! Beautiful terminal output for memory status and diagnostics.
 
-use crate::stats::{MemoryListInfo, MemorySnapshot, format_bytes};
-use colored::Colorize;
+use crate::cleaner::{CleanLevel, CleanResult};
+use crate::stats::{
+    FileCacheSnapshot, MemoryListInfo, MemorySnapshot, ProcessMemoryInfo, format_bytes,
+};
+use colored::{ColoredString, Colorize};
+
+/// Colour a memory load percentage: red (>85%), yellow (>60%), green (≤60%).
+fn coloured_load(percent: u32) -> ColoredString {
+    let text = format!("{percent}%");
+    if percent > 85 {
+        text.red().bold()
+    } else if percent > 60 {
+        text.yellow()
+    } else {
+        text.green()
+    }
+}
 
 /// Print a comprehensive memory status report.
-pub fn print_status(snapshot: &MemorySnapshot, list_info: Option<&MemoryListInfo>) {
+pub fn print_status(
+    snapshot: &MemorySnapshot,
+    list_info: Option<&MemoryListInfo>,
+    file_cache: Option<&FileCacheSnapshot>,
+) {
     let page_size = snapshot.page_size;
 
     println!();
@@ -36,6 +55,10 @@ pub fn print_status(snapshot: &MemorySnapshot, list_info: Option<&MemoryListInfo
         print_memory_lists(info, page_size);
     }
 
+    if let Some(fc) = file_cache {
+        print_file_cache(fc);
+    }
+
     print_commit_and_pagefile(snapshot, page_size);
     print_kernel_and_system(snapshot, page_size);
     println!();
@@ -44,14 +67,10 @@ pub fn print_status(snapshot: &MemorySnapshot, list_info: Option<&MemoryListInfo
 /// Print the physical memory section.
 fn print_physical_memory(snapshot: &MemorySnapshot) {
     println!("{}", "─── Physical Memory ────────────────────".dimmed());
-    let load_color = if snapshot.memory_load_percent > 85 {
-        format!("{}%", snapshot.memory_load_percent).red().bold()
-    } else if snapshot.memory_load_percent > 60 {
-        format!("{}%", snapshot.memory_load_percent).yellow()
-    } else {
-        format!("{}%", snapshot.memory_load_percent).green()
-    };
-    println!("  Memory Load:    {load_color}");
+    println!(
+        "  Memory Load:    {}",
+        coloured_load(snapshot.memory_load_percent)
+    );
     println!(
         "  Total:          {}",
         format_bytes(snapshot.total_physical).white().bold()
@@ -109,17 +128,13 @@ fn print_memory_lists(info: &MemoryListInfo, page_size: u64) {
     );
     for (i, &count) in info.standby_pages.iter().enumerate() {
         if count > 0 {
-            let bar_len = if total_standby > 0 {
-                ((count as f64 / total_standby as f64) * 30.0) as usize
-            } else {
-                0
-            };
-            let bar = "█".repeat(bar_len);
-            let pct = if total_standby > 0 {
-                (count as f64 / total_standby as f64) * 100.0
+            let ratio = if total_standby > 0 {
+                count as f64 / total_standby as f64
             } else {
                 0.0
             };
+            let bar = "█".repeat((ratio * 30.0) as usize);
+            let pct = ratio * 100.0;
             let priority_label = match i {
                 0 => "Lowest  ",
                 7 => "Highest ",
@@ -134,6 +149,29 @@ fn print_memory_lists(info: &MemoryListInfo, page_size: u64) {
                 priority_label.dimmed()
             );
         }
+    }
+}
+
+/// Print file system cache information.
+fn print_file_cache(fc: &FileCacheSnapshot) {
+    println!();
+    println!("{}", "─── File System Cache ──────────────────".dimmed());
+    println!(
+        "  Current:        {}",
+        format_bytes(fc.current_size).white().bold()
+    );
+    println!("  Peak:           {}", format_bytes(fc.peak_size).yellow());
+    if fc.minimum_working_set > 0 {
+        println!(
+            "  Min Limit:      {}",
+            format_bytes(fc.minimum_working_set).dimmed()
+        );
+    }
+    if fc.maximum_working_set > 0 {
+        println!(
+            "  Max Limit:      {}",
+            format_bytes(fc.maximum_working_set).dimmed()
+        );
     }
 }
 
@@ -202,33 +240,20 @@ fn print_kernel_and_system(snapshot: &MemorySnapshot, page_size: u64) {
 
 /// Print a compact one-line memory summary (for monitoring mode).
 pub fn print_compact_status(snapshot: &MemorySnapshot) {
-    let load_str = if snapshot.memory_load_percent > 85 {
-        format!("{}%", snapshot.memory_load_percent)
-            .red()
-            .bold()
-            .to_string()
-    } else if snapshot.memory_load_percent > 60 {
-        format!("{}%", snapshot.memory_load_percent)
-            .yellow()
-            .to_string()
-    } else {
-        format!("{}%", snapshot.memory_load_percent)
-            .green()
-            .to_string()
-    };
+    let load_str = coloured_load(snapshot.memory_load_percent);
 
     let now = local_now();
     println!(
         "[{}] Load: {} | Used: {} | Avail: {} | Commit: {:.0}%",
         now.dimmed(),
         load_str,
-        format_bytes(snapshot.used_physical),
+        format_bytes(snapshot.used_physical).red(),
         format_bytes(snapshot.available_physical).green(),
         snapshot.commit_percent(),
     );
 }
 
-/// Get local time as HH:MM:SS string using Win32 `GetLocalTime`.
+/// Get local date and time as `YYYY-MM-DD HH:MM:SS` string using Win32 `GetLocalTime`.
 fn local_now() -> String {
     use windows_sys::Win32::Foundation::SYSTEMTIME;
     use windows_sys::Win32::System::SystemInformation::GetLocalTime;
@@ -237,6 +262,285 @@ fn local_now() -> String {
     unsafe {
         let mut st: SYSTEMTIME = std::mem::zeroed();
         GetLocalTime(&raw mut st);
-        format!("{:02}:{:02}:{:02}", st.wHour, st.wMinute, st.wSecond)
+        format!(
+            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+            st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond
+        )
+    }
+}
+
+// ─── Application-level Display Functions ─────────────────────────────────────
+
+/// Print the `MagicX` ASCII art banner and version.
+pub fn print_banner() {
+    println!(
+        "{}",
+        r"
+  __  __             _       __  __
+ |  \/  | __ _  __ _(_) ___ \ \/ /
+ | |\/| |/ _` |/ _` | |/ __| \  /
+ | |  | | (_| | (_| | | (__  /  \
+ |_|  |_|\__,_|\__, |_|\___/_/\_\
+               |___/
+"
+        .cyan()
+        .bold()
+    );
+    println!(
+        "  {} {}\n",
+        "RAM Cleaner".white().bold(),
+        format!("v{}", env!("CARGO_PKG_VERSION")).dimmed()
+    );
+}
+
+/// Print the "Starting X clean..." header before a smart clean run.
+pub fn print_clean_start(level: CleanLevel) {
+    println!(
+        "\n{} Starting {} clean...\n",
+        "⚡".yellow(),
+        level.to_string().bold()
+    );
+}
+
+/// Print the result of a single cleaning operation.
+///
+/// Uses the before/after data stored in [`CleanResult`] (measured with kernel settle).
+pub fn print_single_result(result: &CleanResult) {
+    println!();
+    let status = if result.success {
+        "OK".green().bold()
+    } else {
+        "FAIL".red().bold()
+    };
+
+    println!("  [{}] {}", status, result.operation.bold());
+    println!("  {}", result.message.dimmed());
+
+    if result.freed_bytes > 0 {
+        println!(
+            "  Freed: {}",
+            format_bytes(result.freed_bytes as u64).green().bold()
+        );
+    }
+    println!(
+        "  Available: {} -> {}",
+        format_bytes(result.available_before).yellow(),
+        format_bytes(result.available_after).green()
+    );
+    println!(
+        "  Load: {}% -> {}%   (took {:.2}s)\n",
+        result.load_before, result.load_after, result.elapsed_secs
+    );
+}
+
+/// Print a ranked table of the top processes by working set (physical RAM) usage.
+pub fn print_top_processes(processes: &[ProcessMemoryInfo]) {
+    if processes.is_empty() {
+        return;
+    }
+
+    println!();
+    println!("{}", "─── Top Processes by Memory ────────────".dimmed());
+    println!(
+        "  {:<6} {:<30} {:>12} {:>12}",
+        "PID".cyan().bold(),
+        "Process".cyan().bold(),
+        "Working Set".cyan().bold(),
+        "Peak".cyan().bold()
+    );
+    println!("  {}", "─".repeat(62).dimmed());
+
+    for p in processes {
+        println!(
+            "  {:<6} {:<30} {:>12} {:>12}",
+            p.pid,
+            truncate_name(&p.name, 30),
+            format_bytes(p.working_set).white().bold(),
+            format_bytes(p.peak_working_set).dimmed()
+        );
+    }
+    println!();
+}
+
+/// Truncate a string to `max_len` characters, adding an ellipsis if needed.
+///
+/// Uses [`char_indices`](str::char_indices) so the slice never lands inside a
+/// multi-byte UTF-8 sequence.
+fn truncate_name(name: &str, max_len: usize) -> String {
+    if name.len() <= max_len {
+        return name.to_string();
+    }
+    // Find the last char boundary that fits within (max_len - 1) bytes,
+    // leaving room for the '…' character.
+    let boundary = name
+        .char_indices()
+        .map(|(i, _)| i)
+        .take_while(|&i| i < max_len)
+        .last()
+        .unwrap_or(0);
+    format!("{}…", &name[..boundary])
+}
+
+/// Print a dry-run preview of the operations that would be performed.
+pub fn print_dry_run(level: CleanLevel, operations: &[&str]) {
+    println!(
+        "\n{} Dry run — {} level ({} operations):\n",
+        "🔍".dimmed(),
+        level.to_string().bold(),
+        operations.len()
+    );
+    for (i, op) in operations.iter().enumerate() {
+        println!("  {}. {}", (i + 1).to_string().cyan(), op.white().bold());
+    }
+    println!(
+        "\n  {}",
+        "No operations were executed. Remove --dry-run to clean.".yellow()
+    );
+    println!();
+}
+
+/// Print a formatted summary of all cleaning results with before/after comparison.
+pub fn print_clean_summary(
+    results: &[CleanResult],
+    before: &MemorySnapshot,
+    after: &MemorySnapshot,
+    total_freed: i64,
+    total_elapsed_secs: f64,
+) {
+    println!("{}", "─── Cleaning Summary ───────────────────".dimmed());
+    println!();
+
+    for r in results {
+        let status = if r.success {
+            "✓".green().bold().to_string()
+        } else {
+            "✗".red().bold().to_string()
+        };
+        let freed_str = match r.freed_bytes.cmp(&0) {
+            std::cmp::Ordering::Greater => format!("+{}", format_bytes(r.freed_bytes as u64))
+                .green()
+                .to_string(),
+            std::cmp::Ordering::Less => format!("-{}", format_bytes(r.freed_bytes.unsigned_abs()))
+                .yellow()
+                .to_string(),
+            std::cmp::Ordering::Equal => "0 B".dimmed().to_string(),
+        };
+
+        let elapsed_str = format!("{:.2}s", r.elapsed_secs).dimmed().to_string();
+
+        println!(
+            "  {} {:<35} {:>12}  {:>6}  {}",
+            status,
+            r.operation,
+            freed_str,
+            elapsed_str,
+            r.message.dimmed()
+        );
+    }
+
+    println!();
+    println!("{}", "─── Memory Before/After ────────────────".dimmed());
+    println!(
+        "  {} Used:      {} → {}",
+        "▸".cyan(),
+        format_bytes(before.used_physical).red(),
+        format_bytes(after.used_physical).green()
+    );
+    println!(
+        "  {} Available: {} → {}",
+        "▸".cyan(),
+        format_bytes(before.available_physical).yellow(),
+        format_bytes(after.available_physical).green()
+    );
+    println!(
+        "  {} Load:      {}% → {}%",
+        "▸".cyan(),
+        before.memory_load_percent.to_string().red(),
+        after.memory_load_percent.to_string().green()
+    );
+
+    match total_freed.cmp(&0) {
+        std::cmp::Ordering::Greater => {
+            println!(
+                "\n  {} Total freed: {}  (took {:.2}s)",
+                "★".yellow().bold(),
+                format_bytes(total_freed as u64).green().bold(),
+                total_elapsed_secs
+            );
+        }
+        std::cmp::Ordering::Equal => {
+            println!(
+                "\n  {} Net change: 0 B (already clean, took {:.2}s)",
+                "•".dimmed(),
+                total_elapsed_secs
+            );
+        }
+        std::cmp::Ordering::Less => {
+            println!(
+                "\n  {} Net change: -{} (pages re-faulted during clean, took {:.2}s)",
+                "•".dimmed(),
+                format_bytes(total_freed.unsigned_abs()).yellow(),
+                total_elapsed_secs
+            );
+        }
+    }
+    println!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_name_short_string() {
+        assert_eq!(truncate_name("notepad.exe", 30), "notepad.exe");
+    }
+
+    #[test]
+    fn truncate_name_exact_length() {
+        let name = "a".repeat(30);
+        assert_eq!(truncate_name(&name, 30), name);
+    }
+
+    #[test]
+    fn truncate_name_long_string() {
+        let name = "a".repeat(40);
+        let result = truncate_name(&name, 30);
+        assert!(
+            result.len() <= 32, // 29 ASCII chars + '…' (3 bytes UTF-8)
+            "truncated name too long: {} bytes",
+            result.len()
+        );
+        assert!(result.ends_with('…'));
+    }
+
+    #[test]
+    fn truncate_name_empty_string() {
+        assert_eq!(truncate_name("", 30), "");
+    }
+
+    #[test]
+    fn truncate_name_single_char() {
+        assert_eq!(truncate_name("x", 30), "x");
+    }
+
+    #[test]
+    fn truncate_name_max_len_one() {
+        // Edge case: max_len = 1 with a long string
+        let result = truncate_name("hello", 1);
+        assert!(result.ends_with('…'), "should have ellipsis");
+    }
+
+    #[test]
+    fn coloured_load_boundaries() {
+        // Test the colour threshold boundaries
+        let low = coloured_load(60);
+        assert!(format!("{low}").contains("60%"));
+
+        let mid = coloured_load(61);
+        assert!(format!("{mid}").contains("61%"));
+
+        let high = coloured_load(86);
+        assert!(format!("{high}").contains("86%"));
     }
 }

@@ -25,8 +25,10 @@ MagicX RAM Cleaner goes far beyond tools like EmptyStandbyList by providing gran
     - [`flush-modified` — Modified Page Flush](#flush-modified--modified-page-flush)
     - [`empty-workingsets` — Working Set Trim](#empty-workingsets--working-set-trim)
     - [`flush-cache` — File System Cache Flush](#flush-cache--file-system-cache-flush)
+    - [`flush-registry` — Registry Cache Flush](#flush-registry--registry-cache-flush)
     - [`combine` — Memory Page Deduplication](#combine--memory-page-deduplication)
     - [`monitor` — Continuous Monitoring](#monitor--continuous-monitoring)
+    - [`context-menu` — Right-Click Context Menu](#context-menu--right-click-context-menu)
   - [Cleaning Levels Explained](#cleaning-levels-explained)
     - [What happens at each level?](#what-happens-at-each-level)
       - [Gentle](#gentle)
@@ -141,6 +143,17 @@ cargo build --release
 
 ---
 
+## Global Options
+
+These flags can be used with **any** subcommand:
+
+| Flag            | Description                                                         |
+| --------------- | ------------------------------------------------------------------- |
+| `--no-color`    | Disable coloured terminal output (also respects `NO_COLOR` env var) |
+| `-q`, `--quiet` | Suppress banner and non-essential output (implies no verbose)       |
+
+---
+
 ## Commands Reference
 
 ### `clean` — Smart Clean
@@ -156,7 +169,8 @@ magicx-ram-cleaner clean [OPTIONS]
 | --------------------- | -------------------------------------------------------------------------------- |
 | `-l, --level <LEVEL>` | Cleaning aggressiveness: `gentle`, `moderate`, `aggressive` (default), `nuclear` |
 | `-v, --verbose`       | Show detailed progress of each operation                                         |
-
+| `--report <FILE>`     | Write cleaning results to a JSON report file                                     |
+| `--dry-run`           | Preview what operations would run without executing them                         |
 **Examples:**
 ```powershell
 # Default aggressive clean — best for most situations
@@ -170,6 +184,12 @@ magicx-ram-cleaner clean -l moderate
 
 # Nuclear — maximum RAM recovery, may cause brief slowdown
 magicx-ram-cleaner clean -l nuclear -v
+
+# Nuclear clean with JSON report for logging
+magicx-ram-cleaner clean -l nuclear --report clean-report.json
+
+# Preview what a nuclear clean would do (no execution)
+magicx-ram-cleaner clean -l nuclear --dry-run
 
 # Short form
 magicx-ram-cleaner clean -l gentle
@@ -190,6 +210,7 @@ magicx-ram-cleaner status [OPTIONS]
 | ---------------- | -------------------------------------------------------------------------- |
 | `-d, --detailed` | Show memory page list breakdown (standby priorities, modified pages, etc.) |
 | `-j, --json`     | Output as JSON for scripting/automation                                    |
+| `--top <N>`      | Show top N processes ranked by working set (physical RAM) usage            |
 
 **Examples:**
 ```powershell
@@ -198,6 +219,9 @@ magicx-ram-cleaner status
 
 # Detailed view including standby list per-priority breakdown
 magicx-ram-cleaner status --detailed
+
+# Top 10 memory-hungry processes
+magicx-ram-cleaner status --top 10
 
 # JSON output for scripts
 magicx-ram-cleaner status --json
@@ -287,10 +311,11 @@ magicx-ram-cleaner empty-workingsets [OPTIONS]
 ```
 
 **Options:**
-| Flag            | Description                                                                 |
-| --------------- | --------------------------------------------------------------------------- |
-| `--per-process` | Use per-process trimming instead of kernel-level (slower but more detailed) |
-| `-v, --verbose` | Show detailed progress                                                      |
+| Flag               | Description                                                                     |
+| ------------------ | ------------------------------------------------------------------------------- |
+| `--per-process`    | Use per-process trimming instead of kernel-level (slower but more detailed)     |
+| `--exclude <NAME>` | Exclude processes by name (case-insensitive, repeatable). Implies --per-process |
+| `-v, --verbose`    | Show detailed progress                                                          |
 
 **Examples:**
 ```powershell
@@ -299,6 +324,9 @@ magicx-ram-cleaner empty-workingsets
 
 # Per-process trim — shows how many processes were trimmed
 magicx-ram-cleaner empty-workingsets --per-process -v
+
+# Trim all processes except Chrome and Firefox
+magicx-ram-cleaner empty-workingsets --exclude chrome --exclude firefox
 ```
 
 **Kernel-level vs Per-process:**
@@ -329,6 +357,24 @@ magicx-ram-cleaner flush-cache -v
 
 ---
 
+### `flush-registry` — Registry Cache Flush
+
+Flushes the Windows registry cache, writing dirty hive pages to disk and freeing the RAM they occupy.
+
+```
+magicx-ram-cleaner flush-registry [OPTIONS]
+```
+
+**This is unique to MagicX** — EmptyStandbyList cannot do this. Uses `NtSetSystemInformation(SystemRegistryReconciliationInformation)` to force all cached registry modifications to disk. Included automatically in aggressive and nuclear cleaning levels.
+
+**Examples:**
+```powershell
+magicx-ram-cleaner flush-registry
+magicx-ram-cleaner flush-registry -v
+```
+
+---
+
 ### `combine` — Memory Page Deduplication
 
 Scans physical memory for identical pages and combines them using copy-on-write.
@@ -350,12 +396,13 @@ magicx-ram-cleaner monitor [OPTIONS]
 ```
 
 **Options:**
-| Flag                        | Description                                         |
-| --------------------------- | --------------------------------------------------- |
-| `-i, --interval <SECONDS>`  | Check interval in seconds (default: 5)              |
-| `-t, --threshold <PERCENT>` | Auto-clean when memory load exceeds this %          |
-| `-l, --level <LEVEL>`       | Cleaning level for auto-clean (default: aggressive) |
-| `-v, --verbose`             | Show details during auto-clean                      |
+| Flag                        | Description                                                           |
+| --------------------------- | --------------------------------------------------------------------- |
+| `-i, --interval <SECONDS>`  | Check interval in seconds (default: 5)                                |
+| `-t, --threshold <PERCENT>` | Auto-clean when memory load exceeds this %                            |
+| `-l, --level <LEVEL>`       | Cleaning level for auto-clean (default: aggressive)                   |
+| `-c, --cooldown <SECONDS>`  | Cooldown after auto-clean before cleaning again (default: 2×interval) |
+| `-v, --verbose`             | Show details during auto-clean                                        |
 
 **Examples:**
 ```powershell
@@ -368,6 +415,9 @@ magicx-ram-cleaner monitor --interval 10
 # Auto-clean at 80% usage with aggressive cleaning
 magicx-ram-cleaner monitor --threshold 80
 
+# Auto-clean with 30-second cooldown between cleans
+magicx-ram-cleaner monitor -t 85 --cooldown 30
+
 # Auto-clean at 90% with gentle cleaning, check every 3 seconds
 magicx-ram-cleaner monitor -i 3 -t 90 -l gentle
 
@@ -377,14 +427,54 @@ magicx-ram-cleaner monitor -t 85 -l nuclear -v
 
 ---
 
+### `context-menu` — Right-Click Context Menu
+
+Install or uninstall a cascading "MagicX RAM Cleaner" submenu in the Windows right-click context menu (Desktop background and folder windows).
+
+```
+magicx-ram-cleaner context-menu <install|uninstall>
+```
+
+**Subcommands:**
+| Subcommand  | Description                                  |
+| ----------- | -------------------------------------------- |
+| `install`   | Add context menu entries (creates registry keys under HKCR) |
+| `uninstall` | Remove context menu entries (deletes registry keys)         |
+
+**Context menu entries installed:**
+| Entry            | Action                              | Icon             |
+| ---------------- | ----------------------------------- | ---------------- |
+| Boost            | `clean --level gentle --notify`     | lite.ico         |
+| Moderate Boost   | `clean --level moderate --notify`   | lite.ico         |
+| Aggressive Boost | `clean --level aggressive --notify` | aggressive.ico   |
+| Purge Standby    | `purge-standby --notify`            | app.ico          |
+| Memory Status    | `status --notify`                   | app.ico          |
+
+> **Note:** Nuclear is intentionally excluded from the context menu — it is too destructive for one-click access.
+
+Context menu entries use `--notify` mode: no terminal window appears (the binary uses `SUBSYSTEM:WINDOWS` and skips console attachment entirely), the operation runs silently, and a brief balloon notification shows the result (e.g. freed RAM, success/failure). The notification auto-dismisses after 2 seconds and is not saved in the Windows Action Center.
+
+**Examples:**
+```powershell
+# Install context menu entries (run as Administrator)
+magicx-ram-cleaner context-menu install
+
+# Uninstall context menu entries
+magicx-ram-cleaner context-menu uninstall
+```
+
+After installing, right-click your Desktop or any folder background to see the "MagicX RAM Cleaner" submenu.
+
+---
+
 ## Cleaning Levels Explained
 
-| Level          | Operations                                                           | Impact                                             | Best For                                       |
-| -------------- | -------------------------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------- |
-| **gentle**     | Purge low-priority standby                                           | Minimal — only frees what Windows would free first | Gaming, production servers                     |
-| **moderate**   | Empty working sets → Purge low-priority standby                      | Low — trims bloated processes                      | Daily maintenance                              |
-| **aggressive** | File cache → Empty working sets → Flush modified → Purge ALL standby | Medium — brief I/O spike as apps re-fault pages    | Most users (default)                           |
-| **nuclear**    | Everything + memory combining + second pass                          | Highest — may cause temporary slowdown             | Before running demanding apps, troubleshooting |
+| Level          | Operations                                                                            | Impact                                             | Best For                                       |
+| -------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------- |
+| **gentle**     | Purge low-priority standby                                                            | Minimal — only frees what Windows would free first | Gaming, production servers                     |
+| **moderate**   | Empty working sets → Purge low-priority standby                                       | Low — trims bloated processes                      | Daily maintenance                              |
+| **aggressive** | File cache → Registry flush → Empty working sets → Flush modified → Purge ALL standby | Medium — brief I/O spike as apps re-fault pages    | Most users (default)                           |
+| **nuclear**    | Everything + memory combining + second pass                                           | Highest — may cause temporary slowdown             | Before running demanding apps, troubleshooting |
 
 ### What happens at each level?
 
@@ -404,21 +494,23 @@ Adds working set trimming — forces processes to give back memory they allocate
 #### Aggressive (Default)
 ```
 1. Flush file system cache
-2. Empty all process working sets (kernel-level)
-3. Flush modified page list to disk
-4. Purge ALL standby pages
+2. Flush registry cache
+3. Empty all process working sets (kernel-level)
+4. Flush modified page list to disk
+5. Purge ALL standby pages
 ```
-The full sequence. Flushes the file cache first (can reclaim GBs on I/O-heavy systems), trims all processes, writes dirty pages to disk, then purges the entire standby list. This is what you want when you need RAM NOW.
+The full sequence. Flushes the file cache and registry cache first (can reclaim GBs on I/O-heavy systems), trims all processes, writes dirty pages to disk, then purges the entire standby list. This is what you want when you need RAM NOW.
 
 #### Nuclear
 ```
 1. Flush file system cache
-2. Empty all process working sets (kernel-level)
-3. Flush modified page list to disk
-4. Purge ALL standby pages
-5. Memory page combining (dedup)
-6. Second-pass: Flush modified list again
-7. Second-pass: Purge standby list again
+2. Flush registry cache
+3. Empty all process working sets (kernel-level)
+4. Flush modified page list to disk
+5. Purge ALL standby pages
+6. Memory page combining (dedup)
+7. Second-pass: Flush modified list again
+8. Second-pass: Purge standby list again
 ```
 Everything plus memory deduplication. The second pass catches pages that were modified during the combining step. Use this when you absolutely need maximum free RAM.
 
@@ -591,11 +683,12 @@ MagicX moves pages from Standby (cached) to Free, increasing truly-free RAM at t
 MagicX's aggressive/nuclear levels follow this sequence for a reason:
 
 1. **Flush file cache** → Releases cached file data, immediately freeing RAM
-2. **Empty working sets** → Forces processes to give back unused pages (these move to Modified/Standby)
-3. **Flush modified** → Writes dirty pages to disk (Modified → Standby)
-4. **Purge standby** → Frees all cached pages (Standby → Free)
+2. **Flush registry cache** → Writes dirty registry hive pages to disk
+3. **Empty working sets** → Forces processes to give back unused pages (these move to Modified/Standby)
+4. **Flush modified** → Writes dirty pages to disk (Modified → Standby)
+5. **Purge standby** → Frees all cached pages (Standby → Free)
 
-If you skip step 3, modified pages can't be freed by step 4. This is why MagicX cleans more effectively than just running `EmptyStandbyList standbylist`.
+If you skip step 4, modified pages can't be freed by step 5. This is why MagicX cleans more effectively than just running `EmptyStandbyList standbylist`.
 
 ---
 
@@ -608,6 +701,7 @@ If you skip step 3, modified pages can't be freed by step 4. This is why MagicX 
 | Working set trim      |    ✅    |        ✅         |   ✅    |     ✅      |
 | Modified flush        |    ✅    |        ✅         |   ❌    |     ❌      |
 | File cache flush      |    ✅    |        ❌         |   ❌    |     ❌      |
+| Registry cache flush  |    ✅    |        ❌         |   ❌    |     ❌      |
 | Memory combining      |    ✅    |        ❌         |   ❌    |     ❌      |
 | Smart levels          |    ✅    |        ❌         |   ❌    |     ❌      |
 | Before/after stats    |    ✅    |        ❌         |   ❌    |  Partial   |
@@ -655,7 +749,13 @@ Currently built for x86-64 only. ARM support may be added in the future.
 
 ### Can I use this without the command line?
 
-MagicX is CLI-only by design. For a GUI, consider creating a shortcut:
+MagicX includes built-in Desktop context menu integration! Run:
+```powershell
+magicx-ram-cleaner context-menu install
+```
+This adds a "MagicX RAM Cleaner" submenu to your Desktop and folder right-click menus with quick access to Boost, Moderate Boost, Aggressive Boost, Purge Standby, and Memory Status — no terminal needed.
+
+Alternatively, create a shortcut:
 1. Right-click desktop → New → Shortcut
 2. Location: `C:\Tools\magicx-ram-cleaner.exe clean`
 3. Name: "Clean RAM"
@@ -669,7 +769,7 @@ Double-click to clean RAM instantly.
 
 ### Prerequisites
 
-- [Rust](https://rustup.rs/) 1.85 or newer (edition 2024)
+- [Rust](https://rustup.rs/) 1.93 or newer (edition 2024)
 - Windows 10 SDK (comes with Visual Studio Build Tools)
 - Git
 
@@ -714,13 +814,16 @@ cargo clippy
 
 ```
 src/
-├── main.rs         # CLI entry point, argument parsing (clap)
-├── cleaner.rs      # Core cleaning operations + smart clean engine
-├── ntapi.rs        # NT Native API FFI (NtSetSystemInformation)
-├── privilege.rs    # Windows privilege management
-├── stats.rs        # Memory statistics (GlobalMemoryStatusEx, GetPerformanceInfo)
-├── display.rs      # Terminal output formatting
-└── monitor.rs      # Continuous monitoring loop
+├── main.rs           # Thin entry point: mod declarations, main(), run(), dispatch
+├── cli.rs            # CLI definitions: clap Parser, Commands enum, help text
+├── cleaner.rs        # Core cleaning operations + smart clean engine
+├── console.rs        # Windows console management (dynamic attach/alloc, ANSI, notifications)
+├── context_menu.rs   # Windows Desktop context menu integration (registry)
+├── display.rs        # ALL terminal formatting: banner, status, clean output
+├── monitor.rs        # Continuous monitoring loop with auto-clean
+├── ntapi.rs          # NT Native API FFI (NtSetSystemInformation)
+├── privilege.rs      # Windows privilege management + admin elevation check
+└── stats.rs          # Memory statistics (GlobalMemoryStatusEx, GetPerformanceInfo)
 ```
 
 ### APIs Used
@@ -736,6 +839,8 @@ src/
 | `OpenProcessToken`         | advapi32.dll | Token manipulation for privileges                                        |
 | `AdjustTokenPrivileges`    | advapi32.dll | Enable required privileges                                               |
 | `CreateToolhelp32Snapshot` | kernel32.dll | Process enumeration                                                      |
+| `RegCreateKeyExW`          | advapi32.dll | Context menu registry key creation                                       |
+| `RegDeleteTreeW`           | advapi32.dll | Context menu registry key removal                                        |
 
 ---
 

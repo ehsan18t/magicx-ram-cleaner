@@ -5,17 +5,14 @@
 //! and file cache operations require `SeIncreaseQuotaPrivilege`.
 
 use anyhow::{Context, Result, bail};
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, LUID};
+use windows_sys::Win32::Foundation::{HANDLE, LUID};
 use windows_sys::Win32::Security::{
     AdjustTokenPrivileges, LookupPrivilegeValueW, SE_PRIVILEGE_ENABLED, TOKEN_ADJUST_PRIVILEGES,
     TOKEN_PRIVILEGES, TOKEN_QUERY,
 };
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
-/// Encode a UTF-16 null-terminated string from a Rust &str.
-fn to_wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
-}
+use crate::stats::{HandleGuard, to_wide};
 
 /// Enable a named Windows privilege on the current process token.
 ///
@@ -32,13 +29,13 @@ fn to_wide(s: &str) -> Vec<u16> {
 /// Returns an error if the privilege cannot be looked up or adjusted.
 pub fn enable_privilege(privilege_name: &str) -> Result<()> {
     // SAFETY: All pointers point to valid stack-allocated variables with correct
-    // sizes. The token handle is closed on every code path (success and error).
+    // sizes. The token handle is wrapped in HandleGuard for automatic cleanup.
     unsafe {
-        let mut token: HANDLE = std::ptr::null_mut();
+        let mut raw_token: HANDLE = std::ptr::null_mut();
         if OpenProcessToken(
             GetCurrentProcess(),
             TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
-            &raw mut token,
+            &raw mut raw_token,
         ) == 0
         {
             bail!(
@@ -46,6 +43,8 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
                 get_last_error()
             );
         }
+        // RAII guard: CloseHandle is called automatically on all exit paths
+        let token = HandleGuard::new(raw_token);
 
         let wide_name = to_wide(privilege_name);
         let mut luid = LUID {
@@ -54,7 +53,6 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
         };
 
         if LookupPrivilegeValueW(std::ptr::null(), wide_name.as_ptr(), &raw mut luid) == 0 {
-            CloseHandle(token);
             bail!(
                 "LookupPrivilegeValueW failed for '{}' (error {})",
                 privilege_name,
@@ -71,7 +69,7 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
         };
 
         if AdjustTokenPrivileges(
-            token,
+            token.raw(),
             0, // do not disable all
             &raw const tp,
             0,
@@ -80,13 +78,12 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
         ) == 0
         {
             let err = get_last_error();
-            CloseHandle(token);
             bail!("AdjustTokenPrivileges failed for '{privilege_name}' (error {err})");
         }
 
         // AdjustTokenPrivileges can succeed but still fail to set:
         let err = get_last_error();
-        CloseHandle(token);
+        // token guard dropped here — CloseHandle called automatically
 
         if err == 1300 {
             // ERROR_NOT_ALL_ASSIGNED
@@ -110,4 +107,40 @@ pub fn enable_all_privileges() -> Result<()> {
 /// Get the last Win32 error code.
 fn get_last_error() -> u32 {
     unsafe { windows_sys::Win32::Foundation::GetLastError() }
+}
+
+/// Check if we're actually running with elevated (Administrator) privileges.
+///
+/// Uses `CheckTokenMembership` with the built-in Administrators group SID
+/// to verify true elevation, not just token access.
+pub fn check_admin() -> Result<()> {
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Authorization::ConvertStringSidToSidW;
+    use windows_sys::Win32::Security::CheckTokenMembership;
+
+    // Well-known SID string for BUILTIN\Administrators: S-1-5-32-544
+    let sid_str: Vec<u16> = "S-1-5-32-544\0".encode_utf16().collect();
+    let mut sid: *mut std::ffi::c_void = std::ptr::null_mut();
+
+    // SAFETY: ConvertStringSidToSidW allocates the SID; we free it with LocalFree below.
+    let ok = unsafe { ConvertStringSidToSidW(sid_str.as_ptr(), &raw mut sid) };
+    if ok == 0 {
+        bail!(
+            "Cannot verify admin status. Please run as Administrator.\n\
+             Right-click Command Prompt or PowerShell → 'Run as administrator'"
+        );
+    }
+
+    let mut is_member: i32 = 0;
+    let check_ok = unsafe { CheckTokenMembership(std::ptr::null_mut(), sid, &raw mut is_member) };
+    unsafe { LocalFree(sid) };
+
+    if check_ok == 0 || is_member == 0 {
+        bail!(
+            "Not running as Administrator.\n\
+             Right-click Command Prompt or PowerShell → 'Run as administrator'"
+        );
+    }
+
+    Ok(())
 }
