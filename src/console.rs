@@ -128,6 +128,14 @@ const NOTIFY_ICON_UID: u32 = 0xBEEF;
 /// Duration the balloon notification stays visible before auto-dismiss (ms).
 const BALLOON_TIMEOUT_MS: u32 = 2000;
 
+/// Balloon info icon style (shows an "i" icon).
+/// From `shellapi.h` `NIIF_INFO` — not exposed by `windows-sys`.
+const NIIF_INFO: u32 = 0x01;
+
+/// Suppress the notification sound.
+/// From `shellapi.h` `NIIF_NOSOUND` — not exposed by `windows-sys`.
+const NIIF_NOSOUND: u32 = 0x10;
+
 /// Encode a Rust `&str` as null-terminated UTF-16 into a fixed-size buffer.
 ///
 /// Silently truncates if `s` is longer than `buf.len() - 1`.
@@ -182,9 +190,8 @@ pub fn show_balloon_notification(title: &str, body: &str) -> Result<()> {
     write_wide_into(&mut nid.szInfoTitle, title);
     write_wide_into(&mut nid.szInfo, body);
 
-    // NIIF_INFO = 1 (info icon style), NIIF_NOSOUND = 0x10
-    // Combined: show info icon, no sound, respect quiet time
-    nid.dwInfoFlags = 0x01 | 0x10;
+    // Balloon icon style and behaviour flags.
+    nid.dwInfoFlags = NIIF_INFO | NIIF_NOSOUND;
 
     // Anonymous union: `uTimeout` (deprecated field, but still used on legacy
     // paths to hint display duration). The union shares space with `uVersion`.
