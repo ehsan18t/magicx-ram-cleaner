@@ -67,7 +67,7 @@ image = { version = "0.25", default-features = false, features = ["png", "ico"] 
 [package.metadata.winresource]
 OriginalFilename = "magicx-ram-cleaner.exe"
 ProductName = "MagicX RAM Cleaner"
-FileDescription = "The most powerful Windows RAM cleaner CLI"
+FileDescription = "MagicX RAM Cleaner"
 LegalCopyright = "Copyright \u00a9 2025 MagicX — MIT License"
 CompanyName = "MagicX"
 InternalName = "magicx-ram-cleaner"

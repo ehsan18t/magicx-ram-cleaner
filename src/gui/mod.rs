@@ -50,6 +50,18 @@ mod widgets;
 use anyhow::{Context, Result};
 use eframe::egui;
 
+/// Load the application icon from the embedded PNG for use as the window icon.
+fn load_window_icon() -> Option<egui::IconData> {
+    let bytes = include_bytes!("../../assets/app.png");
+    let img = image::load_from_memory(bytes).ok()?.to_rgba8();
+    let (w, h) = img.dimensions();
+    Some(egui::IconData {
+        rgba: img.into_raw(),
+        width: w,
+        height: h,
+    })
+}
+
 /// Launch the egui GUI window.
 ///
 /// This is the main entry point called from `main()` when no CLI subcommand
@@ -66,13 +78,19 @@ pub fn run_gui() -> Result<()> {
     crate::privilege::enable_all_privileges()
         .context("Failed to enable privileges. Make sure you're running as Administrator.")?;
 
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_inner_size([620.0, 500.0])
+        .with_min_inner_size([620.0, 500.0])
+        .with_title("MagicX RAM Cleaner")
+        // Start hidden and reveal on first frame to avoid flash.
+        .with_visible(false);
+
+    if let Some(icon) = load_window_icon() {
+        viewport = viewport.with_icon(std::sync::Arc::new(icon));
+    }
+
     let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([620.0, 500.0])
-            .with_min_inner_size([620.0, 500.0])
-            .with_title("MagicX RAM Cleaner")
-            // Start hidden and reveal on first frame to avoid flash.
-            .with_visible(false),
+        viewport,
         ..Default::default()
     };
 
