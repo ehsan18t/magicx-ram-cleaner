@@ -8,10 +8,10 @@
     dead_code,
     rustdoc::broken_intra_doc_links
 )]
-// Windows GUI subsystem — prevents the OS from auto-creating a console window.
-// Console attachment is handled dynamically by `console::attach_or_create_console`.
-// This is critical for `--notify` (context-menu) mode: no terminal ever appears.
-#![windows_subsystem = "windows"]
+// SUBSYSTEM:CONSOLE (the default) — the terminal waits for the process to exit
+// and standard I/O just works. For context-menu (`--notify`) launches we call
+// `console::hide_and_free_console()` immediately so the auto-created console
+// window is invisible.
 
 //! `MagicX` RAM Cleaner — binary entry point.
 //!
@@ -34,24 +34,20 @@ use magicx_ram_cleaner::{cleaner, console, context_menu, display, monitor, privi
 /// - `1` — one or more cleaning operations failed (already reported)
 /// - `2` — fatal error (printed to stderr)
 fn main() -> ExitCode {
-    // Detect --notify BEFORE anything else so we can skip console
-    // creation entirely — no terminal window ever appears.
+    // Detect --notify BEFORE anything else so we can hide/free the
+    // auto-created console window before it becomes visible.
     let notify = detect_flag("--notify");
 
     // ── Console setup ────────────────────────────────────────────────
-    // With SUBSYSTEM:WINDOWS no console exists at startup. In notify
-    // mode we deliberately leave it that way (zero-flash context-menu
-    // launches). Otherwise, attach to the calling terminal or create a
-    // fresh console for double-click launches.
+    // SUBSYSTEM:CONSOLE means a console always exists. In notify mode
+    // we immediately hide + free it (zero-flash context-menu launches).
+    // Otherwise, detect whether we're in a terminal or a standalone
+    // double-click console so we can pause-before-exit appropriately.
     let standalone = if notify {
+        console::hide_and_free_console();
         false
     } else {
-        let mode = console::attach_or_create_console();
-        // Only pause on exit for bare-exe double-click launches
-        // (AllocConsole used AND no CLI arguments beyond the exe path).
-        // When args are present (e.g. UAC-elevated from a terminal),
-        // skip pause so the original terminal unblocks promptly.
-        mode == console::ConsoleMode::Allocated && std::env::args_os().count() <= 1
+        console::detect_console_mode() == console::ConsoleMode::Standalone
     };
 
     // Detect --no-color / NO_COLOR BEFORE anything else so that all output

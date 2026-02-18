@@ -1,17 +1,13 @@
 //! # `MagicX` RAM Cleaner — Console Utilities
 //!
-//! Windows console platform utilities: dynamic console attachment for
-//! the `SUBSYSTEM:WINDOWS` binary, ANSI virtual terminal processing,
-//! standalone detection, pause-before-exit, and balloon notification display.
+//! Windows console platform utilities: standalone detection, ANSI virtual
+//! terminal processing, pause-before-exit, and balloon notification display.
 //!
-//! ## Why `SUBSYSTEM:WINDOWS`?
-//!
-//! This binary sets `#![windows_subsystem = "windows"]` so Windows never
-//! auto-creates a console window. When launched from the right-click context
-//! menu (`--notify` mode), no console appears at all — the user sees only a
-//! brief balloon notification. For normal CLI usage, [`attach_or_create_console`]
-//! dynamically attaches to the calling terminal or allocates a fresh console
-//! (double-click launch).
+//! The binary uses `SUBSYSTEM:CONSOLE` (the default), so a console window
+//! always exists at startup. For context-menu (`--notify`) launches,
+//! [`hide_and_free_console`] is called immediately to destroy the
+//! auto-created console before it becomes visible. For normal CLI usage
+//! the console is used as-is.
 //!
 //! These are isolated from business logic so that platform-specific console
 //! quirks don't leak into the application layer.
@@ -19,141 +15,65 @@
 use anyhow::{Result, bail};
 use colored::Colorize;
 
-// ─── Dynamic console management ─────────────────────────────────────────────
+// ─── Console mode detection ─────────────────────────────────────────────────
 
-/// How the console session was obtained.
+/// How the process was launched.
 ///
-/// Returned by [`attach_or_create_console`] so the caller can decide whether
-/// the process is "standalone" (allocated its own console → pause on exit)
-/// or attached to a parent terminal.
+/// Returned by [`detect_console_mode`] so the caller can decide whether
+/// to pause before exit (standalone) or return immediately (terminal).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConsoleMode {
-    /// Attached to an existing parent console (launched from cmd/PowerShell).
-    Attached,
-    /// Allocated a brand-new console (launched by double-clicking the `.exe`).
-    Allocated,
+    /// Sharing a console with a parent shell (launched from cmd / `PowerShell`).
+    Terminal,
+    /// Own console created by the OS (double-clicked the `.exe` or started
+    /// from a GUI launcher). Caller should [`pause_before_exit`].
+    Standalone,
 }
 
-/// Attach to the parent process's console, or allocate a new one.
+/// Detect whether this process was launched from a terminal or standalone.
 ///
-/// Because this binary uses `SUBSYSTEM:WINDOWS`, no console exists at
-/// startup. This function creates one so that `println!` and coloured
-/// output work normally.
+/// With `SUBSYSTEM:CONSOLE` Windows always creates a console at startup.
+/// When launched **from** a terminal, the child shares the parent's console
+/// (multiple processes attached). When double-clicked, Windows creates a
+/// fresh console exclusively for this process (single process attached).
 ///
-/// Returns [`ConsoleMode::Attached`] when a parent console was reused
-/// (the user launched from a terminal), or [`ConsoleMode::Allocated`]
-/// when a fresh console was created (the user double-clicked the `.exe`).
-///
-/// # Console handle redirection
-///
-/// `AttachConsole` does **not** update the process's standard handles for
-/// a `SUBSYSTEM:WINDOWS` binary. After attaching, this function opens
-/// `CONOUT$` / `CONIN$` and calls `SetStdHandle` so that Rust's
-/// `println!` / `eprintln!` write to the correct console.
-///
-/// `AllocConsole` sets the standard handles automatically — no manual
-/// redirection is needed.
+/// Uses `GetConsoleProcessList` to count how many processes share the
+/// console. More than one → terminal; exactly one → standalone.
 #[must_use]
-pub fn attach_or_create_console() -> ConsoleMode {
-    use windows_sys::Win32::System::Console::{ATTACH_PARENT_PROCESS, AllocConsole, AttachConsole};
+pub fn detect_console_mode() -> ConsoleMode {
+    use windows_sys::Win32::System::Console::GetConsoleProcessList;
 
-    // SAFETY: AttachConsole is a standard Win32 call.
-    let attached = unsafe { AttachConsole(ATTACH_PARENT_PROCESS) } != 0;
+    let mut pids = [0u32; 4];
+    // SAFETY: GetConsoleProcessList is a standard Win32 call. We pass a
+    // valid buffer and its capacity. Returns the number of processes.
+    let count = unsafe { GetConsoleProcessList(pids.as_mut_ptr(), 4) };
 
-    if attached {
-        // Manually redirect stdout/stderr/stdin to the attached console
-        // because AttachConsole does not update std handles for GUI apps.
-        redirect_std_handles();
-        ConsoleMode::Attached
+    if count > 1 {
+        ConsoleMode::Terminal
     } else {
-        // No parent console (e.g. double-clicked, or launched from GUI).
-        // AllocConsole creates a new console AND sets the std handles.
-        // SAFETY: AllocConsole is a standard Win32 call.
-        unsafe {
-            AllocConsole();
-        }
-        ConsoleMode::Allocated
+        ConsoleMode::Standalone
     }
 }
 
-/// Redirect standard I/O handles to the attached console's buffers.
+/// Hide and free the auto-created console for notification-only mode.
 ///
-/// Opens `CONOUT$` for stdout + stderr and `CONIN$` for stdin using
-/// `CreateFileW`, then installs them via `SetStdHandle`. Handles that
-/// are already valid (e.g. inherited from a parent via `STARTF_USESTDHANDLES`,
-/// as happens with shell I/O redirection like `> file.txt`) are left
-/// untouched so piping continues to work.
-fn redirect_std_handles() {
-    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
-    use windows_sys::Win32::Storage::FileSystem::{
-        CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
-    };
-    use windows_sys::Win32::System::Console::{
-        GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, SetStdHandle,
-    };
+/// With `SUBSYSTEM:CONSOLE` the OS creates a console window before `main`
+/// runs. This function hides it with `ShowWindow(SW_HIDE)` and then
+/// detaches with `FreeConsole()` so no console is visible at all.
+/// Called as the very first thing in `--notify` mode.
+pub fn hide_and_free_console() {
+    use windows_sys::Win32::System::Console::{FreeConsole, GetConsoleWindow};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SW_HIDE, ShowWindow};
 
-    /// `GENERIC_READ` access right (`0x8000_0000`).
-    const GENERIC_READ: u32 = 0x8000_0000;
-    /// `GENERIC_WRITE` access right (`0x4000_0000`).
-    const GENERIC_WRITE: u32 = 0x4000_0000;
-
-    // ── CONOUT$ (stdout + stderr) ────────────────────────────────────
-    // Only redirect if the current handle is null/invalid (i.e. the
-    // parent did NOT set up I/O redirection via STARTF_USESTDHANDLES).
-    // SAFETY: GetStdHandle with a valid constant is always safe.
-    let cur_out = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
-    let out_needs_redirect = cur_out.is_null() || cur_out == INVALID_HANDLE_VALUE;
-
-    if out_needs_redirect {
-        let conout: [u16; 8] = wide_literal::<8>(b"CONOUT$");
-        // SAFETY: CreateFileW with the well-known CONOUT$ pseudo-device
-        // name, using GENERIC_READ | GENERIC_WRITE for SetConsoleMode
-        // compatibility (GetConsoleMode needs read access).
-        let handle = unsafe {
-            CreateFileW(
-                conout.as_ptr(),
-                GENERIC_READ | GENERIC_WRITE,
-                FILE_SHARE_WRITE,
-                std::ptr::null(),
-                OPEN_EXISTING,
-                0,
-                std::ptr::null_mut(),
-            )
-        };
-        if handle != INVALID_HANDLE_VALUE {
-            // SAFETY: SetStdHandle with a valid handle from CreateFileW.
-            unsafe {
-                SetStdHandle(STD_OUTPUT_HANDLE, handle);
-                SetStdHandle(STD_ERROR_HANDLE, handle);
-            }
+    // SAFETY: GetConsoleWindow / ShowWindow / FreeConsole are standard Win32
+    // calls with no special preconditions. Hiding before freeing prevents
+    // any visible flash on slower machines.
+    unsafe {
+        let hwnd = GetConsoleWindow();
+        if !hwnd.is_null() {
+            ShowWindow(hwnd, SW_HIDE);
         }
-    }
-
-    // ── CONIN$ (stdin) ───────────────────────────────────────────────
-    // SAFETY: GetStdHandle with a valid constant is always safe.
-    let cur_in = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
-    let in_needs_redirect = cur_in.is_null() || cur_in == INVALID_HANDLE_VALUE;
-
-    if in_needs_redirect {
-        let conin: [u16; 7] = wide_literal::<7>(b"CONIN$");
-        // SAFETY: CreateFileW with the well-known CONIN$ pseudo-device name.
-        let handle = unsafe {
-            CreateFileW(
-                conin.as_ptr(),
-                GENERIC_READ | GENERIC_WRITE,
-                FILE_SHARE_READ,
-                std::ptr::null(),
-                OPEN_EXISTING,
-                0,
-                std::ptr::null_mut(),
-            )
-        };
-        if handle != INVALID_HANDLE_VALUE {
-            // SAFETY: SetStdHandle with a valid handle from CreateFileW.
-            unsafe {
-                SetStdHandle(STD_INPUT_HANDLE, handle);
-            }
-        }
+        FreeConsole();
     }
 }
 
