@@ -10,7 +10,7 @@
 //! ## Registry layout (per root)
 //!
 //! ```text
-//! HKCR\<root>\Shell\MagicXRAMCleaner\
+//! HKCR\<root>\Shell\zMagicXRAMCleaner\
 //!   MUIVerb     = "MagicX RAM Cleaner"
 //!   SubCommands = ""
 //!   Icon        = "C:\...\magicx-ram-cleaner.exe,-1"
@@ -427,8 +427,9 @@ mod tests {
     fn root_paths_end_with_expected_key_name() {
         for path in ROOT_PATHS {
             assert!(
-                path.ends_with("MagicXRAMCleaner"),
-                "root path '{path}' must end with the expected key name"
+                path.ends_with("zMagicXRAMCleaner"),
+                "root path '{path}' must end with the z-prefixed key name \
+                 (the z prefix pushes the entry to the bottom of the context menu)"
             );
         }
     }
