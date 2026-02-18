@@ -5,7 +5,7 @@
 //!
 //! The binary uses `SUBSYSTEM:CONSOLE` (the default), so a console window
 //! always exists at startup. For context-menu (`--notify`) launches,
-//! [`hide_and_free_console`] is called immediately to destroy the
+//! `hide_and_free_console` is called immediately to destroy the
 //! auto-created console before it becomes visible. For normal CLI usage
 //! the console is used as-is.
 //!

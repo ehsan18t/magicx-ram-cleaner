@@ -38,7 +38,7 @@
 //!
 //! Registry `Icon` values reference them as `"<exe_path>,-<resource_id>"`.
 //! Adding a new icon: embed it in `build.rs` with the next sequential ID,
-//! then reference it in [`ENTRIES`].
+//! then reference it in `ENTRIES`.
 
 use anyhow::{Context, Result, bail};
 use colored::Colorize;
