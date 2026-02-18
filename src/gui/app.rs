@@ -167,6 +167,16 @@ pub struct MagicXApp {
     /// Last time auto-clean triggered (for cooldown).
     last_auto_clean: Option<Instant>,
 
+    /// Last time a periodic status line was appended to the monitor log.
+    ///
+    /// Used to throttle heartbeat messages so the log is not flooded
+    /// while the monitor is idle (memory below threshold).
+    last_monitor_status_log: Option<Instant>,
+
+    /// Previous frame's `monitor_active` state — used to detect
+    /// start/stop transitions and log them once.
+    prev_monitor_active: bool,
+
     /// Monitor log messages.
     pub monitor_log: Vec<String>,
 
@@ -332,6 +342,8 @@ impl MagicXApp {
                 .unwrap_or_else(Instant::now),
             monitor_active: false,
             last_auto_clean: None,
+            last_monitor_status_log: None,
+            prev_monitor_active: false,
             monitor_log: Vec::new(),
             settings_snapshot: settings.clone(),
             settings,
@@ -367,9 +379,29 @@ impl MagicXApp {
     }
 
     /// Poll for completed cleaning results.
+    ///
+    /// When monitoring is active the result is also logged to the
+    /// activity log exactly once (here, not in `update()`).
     fn poll_clean_results(&mut self) {
         if let Ok(msg) = self.clean_rx.try_recv() {
             self.cleaning_in_progress = false;
+
+            // Log auto-clean outcome to the monitor activity log.
+            if self.monitor_active {
+                let log_msg = match &msg.result {
+                    Ok(r) => format!(
+                        "Auto-clean complete: freed {}",
+                        stats::format_bytes(if r.total_freed > 0 {
+                            r.total_freed as u64
+                        } else {
+                            0
+                        }),
+                    ),
+                    Err(e) => format!("Auto-clean failed: {e}"),
+                };
+                self.monitor_log.push(log_msg);
+            }
+
             self.last_clean_result = Some(msg);
         }
     }
@@ -394,6 +426,11 @@ impl MagicXApp {
     }
 
     /// Handle auto-clean in monitor mode.
+    ///
+    /// Checks the current memory load against the configured threshold and
+    /// triggers a clean when exceeded.  Also emits periodic heartbeat
+    /// messages to the activity log so the user can see the monitor is
+    /// actively checking (every 60 seconds).
     fn handle_monitor_auto_clean(&mut self) {
         if !self.monitor_active || self.cleaning_in_progress {
             return;
@@ -413,16 +450,30 @@ impl MagicXApp {
             .ok()
             .and_then(|s| s.as_ref().map(|s| s.memory_load_percent));
 
-        if let Some(load) = load
-            && load >= self.settings.monitor_threshold
-        {
-            let msg = format!(
-                "Memory load {load}% >= threshold {}% \u{2014} auto-cleaning ({})...",
-                self.settings.monitor_threshold, self.settings.default_clean_level
-            );
-            self.monitor_log.push(msg);
-            self.last_auto_clean = Some(Instant::now());
-            self.start_clean(self.settings.default_clean_level);
+        if let Some(load) = load {
+            if load >= self.settings.monitor_threshold {
+                let msg = format!(
+                    "Memory load {load}% >= threshold {}% \u{2014} auto-cleaning ({})...",
+                    self.settings.monitor_threshold, self.settings.default_clean_level,
+                );
+                self.monitor_log.push(msg);
+                self.last_auto_clean = Some(Instant::now());
+                self.last_monitor_status_log = Some(Instant::now());
+                self.start_clean(self.settings.default_clean_level);
+            } else {
+                // Periodic heartbeat so the user knows the monitor is alive.
+                let should_log = self
+                    .last_monitor_status_log
+                    .is_none_or(|t| t.elapsed() >= Duration::from_secs(60));
+
+                if should_log {
+                    self.monitor_log.push(format!(
+                        "Checked: memory at {load}%, below threshold {}% \u{2014} no action needed.",
+                        self.settings.monitor_threshold,
+                    ));
+                    self.last_monitor_status_log = Some(Instant::now());
+                }
+            }
         }
     }
 
@@ -513,22 +564,21 @@ impl eframe::App for MagicXApp {
         // Poll background results
         self.poll_clean_results();
 
-        // Log completed auto-clean results
-        if let Some(ref result) = self.last_clean_result
-            && self.monitor_active
-        {
-            let msg = match &result.result {
-                Ok(r) => format!(
-                    "Auto-clean complete: freed {}",
-                    stats::format_bytes(if r.total_freed > 0 {
-                        r.total_freed as u64
-                    } else {
-                        0
-                    })
-                ),
-                Err(e) => format!("Auto-clean failed: {e}"),
-            };
-            self.monitor_log.push(msg);
+        // Detect monitor start / stop transitions.
+        if self.monitor_active != self.prev_monitor_active {
+            if self.monitor_active {
+                self.monitor_log.push(format!(
+                    "Monitoring started \u{2014} threshold {}%, cooldown {}s, level {}",
+                    self.settings.monitor_threshold,
+                    self.settings.monitor_cooldown_secs,
+                    self.settings.default_clean_level,
+                ));
+                // Immediately eligible for a status heartbeat.
+                self.last_monitor_status_log = None;
+            } else {
+                self.monitor_log.push("Monitoring stopped.".to_owned());
+            }
+            self.prev_monitor_active = self.monitor_active;
         }
 
         // Auto-clean if monitoring
