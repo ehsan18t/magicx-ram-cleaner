@@ -183,6 +183,15 @@ impl QuickMemoryReading {
     }
 }
 
+/// Encode a Rust `&str` as a null-terminated UTF-16 `Vec<u16>`.
+///
+/// Shared utility used by registry operations (`context_menu`) and privilege
+/// management (`privilege`) to convert Rust strings for Win32 wide-string APIs.
+#[must_use]
+pub fn to_wide(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
 /// Extract a UTF-8 process name from a null-terminated UTF-16 `szExeFile` buffer.
 #[must_use]
 pub fn extract_exe_name(sz_exe_file: &[u16]) -> String {

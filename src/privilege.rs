@@ -12,12 +12,7 @@ use windows_sys::Win32::Security::{
 };
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
-use crate::stats::HandleGuard;
-
-/// Encode a UTF-16 null-terminated string from a Rust &str.
-fn to_wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
-}
+use crate::stats::{HandleGuard, to_wide};
 
 /// Enable a named Windows privilege on the current process token.
 ///

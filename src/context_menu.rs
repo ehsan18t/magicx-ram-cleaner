@@ -140,10 +140,7 @@ impl Drop for RegKeyGuard {
     }
 }
 
-/// Encode a Rust `&str` as a null-terminated UTF-16 `Vec<u16>`.
-fn to_wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
-}
+use crate::stats::to_wide;
 
 /// Open or create a registry key under `HKEY_CLASSES_ROOT`.
 ///
