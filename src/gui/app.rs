@@ -184,7 +184,7 @@ impl MagicXApp {
         // Tighter text styles for a compact look
         style.text_styles.insert(
             TextStyle::Heading,
-            FontId::new(18.0, FontFamily::Proportional),
+            FontId::new(21.0, FontFamily::Proportional),
         );
         style
             .text_styles
@@ -446,7 +446,7 @@ fn draw_sidebar(ctx: &egui::Context, app: &mut MagicXApp) {
         .frame(
             egui::Frame::new()
                 .fill(theme::sidebar_bg(dark))
-                .inner_margin(egui::Margin::symmetric(10, 12))
+                .inner_margin(egui::Margin::symmetric(12, 14))
                 .stroke(egui::Stroke::new(0.5, theme::border_color(dark))),
         )
         .show(ctx, |ui| {
@@ -462,12 +462,12 @@ fn draw_sidebar_brand(ui: &mut egui::Ui, dark: bool) {
         ui.label(
             egui::RichText::new("MagicX")
                 .strong()
-                .size(20.0)
+                .size(22.0)
                 .color(theme::ACCENT),
         );
         ui.label(
             egui::RichText::new("RAM Cleaner")
-                .size(10.0)
+                .size(11.0)
                 .color(theme::muted_color(dark)),
         );
         ui.add_space(1.0);
@@ -562,7 +562,7 @@ fn draw_nav_button(
 /// Draw the main content area based on the active panel.
 fn draw_main_panel(ctx: &egui::Context, app: &mut MagicXApp) {
     egui::CentralPanel::default()
-        .frame(egui::Frame::new().inner_margin(egui::Margin::same(14)))
+        .frame(egui::Frame::new().inner_margin(egui::Margin::same(20)))
         .show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| match app.active_panel {
                 Panel::Dashboard => panels::dashboard::draw(ui, app),

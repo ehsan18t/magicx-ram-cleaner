@@ -89,14 +89,14 @@ fn draw_clean_section(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
     // 2x2 grid of clean-level cards
     for row in levels.chunks(2) {
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
+            ui.spacing_mut().item_spacing.x = 10.0;
             for &(level, name, desc, color) in row {
                 if draw_level_card(ui, name, desc, color, enabled, dark) {
                     level_to_clean = Some(level);
                 }
             }
         });
-        ui.add_space(4.0);
+        ui.add_space(8.0);
     }
 
     if let Some(level) = level_to_clean {
@@ -115,8 +115,8 @@ fn draw_level_card(
     enabled: bool,
     dark: bool,
 ) -> bool {
-    let width = (ui.available_width() - 8.0) / 2.0;
-    let desired = egui::vec2(width, 52.0);
+    let width = (ui.available_width() - 10.0) / 2.0;
+    let desired = egui::vec2(width, 68.0);
     let (rect, response) = ui.allocate_exact_size(desired, egui::Sense::click());
 
     let hovered = response.hovered() && enabled;
@@ -124,7 +124,7 @@ fn draw_level_card(
 
     // Card background
     let bg = if hovered {
-        color.gamma_multiply(if dark { 0.15 } else { 0.10 })
+        color.gamma_multiply(if dark { 0.18 } else { 0.12 })
     } else {
         theme::surface_color(dark)
     };
@@ -135,35 +135,44 @@ fn draw_level_card(
     };
     painter.rect(
         rect,
-        egui::CornerRadius::same(8),
+        egui::CornerRadius::same(10),
         bg,
         border,
         egui::StrokeKind::Inside,
     );
 
     // Colour accent bar on the left
-    let bar = egui::Rect::from_min_size(rect.left_top(), egui::vec2(3.0, rect.height()));
-    painter.rect_filled(bar, egui::CornerRadius::same(1), color);
+    let bar = egui::Rect::from_min_size(rect.left_top(), egui::vec2(4.0, rect.height()));
+    painter.rect_filled(
+        bar,
+        egui::CornerRadius {
+            nw: 10,
+            sw: 10,
+            ne: 0,
+            se: 0,
+        },
+        color,
+    );
 
     // Text content
-    let text_x = rect.left() + 12.0;
+    let text_x = rect.left() + 16.0;
     let name_color = if enabled {
         theme::text_color(dark)
     } else {
         theme::muted_color(dark)
     };
     painter.text(
-        egui::pos2(text_x, rect.top() + 16.0),
+        egui::pos2(text_x, rect.top() + 22.0),
         egui::Align2::LEFT_CENTER,
         name,
-        egui::FontId::proportional(13.0),
+        egui::FontId::proportional(15.0),
         name_color,
     );
     painter.text(
-        egui::pos2(text_x, rect.top() + 34.0),
+        egui::pos2(text_x, rect.top() + 44.0),
         egui::Align2::LEFT_CENTER,
         desc,
-        egui::FontId::proportional(10.5),
+        egui::FontId::proportional(11.5),
         theme::muted_color(dark),
     );
 
@@ -303,36 +312,38 @@ fn draw_operation_list(ui: &mut egui::Ui, results: &[crate::cleaner::CleanResult
     }
 }
 
-/// Draw quick system information.
+/// Draw quick system information wrapped in a card.
 fn draw_quick_info(ui: &mut egui::Ui, snap: &stats::MemorySnapshot, dark: bool) {
     widgets::section_header(ui, "System Info");
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 20.0;
+    widgets::card(ui, dark, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 30.0;
 
-        widgets::stat_label(
-            ui,
-            "Total RAM",
-            &stats::format_bytes(snap.total_physical),
-            theme::ACCENT,
-            dark,
-        );
-        widgets::stat_label(
-            ui,
-            "Page File",
-            &format!(
-                "{} / {}",
-                stats::format_bytes(snap.total_page_file - snap.available_page_file),
-                stats::format_bytes(snap.total_page_file)
-            ),
-            theme::YELLOW,
-            dark,
-        );
-        widgets::stat_label(
-            ui,
-            "Threads",
-            &snap.thread_count.to_string(),
-            theme::muted_color(dark),
-            dark,
-        );
+            widgets::stat_label(
+                ui,
+                "Total RAM",
+                &stats::format_bytes(snap.total_physical),
+                theme::ACCENT,
+                dark,
+            );
+            widgets::stat_label(
+                ui,
+                "Page File",
+                &format!(
+                    "{} / {}",
+                    stats::format_bytes(snap.total_page_file - snap.available_page_file),
+                    stats::format_bytes(snap.total_page_file)
+                ),
+                theme::YELLOW,
+                dark,
+            );
+            widgets::stat_label(
+                ui,
+                "Threads",
+                &snap.thread_count.to_string(),
+                theme::muted_color(dark),
+                dark,
+            );
+        });
     });
 }

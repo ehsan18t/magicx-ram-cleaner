@@ -11,7 +11,8 @@ use super::theme;
 
 // ─── Card Container ──────────────────────────────────────────────────────────
 
-/// Draw a card-style container with rounded corners and a subtle background.
+/// Draw a card-style container with rounded corners, subtle background, and
+/// a soft shadow for visual depth.
 ///
 /// The `add_contents` closure receives the inner `Ui` with padding applied.
 pub fn card(ui: &mut egui::Ui, dark_mode: bool, add_contents: impl FnOnce(&mut egui::Ui)) {
@@ -23,6 +24,12 @@ pub fn card(ui: &mut egui::Ui, dark_mode: bool, add_contents: impl FnOnce(&mut e
         .stroke(egui::Stroke::new(0.5, border))
         .corner_radius(egui::CornerRadius::same(theme::CARD_ROUNDING))
         .inner_margin(egui::Margin::same(theme::CARD_PADDING))
+        .shadow(egui::Shadow {
+            offset: [0, 2],
+            blur: 10,
+            spread: 0,
+            color: egui::Color32::from_black_alpha(if dark_mode { 50 } else { 15 }),
+        })
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             add_contents(ui);
@@ -34,27 +41,38 @@ pub fn card(ui: &mut egui::Ui, dark_mode: bool, add_contents: impl FnOnce(&mut e
 /// Draw a section header with an accent-coloured left bar and title.
 pub fn section_header(ui: &mut egui::Ui, title: &str) {
     ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(3.0, 16.0), egui::Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(4.0, 20.0), egui::Sense::hover());
         ui.painter()
-            .rect_filled(rect, egui::CornerRadius::same(1), theme::ACCENT);
-        ui.add_space(4.0);
-        ui.label(egui::RichText::new(title).strong().size(14.0));
+            .rect_filled(rect, egui::CornerRadius::same(2), theme::ACCENT);
+        ui.add_space(6.0);
+        ui.label(egui::RichText::new(title).strong().size(15.0));
     });
-    ui.add_space(4.0);
+    ui.add_space(8.0);
 }
 
-/// Draw a page title used at the top of each panel.
+/// Draw a page title used at the top of each panel, with a subtle
+/// separator line for visual structure.
 pub fn page_title(ui: &mut egui::Ui, icon: &str, title: &str, dark_mode: bool) {
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(icon).size(18.0).color(theme::ACCENT));
+        ui.label(egui::RichText::new(icon).size(22.0).color(theme::ACCENT));
+        ui.add_space(2.0);
         ui.label(
             egui::RichText::new(title)
                 .strong()
-                .size(18.0)
+                .size(22.0)
                 .color(theme::text_color(dark_mode)),
         );
     });
     ui.add_space(8.0);
+    // Subtle horizontal separator
+    let width = ui.available_width();
+    let (sep_rect, _) = ui.allocate_exact_size(egui::vec2(width, 1.0), egui::Sense::hover());
+    ui.painter().rect_filled(
+        sep_rect,
+        egui::CornerRadius::same(0),
+        theme::border_color(dark_mode).gamma_multiply(0.5),
+    );
+    ui.add_space(12.0);
 }
 
 // ─── Stat Label ──────────────────────────────────────────────────────────────
@@ -70,49 +88,38 @@ pub fn stat_label(
     ui.vertical(|ui| {
         ui.label(
             egui::RichText::new(label)
-                .size(10.5)
+                .size(11.0)
                 .color(theme::muted_color(dark_mode)),
         );
-        ui.label(egui::RichText::new(value).strong().size(13.0).color(color));
+        ui.add_space(2.0);
+        ui.label(egui::RichText::new(value).strong().size(15.0).color(color));
     });
 }
 
 // ─── Memory Overview ─────────────────────────────────────────────────────────
 
-/// Draw the memory usage progress bar and key metric labels.
+/// Draw the memory usage overview with a custom bar and key metric labels.
 pub fn memory_overview(ui: &mut egui::Ui, snap: &MemorySnapshot, dark_mode: bool) {
     let load = snap.memory_load_percent as f32 / 100.0;
     let load_color = theme::load_color(load);
 
-    // Header + progress bar
+    // Header
     ui.label(
         egui::RichText::new("Physical Memory")
             .strong()
-            .size(12.0)
+            .size(13.5)
             .color(theme::text_color(dark_mode)),
     );
-    ui.add_space(3.0);
+    ui.add_space(6.0);
 
-    let bar = egui::ProgressBar::new(load)
-        .text(
-            egui::RichText::new(format!(
-                "{}%  \u{2014}  {} / {}",
-                snap.memory_load_percent,
-                stats::format_bytes(snap.used_physical),
-                stats::format_bytes(snap.total_physical),
-            ))
-            .strong()
-            .size(11.0),
-        )
-        .fill(load_color)
-        .corner_radius(egui::CornerRadius::same(4));
-    ui.add(bar);
+    // Custom-painted progress bar with depth highlight
+    draw_memory_bar(ui, snap, load, load_color, dark_mode);
 
-    ui.add_space(8.0);
+    ui.add_space(14.0);
 
     // Stat labels row
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 24.0;
+        ui.spacing_mut().item_spacing.x = 30.0;
 
         stat_label(
             ui,
@@ -143,6 +150,76 @@ pub fn memory_overview(ui: &mut egui::Ui, snap: &MemorySnapshot, dark_mode: bool
             dark_mode,
         );
     });
+}
+
+/// Custom-painted memory usage bar with a top-highlight depth effect
+/// and drop-shadow text for improved readability.
+fn draw_memory_bar(
+    ui: &mut egui::Ui,
+    snap: &MemorySnapshot,
+    load: f32,
+    load_color: egui::Color32,
+    dark_mode: bool,
+) {
+    let bar_height = 32.0;
+    let bar_width = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(bar_width, bar_height), egui::Sense::hover());
+
+    if !ui.is_rect_visible(rect) {
+        return;
+    }
+
+    let painter = ui.painter();
+
+    // Track background
+    let track_bg = if dark_mode {
+        egui::Color32::from_rgb(14, 18, 25)
+    } else {
+        egui::Color32::from_rgb(228, 231, 236)
+    };
+    painter.rect_filled(rect, egui::CornerRadius::same(6), track_bg);
+
+    // Filled portion
+    let fill_width = rect.width() * load;
+    if fill_width > 1.0 {
+        let fill_rect = egui::Rect::from_min_size(rect.min, egui::vec2(fill_width, bar_height));
+        painter.rect_filled(fill_rect, egui::CornerRadius::same(6), load_color);
+
+        // Subtle top highlight for a 3-D depth look
+        if fill_width > 12.0 {
+            let hl = egui::Rect::from_min_size(rect.min, egui::vec2(fill_width, bar_height * 0.40));
+            painter.rect_filled(
+                hl,
+                egui::CornerRadius::same(6),
+                egui::Color32::from_white_alpha(22),
+            );
+        }
+    }
+
+    // Text with subtle drop shadow for readability on any background
+    let text = format!(
+        "{}%  \u{2014}  {} / {}",
+        snap.memory_load_percent,
+        stats::format_bytes(snap.used_physical),
+        stats::format_bytes(snap.total_physical),
+    );
+    let text_pos = egui::pos2(rect.left() + 14.0, rect.center().y);
+    let font = egui::FontId::proportional(13.0);
+
+    painter.text(
+        text_pos + egui::vec2(0.5, 0.5),
+        egui::Align2::LEFT_CENTER,
+        &text,
+        font.clone(),
+        egui::Color32::from_black_alpha(140),
+    );
+    painter.text(
+        text_pos,
+        egui::Align2::LEFT_CENTER,
+        &text,
+        font,
+        egui::Color32::WHITE,
+    );
 }
 
 // ─── Toggle Switch ───────────────────────────────────────────────────────────

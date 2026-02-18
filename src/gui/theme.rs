@@ -29,7 +29,7 @@ pub const RED: egui::Color32 = egui::Color32::from_rgb(248, 81, 73);
 // ─── Dark Theme Colours ──────────────────────────────────────────────────────
 
 /// Card / elevated surface background (dark).
-pub const SURFACE_DARK: egui::Color32 = egui::Color32::from_rgb(22, 27, 34);
+pub const SURFACE_DARK: egui::Color32 = egui::Color32::from_rgb(25, 31, 40);
 
 /// Main content background (dark).
 pub const BG_DARK: egui::Color32 = egui::Color32::from_rgb(13, 17, 23);
@@ -83,19 +83,19 @@ pub const LEVEL_NUCLEAR: egui::Color32 = egui::Color32::from_rgb(248, 81, 73);
 // ─── Spacing Constants ───────────────────────────────────────────────────────
 
 /// Standard spacing between sections.
-pub const SECTION_SPACING: f32 = 10.0;
+pub const SECTION_SPACING: f32 = 16.0;
 
 /// Inner padding for cards.
-pub const CARD_PADDING: i8 = 12;
+pub const CARD_PADDING: i8 = 18;
 
 /// Corner rounding for cards.
-pub const CARD_ROUNDING: u8 = 8;
+pub const CARD_ROUNDING: u8 = 12;
 
 /// Sidebar width in logical points.
-pub const SIDEBAR_WIDTH: f32 = 150.0;
+pub const SIDEBAR_WIDTH: f32 = 156.0;
 
 /// Sidebar button height.
-pub const SIDEBAR_BUTTON_HEIGHT: f32 = 34.0;
+pub const SIDEBAR_BUTTON_HEIGHT: f32 = 36.0;
 
 // ─── Theme Application ───────────────────────────────────────────────────────
 
