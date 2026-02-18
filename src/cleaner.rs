@@ -833,8 +833,8 @@ pub fn dry_run_plan(level: CleanLevel, has_excludes: bool) -> Vec<&'static str> 
 ///
 /// ## Settle Optimisation
 ///
-/// Intermediate operations use [`SettleMode::Quick`] (1 stable read, 0.8 s max)
-/// instead of [`SettleMode::Full`] (3 stable reads, 2 s max). Only the final
+/// Intermediate operations use `SettleMode::Quick` (1 stable read, 0.8 s max)
+/// instead of `SettleMode::Full` (3 stable reads, 2 s max). Only the final
 /// operation in each chain uses `Full`, since only the overall delta matters.
 /// This reduces worst-case settle overhead from ~14 s (7 ops × 2 s) to ~4.8 s
 /// (6 × 0.8 s + 1 × 2 s) on a Nuclear clean.

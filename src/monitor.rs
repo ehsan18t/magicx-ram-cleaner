@@ -12,10 +12,10 @@
 //! This is an inherent Win32 API limitation, not a design choice.
 //!
 //! `MONITOR_ACTIVE` is a separate guard that prevents concurrent calls to
-//! [`run_monitor`] — since all state is global, running two monitor loops
+//! `run_monitor` — since all state is global, running two monitor loops
 //! simultaneously would produce undefined behaviour (both polling the same
 //! `RUNNING` flag, both registering the same ctrl handler). The guard is
-//! enforced via an RAII [`MonitorGuard`] that clears the flag on drop.
+//! enforced via an RAII `MonitorGuard` that clears the flag on drop.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
