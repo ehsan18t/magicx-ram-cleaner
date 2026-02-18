@@ -39,6 +39,7 @@
 
 pub mod app;
 mod panels;
+#[allow(unsafe_code)] // native Win32 file-picker dialogs (GetOpenFileNameW / GetSaveFileNameW)
 pub(super) mod persistence;
 pub mod theme;
 mod widgets;

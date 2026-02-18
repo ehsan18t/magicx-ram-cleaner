@@ -49,6 +49,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_Storage_FileSystem",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Controls_Dialogs",
 ] }
 clap = { version = "4", features = ["derive", "color", "help", "usage", "suggestions"] }
 colored = "3"

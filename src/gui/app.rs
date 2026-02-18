@@ -180,6 +180,12 @@ pub struct MagicXApp {
 
     /// Whether the window has been revealed (for anti-flash).
     window_revealed: bool,
+
+    /// Transient feedback shown in the Settings panel after an import/export action.
+    ///
+    /// Tuple of `(message, is_error, shown_at)`. The Settings panel auto-dismisses
+    /// this after 8 seconds.
+    pub settings_status: Option<(String, bool, std::time::Instant)>,
 }
 
 impl MagicXApp {
@@ -192,7 +198,7 @@ impl MagicXApp {
 
         // Load persisted settings before applying the theme so the window
         // starts in the user's preferred mode without a one-frame flash.
-        let settings = super::persistence::load_settings();
+        let settings = super::persistence::SettingsManager::load();
 
         // Apply the persisted theme immediately.
         if settings.dark_mode {
@@ -277,6 +283,7 @@ impl MagicXApp {
             process_sort_asc: false,
             theme_applied: initial_dark_mode,
             window_revealed: false,
+            settings_status: None,
         }
     }
 
@@ -414,14 +421,14 @@ impl eframe::App for MagicXApp {
 
         // Persist settings immediately whenever the user changes anything.
         if self.settings != self.settings_snapshot {
-            super::persistence::save_settings(&self.settings);
+            super::persistence::SettingsManager::save(&self.settings);
             self.settings_snapshot = self.settings.clone();
         }
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.stats_running.store(false, Ordering::Release);
-        super::persistence::save_settings(&self.settings);
+        super::persistence::SettingsManager::save(&self.settings);
     }
 }
 
