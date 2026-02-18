@@ -1,8 +1,8 @@
 # MagicX RAM Cleaner
 
-**The world's most powerful Windows RAM cleaner CLI tool.**
+**The world's most powerful Windows RAM cleaner — CLI + GUI.**
 
-MagicX RAM Cleaner goes far beyond tools like EmptyStandbyList by providing granular control over every Windows memory subsystem, smart multi-step cleaning, real-time monitoring with auto-clean, and detailed diagnostics — all in a single ~730 KB binary.
+MagicX RAM Cleaner goes far beyond tools like EmptyStandbyList by providing granular control over every Windows memory subsystem, smart multi-step cleaning, real-time monitoring with auto-clean, and detailed diagnostics — all in a single binary. Double-click for the GUI, or use the command line for scripting and power-user workflows.
 
 ---
 
@@ -68,13 +68,15 @@ MagicX RAM Cleaner goes far beyond tools like EmptyStandbyList by providing gran
 ## Quick Start
 
 ```powershell
-# 1. Open PowerShell or CMD as Administrator (required!)
-#    Right-click → "Run as administrator"
+# GUI Mode — just double-click the exe (must be run as Administrator)
+# Or from a terminal:
+magicx-ram-cleaner
 
-# 2. Run an aggressive clean (recommended for most users)
+# CLI Mode — open PowerShell or CMD as Administrator
+# Run an aggressive clean (recommended for most users)
 magicx-ram-cleaner clean
 
-# 3. Check how much RAM you freed
+# Check how much RAM you freed
 magicx-ram-cleaner status
 ```
 
@@ -131,15 +133,17 @@ cargo build --release
 
 ### Key Advantages
 
-1. **Smarter cleaning**: MagicX flushes modified pages *before* purging standby, which means pages that were dirty get saved and then freed. EmptyStandbyList misses these.
+1. **GUI + CLI in one binary**: Double-click for a full graphical dashboard with real-time charts, or use the CLI for scripting and automation. No other RAM cleaner offers both.
 
-2. **File cache control**: The file system cache can consume gigabytes of RAM. MagicX can flush it directly — EmptyStandbyList cannot.
+2. **Smarter cleaning**: MagicX flushes modified pages *before* purging standby, which means pages that were dirty get saved and then freed. EmptyStandbyList misses these.
 
-3. **Memory combining**: Windows 10+ can deduplicate identical memory pages using copy-on-write. MagicX triggers this; EmptyStandbyList doesn't support it.
+3. **File cache control**: The file system cache can consume gigabytes of RAM. MagicX can flush it directly — EmptyStandbyList cannot.
 
-4. **Kernel-level working set trim**: MagicX uses `NtSetSystemInformation(MemoryEmptyWorkingSets)` — a single kernel call that hits ALL processes including protected/system processes that per-process `EmptyWorkingSet()` cannot touch.
+4. **Memory combining**: Windows 10+ can deduplicate identical memory pages using copy-on-write. MagicX triggers this; EmptyStandbyList doesn't support it.
 
-5. **Multi-pass cleaning**: The nuclear level does a second pass after memory combining to catch newly-modified pages.
+5. **Kernel-level working set trim**: MagicX uses `NtSetSystemInformation(MemoryEmptyWorkingSets)` — a single kernel call that hits ALL processes including protected/system processes that per-process `EmptyWorkingSet()` cannot touch.
+
+6. **Multi-pass cleaning**: The nuclear level does a second pass after memory combining to catch newly-modified pages.
 
 ---
 
@@ -436,19 +440,19 @@ magicx-ram-cleaner context-menu <install|uninstall>
 ```
 
 **Subcommands:**
-| Subcommand  | Description                                  |
-| ----------- | -------------------------------------------- |
+| Subcommand  | Description                                                 |
+| ----------- | ----------------------------------------------------------- |
 | `install`   | Add context menu entries (creates registry keys under HKCR) |
 | `uninstall` | Remove context menu entries (deletes registry keys)         |
 
 **Context menu entries installed:**
-| Entry            | Action                              | Icon             |
-| ---------------- | ----------------------------------- | ---------------- |
-| Boost            | `clean --level gentle --notify`     | lite.ico         |
-| Moderate Boost   | `clean --level moderate --notify`   | lite.ico         |
-| Aggressive Boost | `clean --level aggressive --notify` | aggressive.ico   |
-| Purge Standby    | `purge-standby --notify`            | app.ico          |
-| Memory Status    | `status --notify`                   | app.ico          |
+| Entry            | Action                              | Icon           |
+| ---------------- | ----------------------------------- | -------------- |
+| Boost            | `clean --level gentle --notify`     | lite.ico       |
+| Moderate Boost   | `clean --level moderate --notify`   | lite.ico       |
+| Aggressive Boost | `clean --level aggressive --notify` | aggressive.ico |
+| Purge Standby    | `purge-standby --notify`            | app.ico        |
+| Memory Status    | `status --notify`                   | app.ico        |
 
 > **Note:** Nuclear is intentionally excluded from the context menu — it is too destructive for one-click access.
 
@@ -749,19 +753,18 @@ Currently built for x86-64 only. ARM support may be added in the future.
 
 ### Can I use this without the command line?
 
-MagicX includes built-in Desktop context menu integration! Run:
+**Yes!** MagicX includes a full **built-in GUI**. Simply double-click the exe (or run it without arguments) to launch the graphical interface with:
+- Real-time memory dashboard with usage bars and history chart
+- One-click cleaning at all 4 levels (Gentle / Moderate / Aggressive / Nuclear)
+- Continuous monitoring with automatic cleaning at configurable thresholds
+- Process list sorted by memory usage
+- Settings panel for dark mode, tray icon, and context menu integration
+
+MagicX also includes Desktop context menu integration:
 ```powershell
 magicx-ram-cleaner context-menu install
 ```
 This adds a "MagicX RAM Cleaner" submenu to your Desktop and folder right-click menus with quick access to Boost, Moderate Boost, Aggressive Boost, Purge Standby, and Memory Status — no terminal needed.
-
-Alternatively, create a shortcut:
-1. Right-click desktop → New → Shortcut
-2. Location: `C:\Tools\magicx-ram-cleaner.exe clean`
-3. Name: "Clean RAM"
-4. Right-click shortcut → Properties → Advanced → "Run as administrator"
-
-Double-click to clean RAM instantly.
 
 ---
 
@@ -820,6 +823,17 @@ src/
 ├── console.rs        # Windows console management (dynamic attach/alloc, ANSI, notifications)
 ├── context_menu.rs   # Windows Desktop context menu integration (registry)
 ├── display.rs        # ALL terminal formatting: banner, status, clean output
+├── gui/              # egui graphical interface module
+│   ├── mod.rs        # Module entry point, run_gui() launcher
+│   ├── app.rs        # Core app state, sidebar, layout routing
+│   ├── theme.rs      # Colour palette, spacing, dark/light themes
+│   ├── widgets.rs    # Reusable UI components (cards, stat labels)
+│   └── panels/       # One file per tab
+│       ├── dashboard.rs  # Memory overview chart + quick stats
+│       ├── clean.rs      # Cleaning level buttons + result display
+│       ├── monitor.rs    # Auto-clean configuration UI
+│       ├── processes.rs  # Sortable process memory table
+│       └── settings.rs   # Appearance, integration, defaults
 ├── monitor.rs        # Continuous monitoring loop with auto-clean
 ├── ntapi.rs          # NT Native API FFI (NtSetSystemInformation)
 ├── privilege.rs      # Windows privilege management + admin elevation check

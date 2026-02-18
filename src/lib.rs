@@ -103,3 +103,6 @@ pub mod privilege;
 /// Memory statistics, Win32 API wrappers, and `MemorySnapshot`.
 #[allow(unsafe_code)]
 pub mod stats;
+
+/// egui-based graphical user interface (launched when no CLI subcommand is given).
+pub mod gui;

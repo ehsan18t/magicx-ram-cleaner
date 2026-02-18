@@ -25,7 +25,7 @@ use clap::{ColorChoice, CommandFactory, FromArgMatches};
 use colored::Colorize;
 
 use magicx_ram_cleaner::cli::{Cli, Commands, ContextMenuAction};
-use magicx_ram_cleaner::{cleaner, console, context_menu, display, monitor, privilege, stats};
+use magicx_ram_cleaner::{cleaner, console, context_menu, display, gui, monitor, privilege, stats};
 
 /// Entry point — returns [`ExitCode`] instead of calling `std::process::exit()`.
 ///
@@ -38,12 +38,17 @@ fn main() -> ExitCode {
     // auto-created console window before it becomes visible.
     let notify = detect_flag("--notify");
 
+    // Detect whether we're launching the GUI (no subcommand, no --help,
+    // no --version). When true, hide the console immediately to avoid
+    // the visible flash that SUBSYSTEM:CONSOLE would otherwise cause.
+    let gui_launch = !notify && is_gui_launch();
+
     // ── Console setup ────────────────────────────────────────────────
     // SUBSYSTEM:CONSOLE means a console always exists. In notify mode
-    // we immediately hide + free it (zero-flash context-menu launches).
+    // or GUI mode we immediately hide + free it (zero-flash launches).
     // Otherwise, detect whether we're in a terminal or a standalone
     // double-click console so we can pause-before-exit appropriately.
-    let standalone = if notify {
+    let standalone = if notify || gui_launch {
         console::hide_and_free_console();
         false
     } else {
@@ -110,10 +115,10 @@ fn run(no_color: bool, notify: bool) -> Result<(bool, String)> {
     let quiet = cli.quiet || notify;
 
     let Some(ref command) = cli.command else {
-        if !quiet {
-            display::print_banner();
-        }
-        print_no_command_help()?;
+        // No subcommand → launch the graphical interface.
+        // The console was already hidden in main() by the early gui-launch
+        // detection (see `is_gui_launch()`). Any errors are propagated upward.
+        gui::run_gui()?;
         return Ok((false, String::new()));
     };
 
@@ -131,19 +136,6 @@ fn run(no_color: bool, notify: bool) -> Result<(bool, String)> {
     )?;
 
     dispatch_command(command, quiet, notify)
-}
-
-/// Show a friendly help guide when no subcommand is given.
-fn print_no_command_help() -> Result<()> {
-    println!(
-        "  {}\n",
-        "No command specified. Showing usage guide.".yellow()
-    );
-    Cli::command()
-        .print_long_help()
-        .context("Failed to print help")?;
-    println!();
-    Ok(())
 }
 
 /// Pre-scan `argv` and environment for colour suppression requests.
@@ -430,6 +422,18 @@ fn write_report(path: &str, output: &cleaner::SmartCleanResult) -> Result<()> {
 /// the console) before clap even runs.
 fn detect_flag(flag: &str) -> bool {
     std::env::args().any(|a| a == flag)
+}
+
+/// Detect whether the process was launched with no subcommand — i.e. the user
+/// double-clicked the `.exe` or ran it with no arguments, which means we should
+/// open the GUI.
+///
+/// Returns `true` when the only argv entries are the exe path itself, plus
+/// optional global flags (`--no-color`). Any other argument (subcommand name,
+/// `--help`, `--version`, `-V`, `-h`, `--notify`) means this is a CLI launch.
+fn is_gui_launch() -> bool {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    args.iter().all(|a| a == "--no-color")
 }
 
 // ─── Notification message formatting ─────────────────────────────────────────

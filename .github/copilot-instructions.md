@@ -56,6 +56,17 @@ src/
   console.rs       — Windows console management (dynamic attach/alloc for SUBSYSTEM:WINDOWS, ANSI, notifications)
   context_menu.rs  — Windows Desktop context menu integration (registry install/uninstall)
   display.rs       — ALL terminal formatting: banner, status, clean output, box drawing
+  gui/             — egui graphical interface module
+    mod.rs         — module entry point, run_gui() launcher
+    app.rs         — core app state, eframe::App impl, sidebar, layout routing
+    theme.rs       — colour palette, spacing constants, dark/light Visuals
+    widgets.rs     — reusable UI components (cards, stat labels, buttons)
+    panels/        — one file per tab
+      dashboard.rs — memory overview chart + quick stats
+      clean.rs     — cleaning level buttons + result display
+      monitor.rs   — auto-clean configuration UI
+      processes.rs — sortable process memory table
+      settings.rs  — appearance, integration, defaults
   monitor.rs       — continuous monitoring loop, Ctrl+C handler, auto-clean
   ntapi.rs         — NT kernel FFI (NtSetSystemInformation, NtQuerySystemInformation)
   privilege.rs     — Windows privilege elevation (Se*Privilege) + admin check

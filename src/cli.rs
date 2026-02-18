@@ -32,6 +32,8 @@ EmptyStandbyList with granular control over every memory subsystem.
 \
 \x1b[1;36mFEATURES:\x1b[0m
   \
+\x1b[1;32m★\x1b[0m Built-in GUI — double-click the exe or run without arguments
+  \
 \x1b[1;32m★\x1b[0m Smart cleaning with 4 aggressiveness levels (gentle → nuclear)
   \
 \x1b[1;32m★\x1b[0m Individual control over each memory operation
@@ -63,6 +65,8 @@ EmptyStandbyList with granular control over every memory subsystem.
 
 \
 \x1b[1;36mQUICK START:\x1b[0m
+  \
+\x1b[32mmagicx-ram-cleaner\x1b[0m                             \x1b[90m# Launch GUI (no arguments)\x1b[0m
   \
 \x1b[32mmagicx-ram-cleaner clean\x1b[0m                    \x1b[90m# Smart clean (aggressive)\x1b[0m
   \
@@ -152,6 +156,12 @@ pub const AFTER_HELP_LONG: &str = "\
 \x1b[32mmagicx-ram-cleaner context-menu install\x1b[0m              \x1b[90m# Add to right-click menu\x1b[0m
     \
 \x1b[32mmagicx-ram-cleaner context-menu uninstall\x1b[0m             \x1b[90m# Remove from right-click menu\x1b[0m
+
+  \
+\x1b[36mGUI Mode:\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner\x1b[0m                                     \x1b[90m# Launch the graphical interface\x1b[0m
+    \x1b[90mDouble-click the exe to open the GUI with dashboard, charts, and settings.\x1b[0m
 
 \
 \x1b[1;36mKEY CONCEPTS:\x1b[0m

@@ -161,21 +161,21 @@ winresource = "0.1"
 
 ### Feature Map — What Each Feature Unlocks
 
-| Feature                             | Functions / Types It Provides                                                                                  |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `Win32_Foundation`                  | `HANDLE`, `BOOL`, `LUID`, `LUID_AND_ATTRIBUTES`, `CloseHandle`, `GetLastError`, `TRUE`/`FALSE`, `NTSTATUS`     |
-| `Win32_System_Memory`               | `SetSystemFileCacheSize`, `GetSystemFileCacheSize`                                                             |
-| `Win32_System_Threading`            | `GetCurrentProcess`, `OpenProcess`, `PROCESS_SET_QUOTA`, `PROCESS_QUERY_INFORMATION`                           |
-| `Win32_Security`                    | `TOKEN_ADJUST_PRIVILEGES`, `TOKEN_QUERY`, `AdjustTokenPrivileges`, `LookupPrivilegeValueW`, `OpenProcessToken` |
-| `Win32_Security_Authorization`      | `TOKEN_PRIVILEGES`, `SE_PRIVILEGE_ENABLED`                                                                     |
-| `Win32_System_ProcessStatus`        | `K32EnumProcesses`, `K32EmptyWorkingSet`, `K32GetPerformanceInfo`, `PERFORMANCE_INFORMATION`                   |
-| `Win32_System_SystemInformation`    | `GlobalMemoryStatusEx`, `MEMORYSTATUSEX`, `GetSystemInfo`                                                      |
+| Feature                             | Functions / Types It Provides                                                                                     |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `Win32_Foundation`                  | `HANDLE`, `BOOL`, `LUID`, `LUID_AND_ATTRIBUTES`, `CloseHandle`, `GetLastError`, `TRUE`/`FALSE`, `NTSTATUS`        |
+| `Win32_System_Memory`               | `SetSystemFileCacheSize`, `GetSystemFileCacheSize`                                                                |
+| `Win32_System_Threading`            | `GetCurrentProcess`, `OpenProcess`, `PROCESS_SET_QUOTA`, `PROCESS_QUERY_INFORMATION`                              |
+| `Win32_Security`                    | `TOKEN_ADJUST_PRIVILEGES`, `TOKEN_QUERY`, `AdjustTokenPrivileges`, `LookupPrivilegeValueW`, `OpenProcessToken`    |
+| `Win32_Security_Authorization`      | `TOKEN_PRIVILEGES`, `SE_PRIVILEGE_ENABLED`                                                                        |
+| `Win32_System_ProcessStatus`        | `K32EnumProcesses`, `K32EmptyWorkingSet`, `K32GetPerformanceInfo`, `PERFORMANCE_INFORMATION`                      |
+| `Win32_System_SystemInformation`    | `GlobalMemoryStatusEx`, `MEMORYSTATUSEX`, `GetSystemInfo`                                                         |
 | `Win32_System_Console`              | `AttachConsole`/`AllocConsole` (dynamic console for `SUBSYSTEM:WINDOWS`), `SetStdHandle`, `GetConsoleProcessList` |
-| `Win32_Storage_FileSystem`          | `CreateFileW` (open `CONOUT$`/`CONIN$` for std handle redirection after `AttachConsole`)                        |
-| `Win32_System_Diagnostics_ToolHelp` | `CreateToolhelp32Snapshot`, `Process32FirstW`, `Process32NextW`, `PROCESSENTRY32W` (per-process enumeration)   |
-| `Win32_UI_Shell`                    | `Shell_NotifyIconW`, `NOTIFYICONDATAW`, `NIM_ADD`, `NIM_DELETE`, `NIF_*` (balloon notifications)              |
-| `Win32_UI_WindowsAndMessaging`      | `LoadIconW`, `DestroyIcon` (icon loading for notifications)                                                    |
-| `Win32_System_LibraryLoader`        | `GetModuleHandleW` (module handle for icon resource loading)                                                   |
+| `Win32_Storage_FileSystem`          | `CreateFileW` (open `CONOUT$`/`CONIN$` for std handle redirection after `AttachConsole`)                          |
+| `Win32_System_Diagnostics_ToolHelp` | `CreateToolhelp32Snapshot`, `Process32FirstW`, `Process32NextW`, `PROCESSENTRY32W` (per-process enumeration)      |
+| `Win32_UI_Shell`                    | `Shell_NotifyIconW`, `NOTIFYICONDATAW`, `NIM_ADD`, `NIM_DELETE`, `NIF_*` (balloon notifications)                  |
+| `Win32_UI_WindowsAndMessaging`      | `LoadIconW`, `DestroyIcon` (icon loading for notifications)                                                       |
+| `Win32_System_LibraryLoader`        | `GetModuleHandleW` (module handle for icon resource loading)                                                      |
 
 ---
 
@@ -1610,6 +1610,17 @@ src/
   console.rs       — Windows console management (dynamic attach/alloc for SUBSYSTEM:WINDOWS, ANSI, notifications)
   context_menu.rs  — Windows Desktop context menu integration (registry install/uninstall)
   display.rs       — ALL terminal formatting: banner, status, clean output, box drawing
+  gui/             — egui graphical interface module
+    mod.rs         — module entry point, run_gui() launcher
+    app.rs         — core app state, eframe::App impl, sidebar, layout routing
+    theme.rs       — colour palette, spacing constants, dark/light Visuals
+    widgets.rs     — reusable UI components (cards, stat labels, buttons)
+    panels/        — one file per tab
+      dashboard.rs — memory overview chart + quick stats
+      clean.rs     — cleaning level buttons + result display
+      monitor.rs   — auto-clean configuration UI
+      processes.rs — sortable process memory table
+      settings.rs  — appearance, integration, defaults
   monitor.rs       — continuous monitoring loop, Ctrl+C handler, auto-clean
   ntapi.rs         — NT kernel FFI (NtSetSystemInformation, NtQuerySystemInformation)
   privilege.rs     — Windows privilege elevation (Se*Privilege) + admin check
@@ -1632,23 +1643,24 @@ src/
 
 ### CLI Features
 
-| Feature               | Flag / Option             | Description                                                                 |
-| --------------------- | ------------------------- | --------------------------------------------------------------------------- |
-| Smart clean           | `clean [-l LEVEL]`        | Context-aware cleaning at 4 levels with settle detection between operations |
-| Dry-run mode          | `clean --dry-run`         | Preview what operations would run without executing them                    |
-| JSON report           | `clean --report FILE`     | Write `SmartCleanResult` as pretty-printed JSON to a file                   |
-| Status display        | `status [--detailed]`     | Show memory usage with optional kernel page list breakdown                  |
-| JSON status           | `status --json`           | Machine-readable JSON output of `MemorySnapshot`                            |
-| Top processes         | `status --top N`          | Show top N processes ranked by working set (physical RAM) usage             |
-| Per-process trimming  | `empty-workingsets -p`    | Trim working sets process-by-process instead of kernel-wide                 |
-| Exclusion filters     | `--exclude NAME`          | Case-insensitive process name exclusion (implies `--per-process`)           |
-| Continuous monitoring | `monitor -t THRESHOLD`    | Auto-clean when RAM usage exceeds threshold percentage                      |
-| Monitor cooldown      | `monitor --cooldown SECS` | Minimum seconds between auto-cleans (default: 2× interval)                  |
-| Quiet mode            | `-q` / `--quiet`          | Suppress banner and non-essential output (global flag)                      |
-| No colour             | `--no-color`              | Disable coloured terminal output (also respects `NO_COLOR` env var)         |
+| Feature               | Flag / Option             | Description                                                                   |
+| --------------------- | ------------------------- | ----------------------------------------------------------------------------- |
+| GUI mode              | *(no arguments)*          | Launch the graphical interface with dashboard, charts, and settings           |
+| Smart clean           | `clean [-l LEVEL]`        | Context-aware cleaning at 4 levels with settle detection between operations   |
+| Dry-run mode          | `clean --dry-run`         | Preview what operations would run without executing them                      |
+| JSON report           | `clean --report FILE`     | Write `SmartCleanResult` as pretty-printed JSON to a file                     |
+| Status display        | `status [--detailed]`     | Show memory usage with optional kernel page list breakdown                    |
+| JSON status           | `status --json`           | Machine-readable JSON output of `MemorySnapshot`                              |
+| Top processes         | `status --top N`          | Show top N processes ranked by working set (physical RAM) usage               |
+| Per-process trimming  | `empty-workingsets -p`    | Trim working sets process-by-process instead of kernel-wide                   |
+| Exclusion filters     | `--exclude NAME`          | Case-insensitive process name exclusion (implies `--per-process`)             |
+| Continuous monitoring | `monitor -t THRESHOLD`    | Auto-clean when RAM usage exceeds threshold percentage                        |
+| Monitor cooldown      | `monitor --cooldown SECS` | Minimum seconds between auto-cleans (default: 2× interval)                    |
+| Quiet mode            | `-q` / `--quiet`          | Suppress banner and non-essential output (global flag)                        |
+| No colour             | `--no-color`              | Disable coloured terminal output (also respects `NO_COLOR` env var)           |
 | Notify mode           | `--notify`                | Skip console attachment, run silently, show balloon notification with results |
-| Context menu install  | `context-menu install`    | Add Desktop right-click submenu for quick cleaning access                   |
-| Context menu remove   | `context-menu uninstall`  | Remove Desktop right-click submenu                                          |
+| Context menu install  | `context-menu install`    | Add Desktop right-click submenu for quick cleaning access                     |
+| Context menu remove   | `context-menu uninstall`  | Remove Desktop right-click submenu                                            |
 
 ### Settle Detection
 
