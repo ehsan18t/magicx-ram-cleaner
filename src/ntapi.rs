@@ -50,6 +50,8 @@ pub struct SystemFileCacheInfo {
 /// `MagicX` supports ALL of them with finer control.
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// CaptureAccessedBits and CaptureAndResetAccessedBits are valid Windows API
+// constants not yet exposed via CLI commands. Kept for API completeness.
 #[allow(dead_code)]
 pub enum MemoryListCommand {
     /// Capture PTE accessed bits (diagnostic only).
@@ -112,8 +114,6 @@ pub fn execute_memory_command(command: MemoryListCommand) -> Result<(), NtStatus
     }
 }
 
-/// FFI struct for `NtSetSystemInformation(SystemCombinePhysicalMemoryInformation)`.
-///
 /// FFI struct for `NtSetSystemInformation(SystemCombinePhysicalMemoryInformation)`.
 ///
 /// Maps to `MEMORY_COMBINE_INFORMATION_EX` — the extended variant that includes
