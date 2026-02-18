@@ -606,13 +606,17 @@ fn draw_nav_button(
 /// Draw the main content area based on the active panel.
 fn draw_main_panel(ctx: &egui::Context, app: &mut MagicXApp) {
     egui::CentralPanel::default()
-        .frame(egui::Frame::new().inner_margin(egui::Margin::same(20)))
+        .frame(egui::Frame::new())
         .show(ctx, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| match app.active_panel {
-                Panel::Dashboard => panels::dashboard::draw(ui, app),
-                Panel::Monitor => panels::monitor::draw(ui, app),
-                Panel::Processes => panels::processes::draw(ui, app),
-                Panel::Settings => panels::settings::draw(ui, app),
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                egui::Frame::new()
+                    .inner_margin(egui::Margin::same(20))
+                    .show(ui, |ui| match app.active_panel {
+                        Panel::Dashboard => panels::dashboard::draw(ui, app),
+                        Panel::Monitor => panels::monitor::draw(ui, app),
+                        Panel::Processes => panels::processes::draw(ui, app),
+                        Panel::Settings => panels::settings::draw(ui, app),
+                    });
             });
         });
 }
