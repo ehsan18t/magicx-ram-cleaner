@@ -47,7 +47,11 @@ fn main() -> ExitCode {
         false
     } else {
         let mode = console::attach_or_create_console();
-        mode == console::ConsoleMode::Allocated
+        // Only pause on exit for bare-exe double-click launches
+        // (AllocConsole used AND no CLI arguments beyond the exe path).
+        // When args are present (e.g. UAC-elevated from a terminal),
+        // skip pause so the original terminal unblocks promptly.
+        mode == console::ConsoleMode::Allocated && std::env::args_os().count() <= 1
     };
 
     // Detect --no-color / NO_COLOR BEFORE anything else so that all output

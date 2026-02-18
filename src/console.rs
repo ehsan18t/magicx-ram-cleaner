@@ -230,8 +230,8 @@ fn write_wide_into(buf: &mut [u16], s: &str) {
 /// - Auto-dismisses after ~2 seconds
 /// - Is **not** persisted in the Windows Action Center
 ///
-/// The notification icon is loaded from the current executable's embedded
-/// resources (resource ID 1 = `app.ico`).
+/// A hidden message-only window is created to receive Shell callback
+/// messages, and a brief message pump runs so the balloon can render.
 ///
 /// Returns `Ok(())` on success. Errors are non-fatal — the cleaning
 /// operation has already completed, so a notification failure is harmless.
@@ -240,16 +240,16 @@ pub fn show_balloon_notification(title: &str, body: &str) -> Result<()> {
         NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_REALTIME, NIF_TIP, NIM_ADD, NIM_DELETE,
         NIM_SETVERSION, NOTIFYICON_VERSION, NOTIFYICONDATAW, Shell_NotifyIconW,
     };
-    use windows_sys::Win32::UI::WindowsAndMessaging::WM_APP;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyWindow, WM_APP};
 
+    let hwnd = create_notification_window()?;
     let hicon = load_app_icon();
 
     // Zero-init the struct, then fill in the fields we need.
     // SAFETY: NOTIFYICONDATAW is a POD struct — zeroing is valid initialisation.
     let mut nid: NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
     nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
-    // Use a null HWND — we don't need callback messages, we just show and remove.
-    nid.hWnd = std::ptr::null_mut();
+    nid.hWnd = hwnd;
     nid.uID = NOTIFY_ICON_UID;
     nid.uFlags = NIF_ICON | NIF_TIP | NIF_INFO | NIF_MESSAGE | NIF_REALTIME;
     nid.uCallbackMessage = WM_APP;
@@ -275,6 +275,10 @@ pub fn show_balloon_notification(title: &str, body: &str) -> Result<()> {
     // initialised above with valid field values. NIM_ADD adds a tray icon.
     let added = unsafe { Shell_NotifyIconW(NIM_ADD, &raw const nid) };
     if added == 0 {
+        // SAFETY: DestroyWindow with a valid hwnd from CreateWindowExW.
+        unsafe {
+            DestroyWindow(hwnd);
+        }
         bail!("Shell_NotifyIconW(NIM_ADD) failed");
     }
 
@@ -286,19 +290,18 @@ pub fn show_balloon_notification(title: &str, body: &str) -> Result<()> {
         Shell_NotifyIconW(NIM_SETVERSION, &raw const nid);
     }
 
-    // Keep the balloon visible for the desired duration, then remove the icon.
-    // Removing the icon also dismisses the balloon and prevents Action Center
-    // persistence.
-    std::thread::sleep(std::time::Duration::from_millis(u64::from(
-        BALLOON_TIMEOUT_MS,
-    )));
+    // Run a message pump so Windows can deliver the Shell callback
+    // messages that trigger the actual balloon display.
+    pump_messages(BALLOON_TIMEOUT_MS);
 
-    // SAFETY: NIM_DELETE removes the tray icon. nid identifies it by hWnd + uID.
+    // ── Cleanup ──────────────────────────────────────────────────────
+    // SAFETY: NIM_DELETE removes the tray icon. DestroyWindow destroys
+    // the hidden message window. DestroyIcon releases the loaded icon.
     unsafe {
         Shell_NotifyIconW(NIM_DELETE, &raw const nid);
+        DestroyWindow(hwnd);
     }
 
-    // Release the loaded icon handle
     if !hicon.is_null() {
         use windows_sys::Win32::UI::WindowsAndMessaging::DestroyIcon;
         // SAFETY: hicon is a valid icon handle returned by LoadIconW.
@@ -308,6 +311,84 @@ pub fn show_balloon_notification(title: &str, body: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Create a hidden message-only window for `Shell_NotifyIconW`.
+///
+/// The Shell notification system requires a valid `hWnd` to deliver
+/// callback messages. A message-only window (`HWND_MESSAGE` parent)
+/// is invisible and never shown on screen or in the taskbar.
+fn create_notification_window() -> Result<windows_sys::Win32::Foundation::HWND> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::CreateWindowExW;
+
+    let hinstance = get_exe_hinstance();
+
+    // Use the built-in "STATIC" control class — no custom registration needed.
+    let class_name = wide_literal::<7>(b"STATIC");
+
+    // HWND_MESSAGE = (HWND)-3 — creates a message-only window that has
+    // no visible representation and only receives posted/sent messages.
+    let hwnd_message = std::ptr::without_provenance_mut::<std::ffi::c_void>(!2_usize);
+
+    // SAFETY: CreateWindowExW with a built-in class name (STATIC),
+    // zero dimensions, and HWND_MESSAGE parent. Creates an invisible
+    // message-only window suitable for Shell_NotifyIconW callbacks.
+    let hwnd = unsafe {
+        CreateWindowExW(
+            0,
+            class_name.as_ptr(),
+            std::ptr::null(),
+            0,
+            0,
+            0,
+            0,
+            0,
+            hwnd_message,
+            std::ptr::null_mut(),
+            hinstance,
+            std::ptr::null(),
+        )
+    };
+
+    if hwnd.is_null() {
+        bail!("Failed to create notification window");
+    }
+    Ok(hwnd)
+}
+
+/// Run a Win32 message pump for `duration_ms` milliseconds.
+///
+/// Processes pending messages each iteration, then sleeps briefly to
+/// avoid busy-spinning. Required for `Shell_NotifyIconW` balloons to
+/// display — the Shell delivers callback messages that drive the
+/// balloon lifecycle.
+fn pump_messages(duration_ms: u32) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, TranslateMessage,
+    };
+
+    let deadline =
+        std::time::Instant::now() + std::time::Duration::from_millis(u64::from(duration_ms));
+
+    loop {
+        if std::time::Instant::now() >= deadline {
+            break;
+        }
+
+        // SAFETY: PeekMessageW / TranslateMessage / DispatchMessageW are
+        // standard Win32 message loop calls. msg is stack-allocated and
+        // valid. Null hWnd processes all thread messages.
+        unsafe {
+            let mut msg: MSG = std::mem::zeroed();
+            while PeekMessageW(&raw mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
+                TranslateMessage(&raw const msg);
+                DispatchMessageW(&raw const msg);
+            }
+        }
+
+        // Brief sleep to avoid busy-spinning
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
 }
 
 /// Load the application icon (resource ID 1) from the running executable.
