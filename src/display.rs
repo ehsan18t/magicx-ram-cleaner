@@ -459,20 +459,30 @@ pub fn print_clean_summary(
         after.memory_load_percent.to_string().green()
     );
 
-    if total_freed > 0 {
-        println!(
-            "\n  {} Total freed: {}  (took {:.2}s)",
-            "★".yellow().bold(),
-            format_bytes(total_freed as u64).green().bold(),
-            total_elapsed_secs
-        );
-    } else {
-        println!(
-            "\n  {} Net change: {} (already clean or pages re-faulted, took {:.2}s)",
-            "•".dimmed(),
-            format_bytes(total_freed.unsigned_abs()).yellow(),
-            total_elapsed_secs
-        );
+    match total_freed.cmp(&0) {
+        std::cmp::Ordering::Greater => {
+            println!(
+                "\n  {} Total freed: {}  (took {:.2}s)",
+                "★".yellow().bold(),
+                format_bytes(total_freed as u64).green().bold(),
+                total_elapsed_secs
+            );
+        }
+        std::cmp::Ordering::Equal => {
+            println!(
+                "\n  {} Net change: 0 B (already clean, took {:.2}s)",
+                "•".dimmed(),
+                total_elapsed_secs
+            );
+        }
+        std::cmp::Ordering::Less => {
+            println!(
+                "\n  {} Net change: -{} (pages re-faulted during clean, took {:.2}s)",
+                "•".dimmed(),
+                format_bytes(total_freed.unsigned_abs()).yellow(),
+                total_elapsed_secs
+            );
+        }
     }
     println!();
 }
