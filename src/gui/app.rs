@@ -209,6 +209,12 @@ pub struct MagicXApp {
     /// Allows the close-intercept logic to distinguish between a user quitting
     /// via tray and a regular window close (which should minimize instead).
     quit_requested: bool,
+
+    /// Whether the Desktop context menu is currently installed in the registry.
+    ///
+    /// Cached from [`crate::context_menu::is_installed`] at startup and updated
+    /// by the Settings panel after each install or uninstall operation.
+    pub context_menu_installed: bool,
 }
 
 impl MagicXApp {
@@ -323,6 +329,7 @@ impl MagicXApp {
             tray_handle,
             hidden_to_tray: false,
             quit_requested: false,
+            context_menu_installed: crate::context_menu::is_installed(),
         }
     }
 

@@ -1,7 +1,7 @@
 //! # Settings Panel
 //!
 //! User preferences: appearance (dark/light theme), integration toggles
-//! (minimize-to-tray, autostart), display options, and settings backup.
+//! (minimize-to-tray, autostart, Desktop context menu), display options, and settings backup.
 
 use eframe::egui;
 use egui_phosphor::regular as ph;
@@ -18,6 +18,8 @@ pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     draw_appearance(ui, app);
     ui.add_space(theme::SECTION_SPACING);
     draw_integration(ui, app);
+    ui.add_space(theme::SECTION_SPACING);
+    draw_context_menu(ui, app);
     ui.add_space(theme::SECTION_SPACING);
     draw_display(ui, app);
     ui.add_space(theme::SECTION_SPACING);
@@ -152,6 +154,139 @@ fn draw_integration(ui: &mut egui::Ui, app: &mut MagicXApp) {
             }
         }
     });
+}
+
+/// Desktop context menu section: install / remove the Windows Explorer integration.
+///
+/// Writes (or deletes) cascading submenu entries under both
+/// `HKCR\DesktopBackground\Shell` and `HKCR\Directory\Background\Shell` so the
+/// `MagicX RAM Cleaner` submenu appears when right-clicking the Desktop or any
+/// folder background.  Requires administrator rights (already enforced by
+/// [`crate::gui::run_gui`]).
+fn draw_context_menu(ui: &mut egui::Ui, app: &mut MagicXApp) {
+    let dark = app.settings.dark_mode;
+
+    widgets::card(ui, dark, |ui| {
+        widgets::section_header(ui, "Desktop Context Menu");
+
+        ui.label(
+            egui::RichText::new(
+                "Adds a \u{201c}MagicX RAM Cleaner\u{201d} submenu when right-clicking \
+                 the Desktop or any folder background.",
+            )
+            .size(11.0)
+            .color(theme::muted_color(dark)),
+        );
+        ui.add_space(8.0);
+
+        // Status badge
+        let (status_text, status_color) = if app.context_menu_installed {
+            ("\u{25cf} Installed", theme::GREEN)
+        } else {
+            ("\u{25cb} Not installed", theme::muted_color(dark))
+        };
+        ui.label(
+            egui::RichText::new(status_text)
+                .size(11.0)
+                .color(status_color),
+        );
+        ui.add_space(8.0);
+
+        ui.horizontal(|ui| {
+            draw_context_menu_install_btn(ui, dark, app);
+            ui.add_space(8.0);
+            draw_context_menu_remove_btn(ui, dark, app);
+        });
+    });
+}
+
+/// "Install" button for the Desktop context menu card.
+fn draw_context_menu_install_btn(ui: &mut egui::Ui, dark: bool, app: &mut MagicXApp) {
+    let btn = egui::Button::new(
+        egui::RichText::new(format!("{} Install", ph::PLUG))
+            .size(12.0)
+            .color(if app.context_menu_installed {
+                theme::muted_color(dark)
+            } else {
+                theme::ACCENT
+            }),
+    )
+    .min_size(egui::vec2(110.0, 30.0))
+    .corner_radius(egui::CornerRadius::same(6))
+    .fill(if app.context_menu_installed {
+        theme::surface_color(dark)
+    } else {
+        theme::ACCENT.gamma_multiply(0.12)
+    });
+
+    if ui
+        .add_enabled(!app.context_menu_installed, btn)
+        .on_hover_text("Register context menu entries in the Windows registry")
+        .clicked()
+    {
+        match crate::context_menu::current_exe_path().and_then(|p| crate::context_menu::install(&p))
+        {
+            Ok(()) => {
+                app.context_menu_installed = true;
+                app.settings_status = Some((
+                    "Context menu installed successfully".to_owned(),
+                    false,
+                    std::time::Instant::now(),
+                ));
+            }
+            Err(e) => {
+                app.settings_status = Some((
+                    format!("Install failed: {e:#}"),
+                    true,
+                    std::time::Instant::now(),
+                ));
+            }
+        }
+    }
+}
+
+/// "Remove" button for the Desktop context menu card.
+fn draw_context_menu_remove_btn(ui: &mut egui::Ui, dark: bool, app: &mut MagicXApp) {
+    let btn = egui::Button::new(
+        egui::RichText::new(format!("{} Remove", ph::PLUG_CHARGING))
+            .size(12.0)
+            .color(if app.context_menu_installed {
+                theme::RED
+            } else {
+                theme::muted_color(dark)
+            }),
+    )
+    .min_size(egui::vec2(110.0, 30.0))
+    .corner_radius(egui::CornerRadius::same(6))
+    .fill(if app.context_menu_installed {
+        theme::RED.gamma_multiply(0.12)
+    } else {
+        theme::surface_color(dark)
+    });
+
+    if ui
+        .add_enabled(app.context_menu_installed, btn)
+        .on_hover_text("Remove context menu entries from the Windows registry")
+        .clicked()
+    {
+        match crate::context_menu::uninstall() {
+            Ok(()) => {
+                app.context_menu_installed = false;
+                app.settings_status = Some((
+                    "Context menu removed successfully".to_owned(),
+                    false,
+                    std::time::Instant::now(),
+                ));
+            }
+            Err(e) => {
+                app.settings_status = Some((
+                    format!("Removal failed: {e:#}"),
+                    true,
+                    std::time::Instant::now(),
+                ));
+            }
+        }
+    }
 }
 
 /// Preferences section: tooltip visibility.
