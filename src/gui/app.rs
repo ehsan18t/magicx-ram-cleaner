@@ -459,35 +459,43 @@ fn draw_sidebar(ctx: &egui::Context, app: &mut MagicXApp) {
         .frame(
             egui::Frame::new()
                 .fill(theme::sidebar_bg(dark))
-                .inner_margin(egui::Margin::symmetric(12, 14))
+                .inner_margin(egui::Margin::symmetric(8, 10))
                 .stroke(egui::Stroke::new(0.5, theme::border_color(dark))),
         )
         .show(ctx, |ui| {
-            draw_sidebar_brand(ui, dark);
-            ui.add_space(14.0);
+            draw_sidebar_brand(ui);
+            ui.add_space(8.0);
             draw_sidebar_nav(ui, app);
+            // Pin version string to the bottom of the sidebar.
+            ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+                ui.add_space(2.0);
+                ui.label(
+                    egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
+                        .size(9.0)
+                        .color(theme::muted_color(dark)),
+                );
+            });
         });
 }
 
-/// Draw the `MagicX` branding text.
-fn draw_sidebar_brand(ui: &mut egui::Ui, dark: bool) {
+/// Draw a compact `MX` monogram badge at the top of the sidebar.
+///
+/// Replaces the full word-mark to save horizontal space in the icon-rail layout.
+fn draw_sidebar_brand(ui: &mut egui::Ui) {
     ui.vertical_centered(|ui| {
-        ui.label(
-            egui::RichText::new("MagicX")
-                .strong()
-                .size(22.0)
-                .color(theme::ACCENT),
+        let badge_size = egui::vec2(36.0, 36.0);
+        let (rect, _) = ui.allocate_exact_size(badge_size, egui::Sense::hover());
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius::same(10),
+            theme::ACCENT.gamma_multiply(0.18),
         );
-        ui.label(
-            egui::RichText::new("RAM Cleaner")
-                .size(11.0)
-                .color(theme::muted_color(dark)),
-        );
-        ui.add_space(1.0);
-        ui.label(
-            egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
-                .size(9.0)
-                .color(theme::muted_color(dark)),
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "MX",
+            egui::FontId::proportional(15.0),
+            theme::ACCENT,
         );
     });
 }
@@ -500,14 +508,15 @@ fn draw_sidebar_nav(ui: &mut egui::Ui, app: &mut MagicXApp) {
         draw_nav_button(ui, icon, label, selected, dark, || {
             app.active_panel = panel;
         });
-        ui.add_space(1.0);
+        ui.add_space(2.0);
     }
 }
 
-/// Draw a single navigation button with icon and label.
+/// Draw a single icon-only navigation button.
 ///
-/// When `selected`, the button gets an accent-coloured left bar and
-/// a highlighted background.
+/// The button fills the sidebar width and is square (height == [`theme::SIDEBAR_BUTTON_HEIGHT`]).
+/// A pill-shaped background highlights the active or hovered state.
+/// Hovering reveals a tooltip with the full panel name.
 fn draw_nav_button(
     ui: &mut egui::Ui,
     icon: &str,
@@ -518,6 +527,7 @@ fn draw_nav_button(
 ) {
     let desired_size = egui::vec2(ui.available_width(), theme::SIDEBAR_BUTTON_HEIGHT);
     let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
+    let response = response.on_hover_text(label);
 
     if response.clicked() {
         on_click();
@@ -526,47 +536,37 @@ fn draw_nav_button(
     let hovered = response.hovered();
     let painter = ui.painter();
 
-    // Background highlight
-    if selected || hovered {
-        let bg = if selected {
-            theme::ACCENT.gamma_multiply(0.15)
-        } else {
-            theme::ACCENT.gamma_multiply(0.06)
-        };
-        painter.rect_filled(rect, egui::CornerRadius::same(6), bg);
-    }
-
-    // Left accent bar when selected
+    // Rounded pill background for active / hovered state.
+    let pill = rect.shrink(4.0);
     if selected {
-        let bar = egui::Rect::from_min_size(rect.left_top(), egui::vec2(3.0, rect.height()));
-        painter.rect_filled(bar, egui::CornerRadius::same(1), theme::ACCENT);
+        painter.rect_filled(
+            pill,
+            egui::CornerRadius::same(8),
+            theme::ACCENT.gamma_multiply(0.20),
+        );
+    } else if hovered {
+        painter.rect_filled(
+            pill,
+            egui::CornerRadius::same(8),
+            theme::ACCENT.gamma_multiply(0.08),
+        );
     }
 
-    // Text colours (theme-aware)
-    let text_color = if selected {
+    // Icon colour: accent when active, primary text on hover, muted otherwise.
+    let icon_color = if selected {
         theme::ACCENT
     } else if hovered {
-        theme::ACCENT_HOVER
+        theme::text_color(dark)
     } else {
         theme::muted_color(dark)
     };
 
-    let icon_pos = egui::pos2(rect.left() + 12.0, rect.center().y);
     painter.text(
-        icon_pos,
-        egui::Align2::LEFT_CENTER,
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
         icon,
-        egui::FontId::proportional(14.0),
-        text_color,
-    );
-
-    let label_pos = egui::pos2(rect.left() + 32.0, rect.center().y);
-    painter.text(
-        label_pos,
-        egui::Align2::LEFT_CENTER,
-        label,
-        egui::FontId::proportional(13.0),
-        text_color,
+        egui::FontId::proportional(20.0),
+        icon_color,
     );
 }
 

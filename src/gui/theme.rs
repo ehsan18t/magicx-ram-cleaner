@@ -91,11 +91,11 @@ pub const CARD_PADDING: i8 = 18;
 /// Corner rounding for cards.
 pub const CARD_ROUNDING: u8 = 12;
 
-/// Sidebar width in logical points.
-pub const SIDEBAR_WIDTH: f32 = 156.0;
+/// Sidebar width in logical points — narrow icon rail, frees content area.
+pub const SIDEBAR_WIDTH: f32 = 56.0;
 
-/// Sidebar button height.
-pub const SIDEBAR_BUTTON_HEIGHT: f32 = 36.0;
+/// Sidebar button height — square tap target for centered icons.
+pub const SIDEBAR_BUTTON_HEIGHT: f32 = 44.0;
 
 // ─── Theme Application ───────────────────────────────────────────────────────
 
