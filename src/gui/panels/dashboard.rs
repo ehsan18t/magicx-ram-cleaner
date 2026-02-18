@@ -111,269 +111,262 @@ fn draw_info_card(ui: &mut egui::Ui, snap: &stats::MemorySnapshot, dark: bool) {
 
 // ─── Clean Buttons ───────────────────────────────────────────────────────────
 
-/// Four clean-level buttons in a 2×2 grid.
+/// Level descriptor used by the circle button row and detail panel.
+struct LevelInfo {
+    level: CleanLevel,
+    name: &'static str,
+    short: &'static str,
+    detail: &'static str,
+    color: egui::Color32,
+}
+
+/// All four cleaning levels with their display metadata.
+const LEVELS: [LevelInfo; 4] = [
+    LevelInfo {
+        level: CleanLevel::Gentle,
+        name: "Gentle",
+        short: "Low-priority standby",
+        detail: "Flushes low-priority standby pages only. Safe to run at any time — no impact on running processes or file cache.",
+        color: theme::LEVEL_GENTLE,
+    },
+    LevelInfo {
+        level: CleanLevel::Moderate,
+        name: "Moderate",
+        short: "Working sets + standby",
+        detail: "Trims the working sets of all processes and clears the standby list. May cause a brief disk spike as pages are reloaded on demand.",
+        color: theme::LEVEL_MODERATE,
+    },
+    LevelInfo {
+        level: CleanLevel::Aggressive,
+        name: "Aggressive",
+        short: "Cache + modified pages",
+        detail: "Flushes the system file cache and forces modified pages to disk before clearing them. Effective for reclaiming large cache builds.",
+        color: theme::LEVEL_AGGRESSIVE,
+    },
+    LevelInfo {
+        level: CleanLevel::Nuclear,
+        name: "Nuclear",
+        short: "Full deep clean",
+        detail: "Performs all cleaning operations: working sets, standby list, modified list, and system file cache. Maximum recovery; use sparingly.",
+        color: theme::LEVEL_NUCLEAR,
+    },
+];
+
+/// Four equal circle buttons in a row, followed by a live detail panel.
 ///
-/// Each button has a coloured left-edge stripe, bold name, description,
-/// and a right-side intensity indicator. On hover the card tints subtly
-/// with its level colour.
+/// Hovering a circle updates the detail panel below with the level's full
+/// description. Clicking triggers the clean operation.
 fn draw_clean_section(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
     widgets::section_header(ui, "Clean Memory");
 
-    let levels = [
-        (
-            CleanLevel::Gentle,
-            "Gentle",
-            "Low-priority standby",
-            theme::LEVEL_GENTLE,
-            1_u8,
-        ),
-        (
-            CleanLevel::Moderate,
-            "Moderate",
-            "Working sets + standby",
-            theme::LEVEL_MODERATE,
-            2_u8,
-        ),
-        (
-            CleanLevel::Aggressive,
-            "Aggressive",
-            "Cache + modified pages",
-            theme::LEVEL_AGGRESSIVE,
-            3_u8,
-        ),
-        (
-            CleanLevel::Nuclear,
-            "Nuclear",
-            "Full deep clean",
-            theme::LEVEL_NUCLEAR,
-            4_u8,
-        ),
-    ];
-
-    let mut level_to_clean = None;
     let enabled = !app.cleaning_in_progress;
+    let mut level_to_clean = None;
+    let mut hovered_idx: Option<usize> = None;
 
-    for row in levels.chunks(2) {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
-            for &(level, name, desc, color, intensity) in row {
-                if draw_clean_button(ui, name, desc, color, intensity, enabled, dark) {
-                    level_to_clean = Some(level);
-                }
+    // ── Circle row ───────────────────────────────────────────────
+    let circle_d = 88.0_f32; // diameter
+    // Divide remaining width evenly into 5 gaps (left + between + right).
+    let spacing = (-circle_d).mul_add(4.0, ui.available_width()) / 5.0;
+
+    ui.horizontal(|ui| {
+        ui.add_space(spacing);
+        ui.spacing_mut().item_spacing.x = spacing;
+
+        for (i, info) in LEVELS.iter().enumerate() {
+            let (rect, resp) =
+                ui.allocate_exact_size(egui::vec2(circle_d, circle_d), egui::Sense::click());
+
+            let hovered = resp.hovered() && enabled;
+            let pressed = resp.is_pointer_button_down_on() && enabled;
+
+            if hovered {
+                hovered_idx = Some(i);
             }
-        });
-        ui.add_space(8.0);
-    }
+            paint_circle_btn(
+                ui.painter(),
+                rect,
+                info,
+                &CircleCtx {
+                    hovered,
+                    pressed,
+                    enabled,
+                    dark,
+                },
+            );
+
+            if resp.clicked() && enabled {
+                level_to_clean = Some(info.level);
+            }
+        }
+    });
+
+    ui.add_space(12.0);
+
+    // ── Detail panel ─────────────────────────────────────────────
+    draw_level_detail(ui, hovered_idx, dark);
 
     if let Some(level) = level_to_clean {
         app.start_clean(level);
     }
 }
 
-/// A level card button with a coloured left stripe and intensity indicator.
+/// Draw the detail panel that updates based on the hovered level index.
 ///
-/// Layout:
-/// - 3 px coloured left stripe (brightens on hover)
-/// - Bold 13.5 px level name (tinted in level colour on hover)
-/// - 10.5 px muted description
-/// - Right side: filled pill badge with intensity dots (● × N)
-///
-/// On hover the background tints very subtly with the level colour (~8 % opacity).
-///
-/// Returns `true` when clicked.
-fn draw_clean_button(
-    ui: &mut egui::Ui,
-    name: &str,
-    desc: &str,
-    color: egui::Color32,
-    intensity: u8,
-    enabled: bool,
-    dark: bool,
-) -> bool {
-    let width = (ui.available_width() - 8.0) / 2.0;
-    let height = 62.0_f32;
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
-
-    let ctx = BtnCtx {
-        hovered: response.hovered() && enabled,
-        pressed: response.is_pointer_button_down_on() && enabled,
-        enabled,
-        dark,
-    };
+/// Shows a neutral prompt when nothing is hovered, or the full level
+/// name, short subtitle, and descriptive text when a circle is hovered.
+fn draw_level_detail(ui: &mut egui::Ui, hovered: Option<usize>, dark: bool) {
+    let panel_h = 72.0_f32;
+    let available = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(available, panel_h), egui::Sense::hover());
     let painter = ui.painter();
 
-    paint_btn_card(painter, rect, color, height, &ctx);
-    paint_btn_text(painter, rect, name, desc, color, &ctx);
-    paint_btn_badge(painter, rect, color, intensity, &ctx);
+    // Panel background
+    let bg = if dark {
+        egui::Color32::from_rgb(18, 22, 29)
+    } else {
+        egui::Color32::from_rgb(244, 246, 250)
+    };
+    painter.rect(
+        rect,
+        egui::CornerRadius::same(8),
+        bg,
+        egui::Stroke::new(1.0, theme::border_color(dark).gamma_multiply(0.6)),
+        egui::StrokeKind::Inside,
+    );
 
-    response.clicked() && enabled
+    match hovered.and_then(|i| LEVELS.get(i)) {
+        None => {
+            // Neutral prompt
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "Hover a level to see details",
+                egui::FontId::proportional(11.5),
+                theme::muted_color(dark).gamma_multiply(0.7),
+            );
+        }
+        Some(info) => {
+            // Left accent bar in level colour
+            let bar = egui::Rect::from_min_size(
+                egui::pos2(rect.left() + 1.0, rect.top() + 8.0),
+                egui::vec2(3.0, panel_h - 16.0),
+            );
+            painter.rect_filled(bar, egui::CornerRadius::same(2), info.color);
+
+            let tx = rect.left() + 14.0;
+
+            // Level name
+            painter.text(
+                egui::pos2(tx, rect.top() + 22.0),
+                egui::Align2::LEFT_CENTER,
+                info.name,
+                egui::FontId::proportional(14.0),
+                info.color,
+            );
+            // Short subtitle
+            painter.text(
+                egui::pos2(tx, rect.top() + 38.0),
+                egui::Align2::LEFT_CENTER,
+                info.short,
+                egui::FontId::proportional(10.5),
+                theme::muted_color(dark),
+            );
+            // Detail description (clipped to panel width)
+            painter.text(
+                egui::pos2(tx, rect.top() + 56.0),
+                egui::Align2::LEFT_CENTER,
+                info.detail,
+                egui::FontId::proportional(10.0),
+                theme::muted_color(dark).gamma_multiply(0.75),
+            );
+        }
+    }
 }
 
-/// Shared interaction state for a button render pass.
+/// Shared interaction state passed to circle-button painters.
 ///
-/// All four fields are distinct boolean dimensions — there is no meaningful
-/// two-variant enum that would reduce the count without obscuring intent.
+/// All four fields are independent boolean dimensions with no meaningful
+/// two-variant enum reduction.
 #[allow(clippy::struct_excessive_bools)]
-struct BtnCtx {
+struct CircleCtx {
     hovered: bool,
     pressed: bool,
     enabled: bool,
     dark: bool,
 }
 
-/// Paint the card background, border, and left colour stripe.
-fn paint_btn_card(
-    painter: &egui::Painter,
-    rect: egui::Rect,
-    color: egui::Color32,
-    height: f32,
-    ctx: &BtnCtx,
-) {
-    let base_bg = if ctx.dark {
+/// Paint a single circle clean button.
+///
+/// Visual anatomy:
+/// - Filled circle background (tints with level colour on hover/press)
+/// - Outer coloured ring (brightens on hover)
+/// - Level name centred inside
+///
+/// Returns nothing — click detection is handled by the caller.
+fn paint_circle_btn(painter: &egui::Painter, rect: egui::Rect, info: &LevelInfo, ctx: &CircleCtx) {
+    let center = rect.center();
+    let radius = rect.width() / 2.0;
+
+    // Inner fill
+    let base_fill = if ctx.dark {
         egui::Color32::from_rgb(22, 27, 34)
     } else {
         egui::Color32::from_rgb(248, 250, 252)
     };
-
     let fill = if !ctx.enabled {
         if ctx.dark {
             egui::Color32::from_rgb(20, 24, 30)
         } else {
-            egui::Color32::from_rgb(242, 244, 246)
+            egui::Color32::from_rgb(238, 240, 243)
         }
     } else if ctx.pressed {
-        blend_color(base_bg, color, 0.14)
+        blend_color(base_fill, info.color, 0.18)
     } else if ctx.hovered {
-        blend_color(base_bg, color, 0.08)
+        blend_color(base_fill, info.color, 0.10)
     } else {
-        base_bg
+        base_fill
     };
+    painter.circle_filled(center, radius - 1.0, fill);
 
-    let border = if ctx.hovered && ctx.enabled {
-        color.gamma_multiply(0.45)
+    // Outer coloured ring
+    let ring_color = if !ctx.enabled {
+        theme::muted_color(ctx.dark).gamma_multiply(0.3)
+    } else if ctx.hovered || ctx.pressed {
+        info.color
     } else {
-        theme::border_color(ctx.dark).gamma_multiply(if ctx.dark { 1.0 } else { 0.8 })
+        info.color.gamma_multiply(0.55)
     };
-
-    painter.rect(
-        rect,
-        egui::CornerRadius::same(8),
-        fill,
-        egui::Stroke::new(1.0, border),
-        egui::StrokeKind::Inside,
-    );
-
-    // Left colour stripe — widens slightly on hover
-    let stripe_w = if ctx.hovered && ctx.enabled {
-        4.0_f32
-    } else {
+    let ring_w = if ctx.hovered || ctx.pressed {
         3.0_f32
-    };
-    let stripe_rect = egui::Rect::from_min_size(
-        egui::pos2(rect.left() + 1.0, rect.top() + 6.0),
-        egui::vec2(stripe_w, height - 12.0),
-    );
-    let stripe_fill = if ctx.enabled {
-        if ctx.hovered {
-            color
-        } else {
-            color.gamma_multiply(0.75)
-        }
     } else {
-        theme::muted_color(ctx.dark).gamma_multiply(0.5)
+        2.5_f32
     };
-    painter.rect_filled(
-        stripe_rect,
-        egui::CornerRadius {
-            nw: 3,
-            sw: 3,
-            ne: 2,
-            se: 2,
-        },
-        stripe_fill,
+    painter.circle_stroke(
+        center,
+        radius - ring_w / 2.0 - 0.5,
+        egui::Stroke::new(ring_w, ring_color),
     );
-}
 
-/// Paint the level name and description text inside a button card.
-fn paint_btn_text(
-    painter: &egui::Painter,
-    rect: egui::Rect,
-    name: &str,
-    desc: &str,
-    color: egui::Color32,
-    ctx: &BtnCtx,
-) {
-    let tx = rect.left() + 14.0;
-    // Name: tinted in level colour on hover, plain text otherwise
-    let name_fg = if ctx.hovered && ctx.enabled {
-        color.gamma_multiply(0.9)
-    } else if ctx.enabled {
-        theme::text_color(ctx.dark)
-    } else {
-        theme::muted_color(ctx.dark)
-    };
-    painter.text(
-        egui::pos2(tx, rect.top() + 22.0),
-        egui::Align2::LEFT_CENTER,
-        name,
-        egui::FontId::proportional(13.5),
-        name_fg,
-    );
-    let desc_fg = if ctx.enabled {
-        theme::muted_color(ctx.dark)
-    } else {
+    // Level name
+    let name_fg = if !ctx.enabled {
         theme::muted_color(ctx.dark).gamma_multiply(0.6)
+    } else if ctx.hovered || ctx.pressed {
+        info.color
+    } else {
+        theme::text_color(ctx.dark)
     };
     painter.text(
-        egui::pos2(tx, rect.top() + 40.0),
-        egui::Align2::LEFT_CENTER,
-        desc,
-        egui::FontId::proportional(10.5),
-        desc_fg,
-    );
-}
-
-/// Paint the intensity pill badge on the right side of the button card.
-///
-/// Each dot (●) represents one cleaning stage; Nuclear gets four.
-fn paint_btn_badge(
-    painter: &egui::Painter,
-    rect: egui::Rect,
-    color: egui::Color32,
-    intensity: u8,
-    ctx: &BtnCtx,
-) {
-    let dots: String = "\u{25CF}".repeat(usize::from(intensity));
-    // Each filled-circle glyph ≈ 7 px wide at 8 pt, plus 10 px pill padding.
-    let pill_w = f32::from(intensity).mul_add(7.0, 10.0);
-    let pill_h = 16.0_f32;
-    let pill_rect = egui::Rect::from_min_size(
-        egui::pos2(rect.right() - pill_w - 10.0, rect.center().y - pill_h / 2.0),
-        egui::vec2(pill_w, pill_h),
-    );
-    let pill_fill = if ctx.enabled {
-        color.gamma_multiply(if ctx.hovered { 0.25 } else { 0.15 })
-    } else {
-        theme::muted_color(ctx.dark).gamma_multiply(0.12)
-    };
-    let pill_ink = if ctx.enabled {
-        color.gamma_multiply(if ctx.hovered { 1.0 } else { 0.7 })
-    } else {
-        theme::muted_color(ctx.dark).gamma_multiply(0.5)
-    };
-    painter.rect_filled(pill_rect, egui::CornerRadius::same(8), pill_fill);
-    painter.text(
-        pill_rect.center(),
+        center,
         egui::Align2::CENTER_CENTER,
-        dots.as_str(),
-        egui::FontId::proportional(8.0),
-        pill_ink,
+        info.name,
+        egui::FontId::proportional(12.0),
+        name_fg,
     );
 }
 
 /// Blend `base` towards `tint` by `amount` (0.0 = pure base, 1.0 = pure tint).
 ///
-/// Used to apply subtle level-colour tints to button backgrounds on hover/press.
+/// Used to apply subtle level-colour fills to circle backgrounds on hover/press.
 fn blend_color(base: egui::Color32, tint: egui::Color32, amount: f32) -> egui::Color32 {
     let a = amount.clamp(0.0, 1.0);
     let inv = 1.0 - a;
