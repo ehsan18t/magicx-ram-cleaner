@@ -8,6 +8,10 @@
     dead_code,
     rustdoc::broken_intra_doc_links
 )]
+// Windows GUI subsystem — prevents the OS from auto-creating a console window.
+// Console attachment is handled dynamically by `console::attach_or_create_console`.
+// This is critical for `--notify` (context-menu) mode: no terminal ever appears.
+#![windows_subsystem = "windows"]
 
 //! `MagicX` RAM Cleaner — binary entry point.
 //!
@@ -30,16 +34,21 @@ use magicx_ram_cleaner::{cleaner, console, context_menu, display, monitor, privi
 /// - `1` — one or more cleaning operations failed (already reported)
 /// - `2` — fatal error (printed to stderr)
 fn main() -> ExitCode {
-    // Detect --notify BEFORE anything else so we can hide the console
-    // window immediately, before any visible output appears.
+    // Detect --notify BEFORE anything else so we can skip console
+    // creation entirely — no terminal window ever appears.
     let notify = detect_flag("--notify");
 
-    if notify {
-        // Detach from the console so no terminal window is visible.
-        // After this call stdout/stderr are invalid — all user feedback
-        // goes through the balloon notification at the end.
-        console::hide_console_window();
-    }
+    // ── Console setup ────────────────────────────────────────────────
+    // With SUBSYSTEM:WINDOWS no console exists at startup. In notify
+    // mode we deliberately leave it that way (zero-flash context-menu
+    // launches). Otherwise, attach to the calling terminal or create a
+    // fresh console for double-click launches.
+    let standalone = if notify {
+        false
+    } else {
+        let mode = console::attach_or_create_console();
+        mode == console::ConsoleMode::Allocated
+    };
 
     // Detect --no-color / NO_COLOR BEFORE anything else so that all output
     // (including clap help text and the banner) respects the preference.
@@ -49,8 +58,6 @@ fn main() -> ExitCode {
     } else {
         console::enable_ansi_colors();
     }
-
-    let standalone = !notify && console::is_standalone_console();
 
     let result = run(no_color, notify);
 

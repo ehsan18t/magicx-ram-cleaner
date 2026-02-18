@@ -170,7 +170,8 @@ winresource = "0.1"
 | `Win32_Security_Authorization`      | `TOKEN_PRIVILEGES`, `SE_PRIVILEGE_ENABLED`                                                                     |
 | `Win32_System_ProcessStatus`        | `K32EnumProcesses`, `K32EmptyWorkingSet`, `K32GetPerformanceInfo`, `PERFORMANCE_INFORMATION`                   |
 | `Win32_System_SystemInformation`    | `GlobalMemoryStatusEx`, `MEMORYSTATUSEX`, `GetSystemInfo`                                                      |
-| `Win32_System_Console`              | `GetConsoleProcessList` (standalone detection)                                                                 |
+| `Win32_System_Console`              | `AttachConsole`/`AllocConsole` (dynamic console for `SUBSYSTEM:WINDOWS`), `SetStdHandle`, `GetConsoleProcessList` |
+| `Win32_Storage_FileSystem`          | `CreateFileW` (open `CONOUT$`/`CONIN$` for std handle redirection after `AttachConsole`)                        |
 | `Win32_System_Diagnostics_ToolHelp` | `CreateToolhelp32Snapshot`, `Process32FirstW`, `Process32NextW`, `PROCESSENTRY32W` (per-process enumeration)   |
 | `Win32_UI_Shell`                    | `Shell_NotifyIconW`, `NOTIFYICONDATAW`, `NIM_ADD`, `NIM_DELETE`, `NIF_*` (balloon notifications)              |
 | `Win32_UI_WindowsAndMessaging`      | `LoadIconW`, `DestroyIcon` (icon loading for notifications)                                                    |
@@ -1606,7 +1607,7 @@ src/
   main.rs          — entry point: mod declarations, main(), run(), command dispatch
   cli.rs           — clap Parser, Commands enum, help text constants, STYLES
   cleaner.rs       — cleaning operations & orchestration (smart_clean, CleanLevel)
-  console.rs       — Windows console utilities (ANSI colours, standalone detection, pause, notifications)
+  console.rs       — Windows console management (dynamic attach/alloc for SUBSYSTEM:WINDOWS, ANSI, notifications)
   context_menu.rs  — Windows Desktop context menu integration (registry install/uninstall)
   display.rs       — ALL terminal formatting: banner, status, clean output, box drawing
   monitor.rs       — continuous monitoring loop, Ctrl+C handler, auto-clean
@@ -1645,7 +1646,7 @@ src/
 | Monitor cooldown      | `monitor --cooldown SECS` | Minimum seconds between auto-cleans (default: 2× interval)                  |
 | Quiet mode            | `-q` / `--quiet`          | Suppress banner and non-essential output (global flag)                      |
 | No colour             | `--no-color`              | Disable coloured terminal output (also respects `NO_COLOR` env var)         |
-| Notify mode           | `--notify`                | Hide console, run silently, show balloon notification with results          |
+| Notify mode           | `--notify`                | Skip console attachment, run silently, show balloon notification with results |
 | Context menu install  | `context-menu install`    | Add Desktop right-click submenu for quick cleaning access                   |
 | Context menu remove   | `context-menu uninstall`  | Remove Desktop right-click submenu                                          |
 

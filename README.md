@@ -452,7 +452,7 @@ magicx-ram-cleaner context-menu <install|uninstall>
 
 > **Note:** Nuclear is intentionally excluded from the context menu — it is too destructive for one-click access.
 
-Context menu entries use `--notify` mode: the terminal window is hidden, the operation runs silently, and a brief balloon notification shows the result (e.g. freed RAM, success/failure). The notification auto-dismisses after 2 seconds and is not saved in the Windows Action Center.
+Context menu entries use `--notify` mode: no terminal window appears (the binary uses `SUBSYSTEM:WINDOWS` and skips console attachment entirely), the operation runs silently, and a brief balloon notification shows the result (e.g. freed RAM, success/failure). The notification auto-dismisses after 2 seconds and is not saved in the Windows Action Center.
 
 **Examples:**
 ```powershell
@@ -817,7 +817,7 @@ src/
 ├── main.rs           # Thin entry point: mod declarations, main(), run(), dispatch
 ├── cli.rs            # CLI definitions: clap Parser, Commands enum, help text
 ├── cleaner.rs        # Core cleaning operations + smart clean engine
-├── console.rs        # Windows console utilities (ANSI, standalone detection)
+├── console.rs        # Windows console management (dynamic attach/alloc, ANSI, notifications)
 ├── context_menu.rs   # Windows Desktop context menu integration (registry)
 ├── display.rs        # ALL terminal formatting: banner, status, clean output
 ├── monitor.rs        # Continuous monitoring loop with auto-clean

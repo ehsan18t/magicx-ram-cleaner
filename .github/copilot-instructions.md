@@ -53,7 +53,7 @@ src/
   main.rs          — thin entry point: mod declarations, main(), run(), command dispatch
   cli.rs           — clap Parser, Commands enum, help text constants, STYLES
   cleaner.rs       — cleaning operations & orchestration (smart_clean, CleanLevel)
-  console.rs       — Windows console utilities (ANSI colours, standalone detection, pause)
+  console.rs       — Windows console management (dynamic attach/alloc for SUBSYSTEM:WINDOWS, ANSI, notifications)
   context_menu.rs  — Windows Desktop context menu integration (registry install/uninstall)
   display.rs       — ALL terminal formatting: banner, status, clean output, box drawing
   monitor.rs       — continuous monitoring loop, Ctrl+C handler, auto-clean

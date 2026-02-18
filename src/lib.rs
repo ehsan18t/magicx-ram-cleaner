@@ -76,7 +76,7 @@ pub mod cleaner;
 /// Command-line interface definitions (clap parser, subcommands, help text).
 pub mod cli;
 
-/// Windows console utilities (ANSI colours, standalone detection, pause).
+/// Windows console utilities (dynamic attachment, ANSI colours, pause, notifications).
 #[allow(unsafe_code)]
 pub mod console;
 
