@@ -489,6 +489,16 @@ pub fn empty_working_sets_per_process(
     verbose: bool,
     exclude_names: &[String],
 ) -> Result<CleanResult> {
+    empty_working_sets_per_process_with_settle(verbose, exclude_names, SettleMode::Full)
+}
+
+/// Inner implementation of per-process working set emptying with configurable
+/// settle mode.
+fn empty_working_sets_per_process_with_settle(
+    verbose: bool,
+    exclude_names: &[String],
+    settle: SettleMode,
+) -> Result<CleanResult> {
     if verbose {
         println!("  {} Emptying working sets per-process...", "→".cyan());
     }
@@ -544,7 +554,7 @@ pub fn empty_working_sets_per_process(
         }
     })?;
 
-    let after = wait_for_settle(verbose, SettleMode::Full)?;
+    let after = wait_for_settle(verbose, settle)?;
     let elapsed = start.elapsed();
 
     let mut message =
@@ -675,10 +685,7 @@ fn empty_working_sets_op(
     if exclude_names.is_empty() {
         execute_kernel_memory_op(MemoryListCommand::EmptyWorkingSets, verbose, settle)
     } else {
-        // Per-process mode always does its own Full settle internally;
-        // we accept the settle parameter for API consistency but per-process
-        // ignores it (it's always the recommended approach when excluding).
-        empty_working_sets_per_process(verbose, exclude_names)
+        empty_working_sets_per_process_with_settle(verbose, exclude_names, settle)
     }
 }
 
