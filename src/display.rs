@@ -497,7 +497,7 @@ mod tests {
         let name = "a".repeat(40);
         let result = truncate_name(&name, 30);
         assert!(
-            result.len() <= 34, // 30 ASCII chars + '…' (3 bytes UTF-8)
+            result.len() <= 32, // 29 ASCII chars + '…' (3 bytes UTF-8)
             "truncated name too long: {} bytes",
             result.len()
         );
