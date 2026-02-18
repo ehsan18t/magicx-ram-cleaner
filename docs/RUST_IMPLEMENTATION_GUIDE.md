@@ -878,13 +878,16 @@ fn full_clean(aggressive: bool) -> Result<CleanResult, anyhow::Error> {
 
 ```rust
 enum CleanLevel {
-    /// Gentle: flush modified + combine only. No user impact.
+    /// Gentle: Purge ALL standby pages (priorities 0-7).
+    /// No process impact — standby pages are already outside working sets.
     Gentle,
-    /// Moderate: flush cache + low-priority standby. Minor cache loss.
+    /// Moderate: Flush modified pages to disk, then purge ALL standby.
+    /// No working-set eviction — running apps are unaffected.
     Moderate,
-    /// Aggressive: empty working sets + purge ALL standby. Maximum free RAM.
+    /// Aggressive: File cache + registry flush + empty working sets +
+    /// flush modified + purge ALL standby. Maximum recovery.
     Aggressive,
-    /// Nuclear: aggressive chain (4 ops) then full sequence again. Absolute maximum recovery.
+    /// Nuclear: Everything aggressive does + memory combining + 2nd pass.
     Nuclear,
 }
 
@@ -894,36 +897,31 @@ fn clean_at_level(level: CleanLevel) -> Result<(), anyhow::Error> {
 
     match level {
         CleanLevel::Gentle => {
-            flush_modified_list().ok();
-            combine_memory_pages().ok();
+            purge_standby_list().ok();  // all priorities 0-7
         }
         CleanLevel::Moderate => {
-            flush_file_cache().ok();
-            flush_modified_list().ok();
-            purge_low_priority_standby().ok();
-            combine_memory_pages().ok();
+            flush_modified_list().ok(); // dirty pages → standby
+            purge_standby_list().ok();  // then clear all standby
         }
         CleanLevel::Aggressive => {
             flush_file_cache().ok();
+            flush_registry_cache().ok();
             empty_all_working_sets().ok();
             flush_modified_list().ok();
-            purge_low_priority_standby().ok();
             purge_standby_list().ok();
-            combine_memory_pages().ok();
         }
         CleanLevel::Nuclear => {
-            // Phase 1: aggressive chain (4 operations)
+            // Phase 1: same as aggressive
             flush_file_cache().ok();
+            flush_registry_cache().ok();
             empty_all_working_sets().ok();
             flush_modified_list().ok();
             purge_standby_list().ok();
-            // Phase 2: full sequence again for maximum recovery
-            flush_file_cache().ok();
-            empty_all_working_sets().ok();
-            flush_modified_list().ok();
-            purge_low_priority_standby().ok();
-            purge_standby_list().ok();
+            // Phase 2: memory combining (dedup via COW)
             combine_memory_pages().ok();
+            // Phase 3: second pass catches pages modified during combine
+            flush_modified_list().ok();
+            purge_standby_list().ok();
         }
     }
     Ok(())

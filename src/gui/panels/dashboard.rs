@@ -125,15 +125,15 @@ const LEVELS: [LevelInfo; 4] = [
     LevelInfo {
         level: CleanLevel::Gentle,
         name: "Gentle",
-        short: "Low-priority standby",
-        detail: "Flushes low-priority standby pages only. Safe to run at any time — no impact on running processes or file cache.",
+        short: "Purge all standby pages",
+        detail: "Purges all standby pages (priorities 0–7). Standby pages are already outside every process's working set — completely safe to run at any time.",
         color: theme::LEVEL_GENTLE,
     },
     LevelInfo {
         level: CleanLevel::Moderate,
         name: "Moderate",
-        short: "Working sets + standby",
-        detail: "Trims the working sets of all processes and clears the standby list. May cause a brief disk spike as pages are reloaded on demand.",
+        short: "Modified pages + all standby",
+        detail: "Flushes modified pages to disk, then purges all standby pages. No process working sets are touched — running apps are unaffected, but expect a brief I/O spike.",
         color: theme::LEVEL_MODERATE,
     },
     LevelInfo {

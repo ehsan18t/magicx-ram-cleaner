@@ -473,27 +473,27 @@ After installing, right-click your Desktop or any folder background to see the "
 
 ## Cleaning Levels Explained
 
-| Level          | Operations                                                                            | Impact                                             | Best For                                       |
-| -------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------- |
-| **gentle**     | Purge low-priority standby                                                            | Minimal — only frees what Windows would free first | Gaming, production servers                     |
-| **moderate**   | Empty working sets → Purge low-priority standby                                       | Low — trims bloated processes                      | Daily maintenance                              |
-| **aggressive** | File cache → Registry flush → Empty working sets → Flush modified → Purge ALL standby | Medium — brief I/O spike as apps re-fault pages    | Most users (default)                           |
-| **nuclear**    | Everything + memory combining + second pass                                           | Highest — may cause temporary slowdown             | Before running demanding apps, troubleshooting |
+| Level          | Operations                                                                            | Impact                                          | Best For                                       |
+| -------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------- |
+| **gentle**     | Purge ALL standby pages                                                               | Low — clears disk cache, no process impact      | Gaming, production servers                     |
+| **moderate**   | Flush modified pages → Purge ALL standby                                              | Low-Medium — brief I/O spike from flushing      | Daily maintenance                              |
+| **aggressive** | File cache → Registry flush → Empty working sets → Flush modified → Purge ALL standby | Medium — brief I/O spike as apps re-fault pages | Most users (default)                           |
+| **nuclear**    | Everything + memory combining + second pass                                           | Highest — may cause temporary slowdown          | Before running demanding apps, troubleshooting |
 
 ### What happens at each level?
 
 #### Gentle
 ```
-1. Purge low-priority standby pages (priority 0 only)
+1. Purge ALL standby pages (priorities 0–7)
 ```
-Only removes pages that Windows would evict first anyway. Your frequently-used cached data stays intact. Perfect for gaming where you want free RAM without losing Steam/game cache.
+Clears the entire standby list — cached copies of disk data that are already outside every process's working set. No running process is affected; the only cost is that files may need to be re-read from disk on next access. Safe to run at any time.
 
 #### Moderate
 ```
-1. Empty all process working sets (kernel-level)
-2. Purge low-priority standby pages
+1. Flush modified page list to disk
+2. Purge ALL standby pages
 ```
-Adds working set trimming — forces processes to give back memory they allocated but aren't actively using. The trimmed pages move to standby, and low-priority ones get freed.
+First writes all dirty (modified) pages to disk, converting them to standby, then purges the entire standby list. Reclaims more memory than Gentle because it also drains the modified page list. No process working sets are touched — running apps are unaffected.
 
 #### Aggressive (Default)
 ```
