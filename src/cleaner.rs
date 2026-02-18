@@ -7,7 +7,7 @@
 use anyhow::{Result, bail};
 use colored::Colorize;
 use serde::Serialize;
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
@@ -18,42 +18,7 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use crate::ntapi::{self, MemoryListCommand};
-use crate::stats::{MemorySnapshot, QuickMemoryReading, extract_exe_name};
-
-// ─── RAII Handle Guard ─────────────────────────────────────────────────────────
-
-/// RAII wrapper for Win32 `HANDLE` values.
-///
-/// Automatically calls `CloseHandle` on drop, preventing handle leaks if a
-/// panic occurs between the `Open*` / `CreateToolhelp32Snapshot` call and the
-/// explicit `CloseHandle`. Null and `INVALID_HANDLE_VALUE` handles are not
-/// closed (they are never valid).
-struct HandleGuard {
-    handle: HANDLE,
-}
-
-impl HandleGuard {
-    /// Wrap a raw `HANDLE`. The caller must ensure the handle is valid
-    /// and needs closing, or is null / `INVALID_HANDLE_VALUE`.
-    const fn new(handle: HANDLE) -> Self {
-        Self { handle }
-    }
-
-    /// Borrow the underlying handle for FFI calls.
-    const fn raw(&self) -> HANDLE {
-        self.handle
-    }
-}
-
-impl Drop for HandleGuard {
-    fn drop(&mut self) {
-        if !self.handle.is_null() && self.handle != INVALID_HANDLE_VALUE {
-            // SAFETY: handle is a valid, open Win32 handle that must be closed.
-            // CloseHandle is safe for any valid handle and idempotent for closed ones.
-            unsafe { CloseHandle(self.handle) };
-        }
-    }
-}
+use crate::stats::{HandleGuard, MemorySnapshot, QuickMemoryReading, extract_exe_name};
 
 // ─── File Cache Safety Guard ─────────────────────────────────────────────────
 
