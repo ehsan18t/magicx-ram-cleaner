@@ -27,8 +27,10 @@ use std::time::Duration;
 use eframe::egui;
 use tray_icon::{
     MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
-    menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
+    menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu},
 };
+
+use crate::cleaner::CleanLevel;
 
 // ─── Public Types ─────────────────────────────────────────────────────────────
 
@@ -36,8 +38,29 @@ use tray_icon::{
 pub enum TrayAction {
     /// Bring the main window back to the foreground.
     Show,
+    /// Start a cleaning operation at the given level.
+    Clean(CleanLevel),
     /// Exit the application cleanly.
     Quit,
+}
+
+/// Collected [`MenuId`]s for every actionable item in the tray context menu.
+///
+/// Cloned from the menu items before they are moved into the [`Menu`] and
+/// passed to the watcher thread for event decoding.
+struct MenuIds {
+    /// "Open `MagicX` RAM Cleaner" item.
+    show: MenuId,
+    /// "Quit" item.
+    quit: MenuId,
+    /// Clean → Gentle item.
+    clean_gentle: MenuId,
+    /// Clean → Moderate item.
+    clean_moderate: MenuId,
+    /// Clean → Aggressive item.
+    clean_aggressive: MenuId,
+    /// Clean → Nuclear item.
+    clean_nuclear: MenuId,
 }
 
 /// Live system-tray icon handle.
@@ -77,9 +100,7 @@ impl TrayHandle {
     /// if the `tray_icon` back-end or the watcher thread cannot be created.
     pub fn new(ctx: egui::Context, hwnd: isize) -> Result<Self, String> {
         let icon = load_icon()?;
-        let (show_item, quit_item, menu) = build_menu()?;
-        let show_id = show_item.id().clone();
-        let quit_id = quit_item.id().clone();
+        let (ids, menu) = build_menu()?;
 
         let tray = TrayIconBuilder::new()
             .with_icon(icon)
@@ -95,7 +116,7 @@ impl TrayHandle {
         std::thread::Builder::new()
             .name("tray-watcher".into())
             .spawn(move || {
-                tray_watcher_thread(&show_id, &quit_id, &tx, &shutdown_ref, &ctx, hwnd);
+                tray_watcher_thread(&ids, &tx, &shutdown_ref, &ctx, hwnd);
             })
             .map_err(|e| format!("Failed to spawn tray watcher thread: {e}"))?;
 
@@ -138,8 +159,7 @@ impl Drop for TrayHandle {
 /// 2. Sends a [`TrayAction`] through the channel.
 /// 3. Calls [`egui::Context::request_repaint`] to guarantee `update()` runs.
 fn tray_watcher_thread(
-    show_id: &MenuId,
-    quit_id: &MenuId,
+    ids: &MenuIds,
     tx: &Sender<TrayAction>,
     shutdown: &Arc<AtomicBool>,
     ctx: &egui::Context,
@@ -154,19 +174,29 @@ fn tray_watcher_thread(
 
         // Drain all pending menu-item click events.
         while let Ok(event) = MenuEvent::receiver().try_recv() {
-            let action = if event.id == show_id {
+            let action = if event.id == ids.show {
                 TrayAction::Show
-            } else if event.id == quit_id {
+            } else if event.id == ids.quit {
                 TrayAction::Quit
+            } else if event.id == ids.clean_gentle {
+                TrayAction::Clean(CleanLevel::Gentle)
+            } else if event.id == ids.clean_moderate {
+                TrayAction::Clean(CleanLevel::Moderate)
+            } else if event.id == ids.clean_aggressive {
+                TrayAction::Clean(CleanLevel::Aggressive)
+            } else if event.id == ids.clean_nuclear {
+                TrayAction::Clean(CleanLevel::Nuclear)
             } else {
                 continue;
             };
 
             // Make the window visible BEFORE requesting a repaint.
-            // For Show: restore to foreground with focus.
+            // For Show / Clean: restore to foreground with focus.
             // For Quit: reveal silently so eframe can process the close.
             match action {
-                TrayAction::Show => crate::console::restore_window(hwnd),
+                TrayAction::Show | TrayAction::Clean(_) => {
+                    crate::console::restore_window(hwnd);
+                }
                 TrayAction::Quit => crate::console::reveal_window(hwnd),
             }
 
@@ -215,15 +245,57 @@ fn load_icon() -> Result<tray_icon::Icon, String> {
         .map_err(|e| format!("Failed to build tray icon handle: {e}"))
 }
 
-/// Build the tray context menu and return item handles alongside the [`Menu`].
+/// Build the tray context menu and return [`MenuIds`] alongside the [`Menu`].
 ///
-/// Returns `(show_item, quit_item, menu)` so that the caller can clone the
-/// item IDs before the items are moved into the menu.
-fn build_menu() -> Result<(MenuItem, MenuItem, Menu), String> {
+/// Layout:
+/// ```text
+/// Open MagicX RAM Cleaner
+/// ────────────────────────
+/// Clean RAM ▸
+///   Gentle
+///   Moderate
+///   Aggressive
+///   Nuclear
+/// ────────────────────────
+/// Quit
+/// ```
+fn build_menu() -> Result<(MenuIds, Menu), String> {
     let show_item = MenuItem::new("Open MagicX RAM Cleaner", true, None);
     let quit_item = MenuItem::new("Quit", true, None);
+
+    let gentle_item = MenuItem::new("Gentle", true, None);
+    let moderate_item = MenuItem::new("Moderate", true, None);
+    let aggressive_item = MenuItem::new("Aggressive", true, None);
+    let nuclear_item = MenuItem::new("Nuclear", true, None);
+
+    let ids = MenuIds {
+        show: show_item.id().clone(),
+        quit: quit_item.id().clone(),
+        clean_gentle: gentle_item.id().clone(),
+        clean_moderate: moderate_item.id().clone(),
+        clean_aggressive: aggressive_item.id().clone(),
+        clean_nuclear: nuclear_item.id().clone(),
+    };
+
+    let clean_submenu = Submenu::new("Clean RAM", true);
+    clean_submenu
+        .append_items(&[
+            &gentle_item,
+            &moderate_item,
+            &aggressive_item,
+            &nuclear_item,
+        ])
+        .map_err(|e| format!("Failed to build clean submenu: {e}"))?;
+
     let menu = Menu::new();
-    menu.append_items(&[&show_item, &PredefinedMenuItem::separator(), &quit_item])
-        .map_err(|e| format!("Failed to build tray menu: {e}"))?;
-    Ok((show_item, quit_item, menu))
+    menu.append_items(&[
+        &show_item,
+        &PredefinedMenuItem::separator(),
+        &clean_submenu,
+        &PredefinedMenuItem::separator(),
+        &quit_item,
+    ])
+    .map_err(|e| format!("Failed to build tray menu: {e}"))?;
+
+    Ok((ids, menu))
 }
