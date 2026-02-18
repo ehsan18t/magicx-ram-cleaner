@@ -44,6 +44,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_Security_Authorization",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Console",
+    "Win32_System_Registry",
 ] }
 clap = { version = "4", features = ["derive", "color", "help", "usage", "suggestions"] }
 colored = "3"

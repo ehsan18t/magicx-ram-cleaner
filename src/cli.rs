@@ -47,6 +47,8 @@ EmptyStandbyList with granular control over every memory subsystem.
 \x1b[1;32m★\x1b[0m Before/after reporting showing exact RAM freed
   \
 \x1b[1;32m★\x1b[0m Optimal operation ordering for maximum recovery
+  \
+\x1b[1;32m★\x1b[0m Windows context menu integration (Desktop & folder right-click)
 
 \
 \x1b[1;36mCLEANING LEVELS:\x1b[0m
@@ -143,6 +145,13 @@ pub const AFTER_HELP_LONG: &str = "\
 \x1b[32mmagicx-ram-cleaner empty-workingsets --per-process\x1b[0m \x1b[90m# Per-process details\x1b[0m
     \
 \x1b[32mmagicx-ram-cleaner empty-workingsets --exclude chrome --exclude firefox\x1b[0m \x1b[90m# Protect browsers\x1b[0m
+
+  \
+\x1b[36mContext Menu:\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner context-menu install\x1b[0m              \x1b[90m# Add to right-click menu\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner context-menu uninstall\x1b[0m             \x1b[90m# Remove from right-click menu\x1b[0m
 
 \
 \x1b[1;36mKEY CONCEPTS:\x1b[0m
@@ -398,4 +407,43 @@ pub enum Commands {
         #[arg(short, long)]
         verbose: bool,
     },
+
+    /// Manage Windows right-click context menu integration.
+    ///
+    /// Install or uninstall "`MagicX` RAM Cleaner" entries in the
+    /// Desktop and folder right-click context menus for quick access
+    /// to cleaning operations without opening a terminal.
+    ///
+    /// Requires Administrator privileges (writes to `HKEY_CLASSES_ROOT`).
+    #[command(verbatim_doc_comment)]
+    ContextMenu {
+        /// The action to perform.
+        #[command(subcommand)]
+        action: ContextMenuAction,
+    },
+}
+
+/// Actions for the `context-menu` subcommand.
+#[derive(Subcommand)]
+pub enum ContextMenuAction {
+    /// Install context menu entries (creates registry keys under HKCR).
+    ///
+    /// Adds a "`MagicX` RAM Cleaner" cascading submenu to the Desktop
+    /// and folder background right-click menus with quick access to
+    /// Boost, Moderate Boost, Aggressive Boost, Purge Standby, and
+    /// Memory Status.
+    ///
+    /// Existing entries are replaced cleanly (delete + recreate).
+    /// Icons embedded in the executable are used for each entry.
+    #[command(verbatim_doc_comment)]
+    Install,
+
+    /// Uninstall context menu entries (removes registry keys).
+    ///
+    /// Removes the "`MagicX` RAM Cleaner" submenu and all its entries
+    /// from the Desktop and folder right-click menus.
+    ///
+    /// Idempotent — succeeds even if not currently installed.
+    #[command(verbatim_doc_comment)]
+    Uninstall,
 }

@@ -28,6 +28,7 @@ MagicX RAM Cleaner goes far beyond tools like EmptyStandbyList by providing gran
     - [`flush-registry` — Registry Cache Flush](#flush-registry--registry-cache-flush)
     - [`combine` — Memory Page Deduplication](#combine--memory-page-deduplication)
     - [`monitor` — Continuous Monitoring](#monitor--continuous-monitoring)
+    - [`context-menu` — Right-Click Context Menu](#context-menu--right-click-context-menu)
   - [Cleaning Levels Explained](#cleaning-levels-explained)
     - [What happens at each level?](#what-happens-at-each-level)
       - [Gentle](#gentle)
@@ -426,6 +427,44 @@ magicx-ram-cleaner monitor -t 85 -l nuclear -v
 
 ---
 
+### `context-menu` — Right-Click Context Menu
+
+Install or uninstall a cascading "MagicX RAM Cleaner" submenu in the Windows right-click context menu (Desktop background and folder windows).
+
+```
+magicx-ram-cleaner context-menu <install|uninstall>
+```
+
+**Subcommands:**
+| Subcommand  | Description                                  |
+| ----------- | -------------------------------------------- |
+| `install`   | Add context menu entries (creates registry keys under HKCR) |
+| `uninstall` | Remove context menu entries (deletes registry keys)         |
+
+**Context menu entries installed:**
+| Entry            | Action                              | Icon             |
+| ---------------- | ----------------------------------- | ---------------- |
+| Boost            | `clean --level gentle --quiet`      | lite.ico         |
+| Moderate Boost   | `clean --level moderate --quiet`    | lite.ico         |
+| Aggressive Boost | `clean --level aggressive --quiet`  | aggressive.ico   |
+| Purge Standby    | `purge-standby --quiet`             | app.ico          |
+| Memory Status    | `status --quiet`                    | app.ico          |
+
+> **Note:** Nuclear is intentionally excluded from the context menu — it is too destructive for one-click access.
+
+**Examples:**
+```powershell
+# Install context menu entries (run as Administrator)
+magicx-ram-cleaner context-menu install
+
+# Uninstall context menu entries
+magicx-ram-cleaner context-menu uninstall
+```
+
+After installing, right-click your Desktop or any folder background to see the "MagicX RAM Cleaner" submenu.
+
+---
+
 ## Cleaning Levels Explained
 
 | Level          | Operations                                                                            | Impact                                             | Best For                                       |
@@ -708,7 +747,13 @@ Currently built for x86-64 only. ARM support may be added in the future.
 
 ### Can I use this without the command line?
 
-MagicX is CLI-only by design. For a GUI, consider creating a shortcut:
+MagicX includes built-in Desktop context menu integration! Run:
+```powershell
+magicx-ram-cleaner context-menu install
+```
+This adds a "MagicX RAM Cleaner" submenu to your Desktop and folder right-click menus with quick access to Boost, Moderate Boost, Aggressive Boost, Purge Standby, and Memory Status — no terminal needed.
+
+Alternatively, create a shortcut:
 1. Right-click desktop → New → Shortcut
 2. Location: `C:\Tools\magicx-ram-cleaner.exe clean`
 3. Name: "Clean RAM"
@@ -767,15 +812,16 @@ cargo clippy
 
 ```
 src/
-├── main.rs         # Thin entry point: mod declarations, main(), run(), dispatch
-├── cli.rs          # CLI definitions: clap Parser, Commands enum, help text
-├── cleaner.rs      # Core cleaning operations + smart clean engine
-├── console.rs      # Windows console utilities (ANSI, standalone detection)
-├── display.rs      # ALL terminal formatting: banner, status, clean output
-├── monitor.rs      # Continuous monitoring loop with auto-clean
-├── ntapi.rs        # NT Native API FFI (NtSetSystemInformation)
-├── privilege.rs    # Windows privilege management + admin elevation check
-└── stats.rs        # Memory statistics (GlobalMemoryStatusEx, GetPerformanceInfo)
+├── main.rs           # Thin entry point: mod declarations, main(), run(), dispatch
+├── cli.rs            # CLI definitions: clap Parser, Commands enum, help text
+├── cleaner.rs        # Core cleaning operations + smart clean engine
+├── console.rs        # Windows console utilities (ANSI, standalone detection)
+├── context_menu.rs   # Windows Desktop context menu integration (registry)
+├── display.rs        # ALL terminal formatting: banner, status, clean output
+├── monitor.rs        # Continuous monitoring loop with auto-clean
+├── ntapi.rs          # NT Native API FFI (NtSetSystemInformation)
+├── privilege.rs      # Windows privilege management + admin elevation check
+└── stats.rs          # Memory statistics (GlobalMemoryStatusEx, GetPerformanceInfo)
 ```
 
 ### APIs Used
@@ -791,6 +837,8 @@ src/
 | `OpenProcessToken`         | advapi32.dll | Token manipulation for privileges                                        |
 | `AdjustTokenPrivileges`    | advapi32.dll | Enable required privileges                                               |
 | `CreateToolhelp32Snapshot` | kernel32.dll | Process enumeration                                                      |
+| `RegCreateKeyExW`          | advapi32.dll | Context menu registry key creation                                       |
+| `RegDeleteTreeW`           | advapi32.dll | Context menu registry key removal                                        |
 
 ---
 

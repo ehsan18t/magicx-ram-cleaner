@@ -923,7 +923,8 @@ fn clean_at_level(level: CleanLevel) -> Result<(), anyhow::Error> {
 
 > **Note:** The code below is a simplified single-file prototype for educational purposes.
 > The actual codebase uses a multi-module architecture (`main.rs`, `cli.rs`, `cleaner.rs`,
-> `stats.rs`, `display.rs`, `monitor.rs`, `ntapi.rs`, `privilege.rs`, `console.rs`) with
+> `stats.rs`, `display.rs`, `monitor.rs`, `ntapi.rs`, `privilege.rs`, `console.rs`,
+> `context_menu.rs`) with
 > additional features including smart settle detection, dry-run mode, JSON reports,
 > per-process working set trimming with exclusion filters, continuous monitoring with
 > cooldown, top-N process display, `--quiet`/`--no-color` output modes, and more.
@@ -1590,15 +1591,16 @@ multi-module architecture with the following structure:
 
 ```
 src/
-  main.rs        — entry point: mod declarations, main(), run(), command dispatch
-  cli.rs         — clap Parser, Commands enum, help text constants, STYLES
-  cleaner.rs     — cleaning operations & orchestration (smart_clean, CleanLevel)
-  console.rs     — Windows console utilities (ANSI colours, standalone detection, pause)
-  display.rs     — ALL terminal formatting: banner, status, clean output, box drawing
-  monitor.rs     — continuous monitoring loop, Ctrl+C handler, auto-clean
-  ntapi.rs       — NT kernel FFI (NtSetSystemInformation, NtQuerySystemInformation)
-  privilege.rs   — Windows privilege elevation (Se*Privilege) + admin check
-  stats.rs       — memory statistics, Win32 API calls, MemorySnapshot
+  main.rs          — entry point: mod declarations, main(), run(), command dispatch
+  cli.rs           — clap Parser, Commands enum, help text constants, STYLES
+  cleaner.rs       — cleaning operations & orchestration (smart_clean, CleanLevel)
+  console.rs       — Windows console utilities (ANSI colours, standalone detection, pause)
+  context_menu.rs  — Windows Desktop context menu integration (registry install/uninstall)
+  display.rs       — ALL terminal formatting: banner, status, clean output, box drawing
+  monitor.rs       — continuous monitoring loop, Ctrl+C handler, auto-clean
+  ntapi.rs         — NT kernel FFI (NtSetSystemInformation, NtQuerySystemInformation)
+  privilege.rs     — Windows privilege elevation (Se*Privilege) + admin check
+  stats.rs         — memory statistics, Win32 API calls, MemorySnapshot
 ```
 
 ### Key Types
@@ -1631,6 +1633,8 @@ src/
 | Monitor cooldown      | `monitor --cooldown SECS` | Minimum seconds between auto-cleans (default: 2× interval)                  |
 | Quiet mode            | `-q` / `--quiet`          | Suppress banner and non-essential output (global flag)                      |
 | No colour             | `--no-color`              | Disable coloured terminal output (also respects `NO_COLOR` env var)         |
+| Context menu install  | `context-menu install`    | Add Desktop right-click submenu for quick cleaning access                   |
+| Context menu remove   | `context-menu uninstall`  | Remove Desktop right-click submenu                                          |
 
 ### Settle Detection
 

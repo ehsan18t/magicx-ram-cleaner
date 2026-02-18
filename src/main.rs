@@ -20,8 +20,8 @@ use anyhow::{Context, Result};
 use clap::{ColorChoice, CommandFactory, FromArgMatches};
 use colored::Colorize;
 
-use magicx_ram_cleaner::cli::{Cli, Commands};
-use magicx_ram_cleaner::{cleaner, console, display, monitor, privilege, stats};
+use magicx_ram_cleaner::cli::{Cli, Commands, ContextMenuAction};
+use magicx_ram_cleaner::{cleaner, console, context_menu, display, monitor, privilege, stats};
 
 /// Entry point — returns [`ExitCode`] instead of calling `std::process::exit()`.
 ///
@@ -246,6 +246,16 @@ fn dispatch_command(command: &Commands, quiet: bool) -> Result<bool> {
             let effective_verbose = *verbose && !quiet;
             monitor::run_monitor(*interval, *threshold, *level, *cooldown, effective_verbose)?;
         }
+
+        Commands::ContextMenu { action } => match action {
+            ContextMenuAction::Install => {
+                let exe = context_menu::current_exe_path()?;
+                context_menu::install(&exe)?;
+            }
+            ContextMenuAction::Uninstall => {
+                context_menu::uninstall()?;
+            }
+        },
     }
 
     Ok(had_failure)

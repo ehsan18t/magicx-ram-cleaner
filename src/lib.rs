@@ -80,6 +80,10 @@ pub mod cli;
 #[allow(unsafe_code)]
 pub mod console;
 
+/// Windows context menu integration (install/uninstall registry entries).
+#[allow(unsafe_code)]
+pub mod context_menu;
+
 /// Terminal display and formatting (banner, status, clean output, box drawing).
 #[allow(unsafe_code)]
 pub mod display;

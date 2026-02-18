@@ -50,18 +50,21 @@
 
 ```
 src/
-  main.rs        — thin entry point: mod declarations, main(), run(), command dispatch
-  cli.rs         — clap Parser, Commands enum, help text constants, STYLES
-  cleaner.rs     — cleaning operations & orchestration (smart_clean, CleanLevel)
-  console.rs     — Windows console utilities (ANSI colours, standalone detection, pause)
-  display.rs     — ALL terminal formatting: banner, status, clean output, box drawing
-  monitor.rs     — continuous monitoring loop, Ctrl+C handler, auto-clean
-  ntapi.rs       — NT kernel FFI (NtSetSystemInformation, NtQuerySystemInformation)
-  privilege.rs   — Windows privilege elevation (Se*Privilege) + admin check
-  stats.rs       — memory statistics, Win32 API calls, MemorySnapshot
-build.rs         — embeds admin-elevation manifest, application icon, and version metadata
+  main.rs          — thin entry point: mod declarations, main(), run(), command dispatch
+  cli.rs           — clap Parser, Commands enum, help text constants, STYLES
+  cleaner.rs       — cleaning operations & orchestration (smart_clean, CleanLevel)
+  console.rs       — Windows console utilities (ANSI colours, standalone detection, pause)
+  context_menu.rs  — Windows Desktop context menu integration (registry install/uninstall)
+  display.rs       — ALL terminal formatting: banner, status, clean output, box drawing
+  monitor.rs       — continuous monitoring loop, Ctrl+C handler, auto-clean
+  ntapi.rs         — NT kernel FFI (NtSetSystemInformation, NtQuerySystemInformation)
+  privilege.rs     — Windows privilege elevation (Se*Privilege) + admin check
+  stats.rs         — memory statistics, Win32 API calls, MemorySnapshot
+build.rs           — embeds admin-elevation manifest, application icon, and version metadata
 assets/
-  app.ico        — multi-size application icon (16–256 px) embedded into the binary
+  app.ico          — multi-size application icon (16–256 px) embedded as resource ID 1
+  lite.ico         — gentle/moderate context menu icon, embedded as resource ID 2
+  aggressive.ico   — aggressive context menu icon, embedded as resource ID 3
 ```
 
 - **Do not create new modules** without explicit human approval.
