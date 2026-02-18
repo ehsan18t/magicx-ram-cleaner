@@ -5,12 +5,14 @@
 //! and file cache operations require `SeIncreaseQuotaPrivilege`.
 
 use anyhow::{Context, Result, bail};
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, LUID};
+use windows_sys::Win32::Foundation::{HANDLE, LUID};
 use windows_sys::Win32::Security::{
     AdjustTokenPrivileges, LookupPrivilegeValueW, SE_PRIVILEGE_ENABLED, TOKEN_ADJUST_PRIVILEGES,
     TOKEN_PRIVILEGES, TOKEN_QUERY,
 };
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+use crate::stats::HandleGuard;
 
 /// Encode a UTF-16 null-terminated string from a Rust &str.
 fn to_wide(s: &str) -> Vec<u16> {
@@ -32,13 +34,13 @@ fn to_wide(s: &str) -> Vec<u16> {
 /// Returns an error if the privilege cannot be looked up or adjusted.
 pub fn enable_privilege(privilege_name: &str) -> Result<()> {
     // SAFETY: All pointers point to valid stack-allocated variables with correct
-    // sizes. The token handle is closed on every code path (success and error).
+    // sizes. The token handle is wrapped in HandleGuard for automatic cleanup.
     unsafe {
-        let mut token: HANDLE = std::ptr::null_mut();
+        let mut raw_token: HANDLE = std::ptr::null_mut();
         if OpenProcessToken(
             GetCurrentProcess(),
             TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
-            &raw mut token,
+            &raw mut raw_token,
         ) == 0
         {
             bail!(
@@ -46,6 +48,8 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
                 get_last_error()
             );
         }
+        // RAII guard: CloseHandle is called automatically on all exit paths
+        let token = HandleGuard::new(raw_token);
 
         let wide_name = to_wide(privilege_name);
         let mut luid = LUID {
@@ -54,7 +58,6 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
         };
 
         if LookupPrivilegeValueW(std::ptr::null(), wide_name.as_ptr(), &raw mut luid) == 0 {
-            CloseHandle(token);
             bail!(
                 "LookupPrivilegeValueW failed for '{}' (error {})",
                 privilege_name,
@@ -71,7 +74,7 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
         };
 
         if AdjustTokenPrivileges(
-            token,
+            token.raw(),
             0, // do not disable all
             &raw const tp,
             0,
@@ -80,13 +83,12 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
         ) == 0
         {
             let err = get_last_error();
-            CloseHandle(token);
             bail!("AdjustTokenPrivileges failed for '{privilege_name}' (error {err})");
         }
 
         // AdjustTokenPrivileges can succeed but still fail to set:
         let err = get_last_error();
-        CloseHandle(token);
+        // token guard dropped here — CloseHandle called automatically
 
         if err == 1300 {
             // ERROR_NOT_ALL_ASSIGNED
