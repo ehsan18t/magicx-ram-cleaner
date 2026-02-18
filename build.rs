@@ -29,6 +29,7 @@ fn main() {
             .expect("unable to compile Windows resource file");
     }
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=assets/app.ico");
     println!("cargo:rerun-if-changed=assets/lite.ico");
     println!("cargo:rerun-if-changed=assets/aggressive.ico");
