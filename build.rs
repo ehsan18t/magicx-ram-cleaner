@@ -21,7 +21,11 @@ fn main() {
         //
         // To add a new icon: call .set_icon_with_id() with the next sequential ID,
         // add a cargo:rerun-if-changed line, and reference the ID in context_menu.rs.
+        // Explicitly set FileDescription to override the automatic
+        // CARGO_PKG_DESCRIPTION mapping, which would otherwise show the
+        // long crate description in Task Manager's app-group header.
         winresource::WindowsResource::new()
+            .set("FileDescription", "MagicX RAM Cleaner")
             .set_icon_with_id("assets/app.ico", "1")
             .set_icon_with_id("assets/lite.ico", "2")
             .set_icon_with_id("assets/aggressive.ico", "3")
