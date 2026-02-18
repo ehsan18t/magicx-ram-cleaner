@@ -152,36 +152,36 @@ const LEVELS: [LevelInfo; 4] = [
     },
 ];
 
-/// Four equal circle buttons in a row, followed by a live detail panel.
+/// Four equal circle buttons in a row.
 ///
-/// Hovering a circle updates the detail panel below with the level's full
-/// description. Clicking triggers the clean operation.
+/// When `app.settings.show_level_tooltips` is enabled, hovering a circle
+/// shows a floating tooltip with the full level description.
+/// Clicking triggers the clean operation.
 fn draw_clean_section(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
     widgets::section_header(ui, "Clean Memory");
 
     let enabled = !app.cleaning_in_progress;
+    let tooltips = app.settings.show_level_tooltips;
     let mut level_to_clean = None;
-    let mut hovered_idx: Option<usize> = None;
 
     // ── Circle row ───────────────────────────────────────────────
     let circle_d = 88.0_f32; // diameter
+    // Reserve 8 px right margin so circles never overlap the scrollbar.
+    let row_w = ui.available_width() - 8.0;
     // Divide remaining width evenly into 5 gaps (left + between + right).
-    let spacing = (-circle_d).mul_add(4.0, ui.available_width()) / 5.0;
+    let spacing = (-circle_d).mul_add(4.0, row_w) / 5.0;
 
     ui.horizontal(|ui| {
         ui.add_space(spacing);
         ui.spacing_mut().item_spacing.x = spacing;
 
-        for (i, info) in LEVELS.iter().enumerate() {
+        for info in &LEVELS {
             let (rect, resp) =
                 ui.allocate_exact_size(egui::vec2(circle_d, circle_d), egui::Sense::click());
 
             let hovered = resp.hovered() && enabled;
             let pressed = resp.is_pointer_button_down_on() && enabled;
 
-            if hovered {
-                hovered_idx = Some(i);
-            }
             paint_circle_btn(
                 ui.painter(),
                 rect,
@@ -194,93 +194,54 @@ fn draw_clean_section(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
                 },
             );
 
+            // Click must be checked before on_hover_ui takes ownership
             if resp.clicked() && enabled {
                 level_to_clean = Some(info.level);
             }
+
+            // Floating tooltip — only shown when the setting is enabled
+            if tooltips {
+                resp.on_hover_ui(|ui| draw_level_tooltip(ui, info, dark));
+            }
         }
     });
-
-    ui.add_space(12.0);
-
-    // ── Detail panel ─────────────────────────────────────────────
-    draw_level_detail(ui, hovered_idx, dark);
 
     if let Some(level) = level_to_clean {
         app.start_clean(level);
     }
 }
 
-/// Draw the detail panel that updates based on the hovered level index.
+/// Render the tooltip content shown when hovering a circle button.
 ///
-/// Shows a neutral prompt when nothing is hovered, or the full level
-/// name, short subtitle, and descriptive text when a circle is hovered.
-fn draw_level_detail(ui: &mut egui::Ui, hovered: Option<usize>, dark: bool) {
-    let panel_h = 72.0_f32;
-    let available = ui.available_width();
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(available, panel_h), egui::Sense::hover());
-    let painter = ui.painter();
+/// Displayed as a floating egui tooltip; takes no permanent layout space.
+fn draw_level_tooltip(ui: &mut egui::Ui, info: &LevelInfo, dark: bool) {
+    ui.set_max_width(260.0);
 
-    // Panel background
-    let bg = if dark {
-        egui::Color32::from_rgb(18, 22, 29)
-    } else {
-        egui::Color32::from_rgb(244, 246, 250)
-    };
-    painter.rect(
-        rect,
-        egui::CornerRadius::same(8),
-        bg,
-        egui::Stroke::new(1.0, theme::border_color(dark).gamma_multiply(0.6)),
-        egui::StrokeKind::Inside,
+    // Coloured level name
+    ui.label(
+        egui::RichText::new(info.name)
+            .strong()
+            .size(13.0)
+            .color(info.color),
     );
 
-    match hovered.and_then(|i| LEVELS.get(i)) {
-        None => {
-            // Neutral prompt
-            painter.text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                "Hover a level to see details",
-                egui::FontId::proportional(11.5),
-                theme::muted_color(dark).gamma_multiply(0.7),
-            );
-        }
-        Some(info) => {
-            // Left accent bar in level colour
-            let bar = egui::Rect::from_min_size(
-                egui::pos2(rect.left() + 1.0, rect.top() + 8.0),
-                egui::vec2(3.0, panel_h - 16.0),
-            );
-            painter.rect_filled(bar, egui::CornerRadius::same(2), info.color);
+    // Short subtitle
+    ui.label(
+        egui::RichText::new(info.short)
+            .size(11.0)
+            .color(theme::muted_color(dark)),
+    );
 
-            let tx = rect.left() + 14.0;
+    ui.add_space(4.0);
+    ui.separator();
+    ui.add_space(2.0);
 
-            // Level name
-            painter.text(
-                egui::pos2(tx, rect.top() + 22.0),
-                egui::Align2::LEFT_CENTER,
-                info.name,
-                egui::FontId::proportional(14.0),
-                info.color,
-            );
-            // Short subtitle
-            painter.text(
-                egui::pos2(tx, rect.top() + 38.0),
-                egui::Align2::LEFT_CENTER,
-                info.short,
-                egui::FontId::proportional(10.5),
-                theme::muted_color(dark),
-            );
-            // Detail description (clipped to panel width)
-            painter.text(
-                egui::pos2(tx, rect.top() + 56.0),
-                egui::Align2::LEFT_CENTER,
-                info.detail,
-                egui::FontId::proportional(10.0),
-                theme::muted_color(dark).gamma_multiply(0.75),
-            );
-        }
-    }
+    // Full description wrapped within tooltip width
+    ui.label(
+        egui::RichText::new(info.detail)
+            .size(10.5)
+            .color(theme::text_color(dark)),
+    );
 }
 
 /// Shared interaction state passed to circle-button painters.

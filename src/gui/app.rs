@@ -67,6 +67,10 @@ pub struct HistoryPoint {
 }
 
 /// Persistent user settings.
+///
+/// Contains several independent boolean preferences; no meaningful two-variant
+/// enum reduction exists without obscuring what each field controls.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone)]
 pub struct GuiSettings {
     /// Enable system tray icon (disabled by default).
@@ -83,6 +87,8 @@ pub struct GuiSettings {
     pub top_process_count: usize,
     /// Theme preference (`true` = dark).
     pub dark_mode: bool,
+    /// Show tooltip with level details on circle hover (`true` = enabled).
+    pub show_level_tooltips: bool,
 }
 
 impl Default for GuiSettings {
@@ -95,6 +101,7 @@ impl Default for GuiSettings {
             default_clean_level: DEFAULT_CLEAN_LEVEL,
             top_process_count: DEFAULT_TOP_PROCESSES,
             dark_mode: true,
+            show_level_tooltips: true,
         }
     }
 }

@@ -115,7 +115,7 @@ fn draw_integration(ui: &mut egui::Ui, app: &mut MagicXApp) {
     });
 }
 
-/// Display section: top process count.
+/// Display section: top process count and tooltip preference.
 fn draw_display(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
 
@@ -139,6 +139,17 @@ fn draw_display(ui: &mut egui::Ui, app: &mut MagicXApp) {
             {
                 app.settings.top_process_count = count_f32 as usize;
             }
+        });
+
+        ui.add_space(6.0);
+
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut app.settings.show_level_tooltips, "");
+            ui.label(
+                egui::RichText::new("Show clean-level tooltips on hover")
+                    .size(12.0)
+                    .color(theme::text_color(dark)),
+            );
         });
     });
 }
