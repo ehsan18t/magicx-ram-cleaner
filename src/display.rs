@@ -476,3 +476,61 @@ pub fn print_clean_summary(
     }
     println!();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_name_short_string() {
+        assert_eq!(truncate_name("notepad.exe", 30), "notepad.exe");
+    }
+
+    #[test]
+    fn truncate_name_exact_length() {
+        let name = "a".repeat(30);
+        assert_eq!(truncate_name(&name, 30), name);
+    }
+
+    #[test]
+    fn truncate_name_long_string() {
+        let name = "a".repeat(40);
+        let result = truncate_name(&name, 30);
+        assert!(
+            result.len() <= 34, // 30 ASCII chars + '…' (3 bytes UTF-8)
+            "truncated name too long: {} bytes",
+            result.len()
+        );
+        assert!(result.ends_with('…'));
+    }
+
+    #[test]
+    fn truncate_name_empty_string() {
+        assert_eq!(truncate_name("", 30), "");
+    }
+
+    #[test]
+    fn truncate_name_single_char() {
+        assert_eq!(truncate_name("x", 30), "x");
+    }
+
+    #[test]
+    fn truncate_name_max_len_one() {
+        // Edge case: max_len = 1 with a long string
+        let result = truncate_name("hello", 1);
+        assert!(result.ends_with('…'), "should have ellipsis");
+    }
+
+    #[test]
+    fn coloured_load_boundaries() {
+        // Test the colour threshold boundaries
+        let low = coloured_load(60);
+        assert!(format!("{low}").contains("60%"));
+
+        let mid = coloured_load(61);
+        assert!(format!("{mid}").contains("61%"));
+
+        let high = coloured_load(86);
+        assert!(format!("{high}").contains("86%"));
+    }
+}

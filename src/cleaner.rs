@@ -20,6 +20,41 @@ use windows_sys::Win32::System::Threading::{
 use crate::ntapi::{self, MemoryListCommand};
 use crate::stats::{MemorySnapshot, QuickMemoryReading, extract_exe_name};
 
+// ─── RAII Handle Guard ─────────────────────────────────────────────────────────
+
+/// RAII wrapper for Win32 `HANDLE` values.
+///
+/// Automatically calls `CloseHandle` on drop, preventing handle leaks if a
+/// panic occurs between the `Open*` / `CreateToolhelp32Snapshot` call and the
+/// explicit `CloseHandle`. Null and `INVALID_HANDLE_VALUE` handles are not
+/// closed (they are never valid).
+struct HandleGuard {
+    handle: HANDLE,
+}
+
+impl HandleGuard {
+    /// Wrap a raw `HANDLE`. The caller must ensure the handle is valid
+    /// and needs closing, or is null / `INVALID_HANDLE_VALUE`.
+    const fn new(handle: HANDLE) -> Self {
+        Self { handle }
+    }
+
+    /// Borrow the underlying handle for FFI calls.
+    const fn raw(&self) -> HANDLE {
+        self.handle
+    }
+}
+
+impl Drop for HandleGuard {
+    fn drop(&mut self) {
+        if !self.handle.is_null() && self.handle != INVALID_HANDLE_VALUE {
+            // SAFETY: handle is a valid, open Win32 handle that must be closed.
+            // CloseHandle is safe for any valid handle and idempotent for closed ones.
+            unsafe { CloseHandle(self.handle) };
+        }
+    }
+}
+
 // ─── File Cache Safety Guard ─────────────────────────────────────────────────
 
 /// RAII guard that restores default file cache limits on drop.
@@ -27,6 +62,10 @@ use crate::stats::{MemorySnapshot, QuickMemoryReading, extract_exe_name};
 /// If anything panics between `SetSystemFileCacheSize(MAX, MAX, 0)` (purge) and
 /// the explicit restore call, this guard ensures `SetSystemFileCacheSize(0, 0, 0)`
 /// is still called so the system file cache doesn't stay degraded until reboot.
+///
+/// The drop implementation retries up to 3 times with small delays to handle
+/// transient failures, since leaving the cache degraded is worse than a brief
+/// spin.
 struct CacheRestoreGuard {
     armed: bool,
 }
@@ -35,10 +74,21 @@ impl Drop for CacheRestoreGuard {
     fn drop(&mut self) {
         if self.armed {
             // SAFETY: Restoring default cache limits with (0, 0, 0) is a safe
-            // Win32 call. Best-effort — we can't propagate errors from Drop.
-            unsafe {
-                SetSystemFileCacheSize(0, 0, 0);
+            // Win32 call. Best-effort with retry — we can't propagate errors from Drop.
+            for attempt in 0..3u32 {
+                // SAFETY: SetSystemFileCacheSize(0, 0, 0) restores default cache
+                // management. Safe to call multiple times.
+                let ok = unsafe { SetSystemFileCacheSize(0, 0, 0) };
+                if ok != 0 {
+                    return;
+                }
+                // Brief delay before retry (except on last attempt)
+                if attempt < 2 {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
             }
+            // All retries failed — cache may remain degraded until reboot.
+            // Cannot propagate errors from Drop, so this is best-effort.
         }
     }
 }
@@ -357,19 +407,34 @@ fn flush_file_cache_with_settle(verbose: bool, settle: SettleMode) -> Result<Cle
     // the system file cache doesn't stay in a degraded state until reboot.
     let mut guard = CacheRestoreGuard { armed: true };
 
-    // Restore default cache behavior (let Windows manage it again)
-    let restore = unsafe { SetSystemFileCacheSize(0, 0, 0) };
+    // Restore default cache behavior (let Windows manage it again).
+    // Retry up to 3 times with small delays — transient failures can occur
+    // if another process is manipulating cache limits simultaneously.
+    let mut restore_ok = false;
+    let mut last_err: u32 = 0;
+    for attempt in 0..3u32 {
+        // SAFETY: SetSystemFileCacheSize(0, 0, 0) tells Windows to resume
+        // default cache management. Safe to retry.
+        let restore = unsafe { SetSystemFileCacheSize(0, 0, 0) };
+        if restore != 0 {
+            restore_ok = true;
+            break;
+        }
+        last_err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+        if attempt < 2 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
 
-    // Disarm the guard — the restore call has been made (whether it succeeded or not)
+    // Disarm the guard — the restore calls have been made
     guard.armed = false;
     drop(guard);
 
-    if restore == 0 {
-        let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+    if !restore_ok {
         return Ok(CleanResult::failure(
             "Flush File Cache",
             format!(
-                "Cache purged but restore to default failed (error {err}). \
+                "Cache purged but restore to default failed after 3 attempts (error {last_err}). \
                  System file cache may be in a degraded state until next reboot."
             ),
             &before,
@@ -484,15 +549,16 @@ pub fn empty_working_sets_per_process(
         .collect();
 
     // Use Toolhelp32 snapshot for process enumeration (more reliable than K32EnumProcesses)
-    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
-    if snapshot == INVALID_HANDLE_VALUE {
+    let snap_raw = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snap_raw == INVALID_HANDLE_VALUE {
         bail!("CreateToolhelp32Snapshot failed");
     }
+    let snapshot = HandleGuard::new(snap_raw);
 
     let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
     entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
 
-    let mut has_entry = unsafe { Process32FirstW(snapshot, &raw mut entry) } != 0;
+    let mut has_entry = unsafe { Process32FirstW(snapshot.raw(), &raw mut entry) } != 0;
 
     while has_entry {
         let pid = entry.th32ProcessID;
@@ -511,27 +577,28 @@ pub fn empty_working_sets_per_process(
                 }
                 excluded_count += 1;
             } else {
-                let handle: HANDLE =
-                    unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_SET_QUOTA, 0, pid) };
+                let proc_handle = HandleGuard::new(unsafe {
+                    OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_SET_QUOTA, 0, pid)
+                });
 
-                if handle.is_null() {
+                if proc_handle.raw().is_null() {
                     fail_count += 1;
                 } else {
-                    let result = unsafe { K32EmptyWorkingSet(handle) };
+                    let result = unsafe { K32EmptyWorkingSet(proc_handle.raw()) };
                     if result != 0 {
                         success_count += 1;
                     } else {
                         fail_count += 1;
                     }
-                    unsafe { CloseHandle(handle) };
+                    // proc_handle dropped here — CloseHandle called automatically
                 }
             }
         }
 
-        has_entry = unsafe { Process32NextW(snapshot, &raw mut entry) } != 0;
+        has_entry = unsafe { Process32NextW(snapshot.raw(), &raw mut entry) } != 0;
     }
 
-    unsafe { CloseHandle(snapshot) };
+    // snapshot guard dropped here — CloseHandle called automatically
 
     let after = wait_for_settle(verbose, SettleMode::Full)?;
     let elapsed = start.elapsed();
@@ -757,22 +824,29 @@ fn execute_nuclear_chain(verbose: bool, exclude_names: &[String]) -> Result<Vec<
 /// Return the ordered list of operation names that would run for a given level.
 ///
 /// This is used by `--dry-run` to preview the cleaning plan without executing
-/// any kernel operations.
-pub fn dry_run_plan(level: CleanLevel) -> Vec<&'static str> {
+/// any kernel operations. When `has_excludes` is `true`, the working-set
+/// operation label reflects per-process mode instead of kernel-level.
+pub fn dry_run_plan(level: CleanLevel, has_excludes: bool) -> Vec<&'static str> {
+    let ws_label = if has_excludes {
+        "Empty Working Sets (Per-Process, with exclusions)"
+    } else {
+        "Empty Working Sets (Kernel)"
+    };
+
     match level {
         CleanLevel::Gentle => vec!["Purge Low-Priority Standby"],
-        CleanLevel::Moderate => vec!["Empty Working Sets (Kernel)", "Purge Low-Priority Standby"],
+        CleanLevel::Moderate => vec![ws_label, "Purge Low-Priority Standby"],
         CleanLevel::Aggressive => vec![
             "Flush File Cache",
             "Flush Registry Cache",
-            "Empty Working Sets (Kernel)",
+            ws_label,
             "Flush Modified List",
             "Purge ALL Standby",
         ],
         CleanLevel::Nuclear => vec![
             "Flush File Cache",
             "Flush Registry Cache",
-            "Empty Working Sets (Kernel)",
+            ws_label,
             "Flush Modified List",
             "Purge ALL Standby",
             "Memory Combining",
@@ -958,21 +1032,47 @@ mod tests {
 
     #[test]
     fn dry_run_plan_operation_counts() {
-        assert_eq!(dry_run_plan(CleanLevel::Gentle).len(), 1, "gentle = 1 op");
         assert_eq!(
-            dry_run_plan(CleanLevel::Moderate).len(),
+            dry_run_plan(CleanLevel::Gentle, false).len(),
+            1,
+            "gentle = 1 op"
+        );
+        assert_eq!(
+            dry_run_plan(CleanLevel::Moderate, false).len(),
             2,
             "moderate = 2 ops"
         );
         assert_eq!(
-            dry_run_plan(CleanLevel::Aggressive).len(),
+            dry_run_plan(CleanLevel::Aggressive, false).len(),
             5,
             "aggressive = 5 ops"
         );
         assert_eq!(
-            dry_run_plan(CleanLevel::Nuclear).len(),
+            dry_run_plan(CleanLevel::Nuclear, false).len(),
             8,
             "nuclear = 8 ops"
+        );
+    }
+
+    #[test]
+    fn dry_run_plan_with_excludes_shows_per_process() {
+        let plan = dry_run_plan(CleanLevel::Aggressive, true);
+        assert!(
+            plan.iter().any(|op| op.contains("Per-Process")),
+            "plan with excludes should mention per-process mode"
+        );
+        assert!(
+            !plan.contains(&"Empty Working Sets (Kernel)"),
+            "plan with excludes should NOT show kernel-level working set op"
+        );
+    }
+
+    #[test]
+    fn dry_run_plan_without_excludes_shows_kernel() {
+        let plan = dry_run_plan(CleanLevel::Moderate, false);
+        assert!(
+            plan.contains(&"Empty Working Sets (Kernel)"),
+            "plan without excludes should show kernel-level working set op"
         );
     }
 
@@ -983,6 +1083,24 @@ mod tests {
         assert!(is_excluded("Chrome.EXE", &excludes));
         assert!(is_excluded("FIREFOX.exe", &excludes));
         assert!(!is_excluded("notepad.exe", &excludes));
+    }
+
+    #[test]
+    fn is_excluded_empty_list() {
+        let excludes: Vec<String> = vec![];
+        assert!(
+            !is_excluded("anything.exe", &excludes),
+            "nothing should be excluded with an empty list"
+        );
+    }
+
+    #[test]
+    fn is_excluded_without_exe_suffix() {
+        let excludes = vec!["notepad".to_owned()];
+        assert!(
+            is_excluded("notepad", &excludes),
+            "should match process name without .exe suffix"
+        );
     }
 
     #[test]
@@ -998,5 +1116,40 @@ mod tests {
             .collect();
         assert!(is_excluded("chrome.exe", &normalised));
         assert!(is_excluded("Chrome.EXE", &normalised));
+    }
+
+    #[test]
+    fn clean_level_display() {
+        assert_eq!(CleanLevel::Gentle.to_string(), "gentle");
+        assert_eq!(CleanLevel::Moderate.to_string(), "moderate");
+        assert_eq!(CleanLevel::Aggressive.to_string(), "aggressive");
+        assert_eq!(CleanLevel::Nuclear.to_string(), "nuclear");
+    }
+
+    #[test]
+    fn clean_result_success_zero_freed_when_no_change() {
+        let snap = mock_snapshot(4_000_000_000, 75);
+        let result = CleanResult::success(
+            "NoChange",
+            "nothing changed",
+            &snap,
+            &snap,
+            Duration::from_millis(100),
+        );
+        assert!(result.success);
+        assert_eq!(
+            result.freed_bytes, 0,
+            "same before/after should yield 0 freed"
+        );
+    }
+
+    #[test]
+    fn clean_result_failure_preserves_snapshot_values() {
+        let snap = mock_snapshot(8_000_000_000, 50);
+        let result = CleanResult::failure("Op", "error".into(), &snap);
+        assert_eq!(result.available_before, 8_000_000_000);
+        assert_eq!(result.available_after, 8_000_000_000);
+        assert_eq!(result.load_before, 50);
+        assert_eq!(result.load_after, 50);
     }
 }

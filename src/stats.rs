@@ -5,7 +5,7 @@
 
 use anyhow::{Result, bail};
 use serde::Serialize;
-use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
@@ -17,6 +17,41 @@ use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORY
 use windows_sys::Win32::System::Threading::{
     OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
 };
+
+// ─── RAII Handle Guard ─────────────────────────────────────────────────────────
+
+/// RAII wrapper for Win32 `HANDLE` values.
+///
+/// Automatically calls `CloseHandle` on drop, preventing handle leaks if a
+/// panic occurs between the `Open*` / `CreateToolhelp32Snapshot` call and the
+/// explicit `CloseHandle`. Null and `INVALID_HANDLE_VALUE` handles are not
+/// closed (they are never valid).
+struct HandleGuard {
+    handle: HANDLE,
+}
+
+impl HandleGuard {
+    /// Wrap a raw `HANDLE`. The caller must ensure the handle is valid
+    /// and needs closing, or is null / `INVALID_HANDLE_VALUE`.
+    const fn new(handle: HANDLE) -> Self {
+        Self { handle }
+    }
+
+    /// Borrow the underlying handle for FFI calls.
+    const fn raw(&self) -> HANDLE {
+        self.handle
+    }
+}
+
+impl Drop for HandleGuard {
+    fn drop(&mut self) {
+        if !self.handle.is_null() && self.handle != INVALID_HANDLE_VALUE {
+            // SAFETY: handle is a valid, open Win32 handle that must be closed.
+            // CloseHandle is safe for any valid handle and idempotent for closed ones.
+            unsafe { CloseHandle(self.handle) };
+        }
+    }
+}
 
 /// Snapshot of system memory state at a point in time.
 #[derive(Debug, Clone, Serialize)]
@@ -245,16 +280,28 @@ impl MemoryListInfo {
             );
         }
 
-        // We need at least 22 entries to parse the base fields
-        let count = return_length as usize / std::mem::size_of::<usize>();
-        let count = if count > 0 { count } else { buf.len() };
+        // We need at least 22 entries to parse the base fields.
+        // Guard against return_length = 0 on an otherwise-successful call
+        // (defensive — shouldn't happen but prevents reading stale zeros).
+        let entry_size = std::mem::size_of::<usize>();
+        let count = if return_length > 0 {
+            return_length as usize / entry_size
+        } else {
+            bail!(
+                "NtQuerySystemInformation(SystemMemoryListInformation) succeeded but \
+                 returned 0 bytes — cannot parse memory list data"
+            );
+        };
         if count < 22 {
             bail!(
                 "NtQuerySystemInformation returned only {} bytes, need at least {} for base fields",
                 return_length,
-                22 * std::mem::size_of::<usize>()
+                22 * entry_size
             );
         }
+
+        // Ensure we only read within the bounds reported by the kernel
+        let buf = &buf[..count];
 
         let mut standby = [0u64; 8];
         let mut repurposed = [0u64; 8];
@@ -352,10 +399,11 @@ pub struct ProcessMemoryInfo {
 pub fn query_top_processes(count: usize) -> Result<Vec<ProcessMemoryInfo>> {
     // SAFETY: CreateToolhelp32Snapshot with TH32CS_SNAPPROCESS and 0 is the
     // standard documented way to enumerate all running processes.
-    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
-    if snapshot == INVALID_HANDLE_VALUE {
+    let snap_raw = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snap_raw == INVALID_HANDLE_VALUE {
         bail!("CreateToolhelp32Snapshot failed");
     }
+    let snapshot = HandleGuard::new(snap_raw);
 
     let mut processes = Vec::new();
     let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
@@ -363,7 +411,7 @@ pub fn query_top_processes(count: usize) -> Result<Vec<ProcessMemoryInfo>> {
 
     // SAFETY: Process32FirstW/Process32NextW iterate the Toolhelp snapshot.
     // The entry struct is properly zeroed and sized.
-    let mut has_entry = unsafe { Process32FirstW(snapshot, &raw mut entry) } != 0;
+    let mut has_entry = unsafe { Process32FirstW(snapshot.raw(), &raw mut entry) } != 0;
 
     while has_entry {
         let pid = entry.th32ProcessID;
@@ -376,11 +424,10 @@ pub fn query_top_processes(count: usize) -> Result<Vec<ProcessMemoryInfo>> {
             processes.push(info);
         }
 
-        has_entry = unsafe { Process32NextW(snapshot, &raw mut entry) } != 0;
+        has_entry = unsafe { Process32NextW(snapshot.raw(), &raw mut entry) } != 0;
     }
 
-    // SAFETY: snapshot is a valid handle from CreateToolhelp32Snapshot.
-    unsafe { CloseHandle(snapshot) };
+    // snapshot guard dropped here — CloseHandle called automatically
 
     // Sort descending by working set size and truncate to requested count
     processes.sort_unstable_by(|a, b| b.working_set.cmp(&a.working_set));
@@ -394,8 +441,10 @@ pub fn query_top_processes(count: usize) -> Result<Vec<ProcessMemoryInfo>> {
 fn query_single_process(pid: u32, exe_name: &[u16]) -> Option<ProcessMemoryInfo> {
     // SAFETY: OpenProcess with PROCESS_QUERY_INFORMATION | PROCESS_VM_READ is the
     // documented way to open a process for memory info queries.
-    let handle = unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, pid) };
-    if handle.is_null() {
+    let proc_handle = HandleGuard::new(unsafe {
+        OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, pid)
+    });
+    if proc_handle.raw().is_null() {
         return None;
     }
 
@@ -405,11 +454,11 @@ fn query_single_process(pid: u32, exe_name: &[u16]) -> Option<ProcessMemoryInfo>
         let mut counters: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
         counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
         let ok = K32GetProcessMemoryInfo(
-            handle,
+            proc_handle.raw(),
             &raw mut counters,
             std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
         );
-        CloseHandle(handle);
+        // proc_handle dropped here — CloseHandle called automatically
         if ok == 0 {
             return None;
         }
@@ -469,6 +518,121 @@ mod tests {
 
     #[test]
     fn format_bytes_terabytes() {
+        assert_eq!(format_bytes(1024 * 1024 * 1024 * 1024), "1.00 TB");
+    }
+
+    #[test]
+    fn extract_exe_name_no_null() {
+        // If the buffer has no null terminator, use the full slice
+        let name: Vec<u16> = "svchost.exe".encode_utf16().collect();
+        assert_eq!(extract_exe_name(&name), "svchost.exe");
+    }
+
+    #[test]
+    fn extract_exe_name_empty() {
+        let name: Vec<u16> = vec![0];
+        assert_eq!(extract_exe_name(&name), "");
+    }
+
+    #[test]
+    fn commit_percent_normal() {
+        let snap = MemorySnapshot {
+            memory_load_percent: 50,
+            total_physical: 16 * 1024 * 1024 * 1024,
+            available_physical: 8 * 1024 * 1024 * 1024,
+            used_physical: 8 * 1024 * 1024 * 1024,
+            total_page_file: 0,
+            available_page_file: 0,
+            total_virtual: 0,
+            available_virtual: 0,
+            commit_total_pages: 500_000,
+            commit_limit_pages: 1_000_000,
+            commit_peak_pages: 0,
+            physical_available_pages: 0,
+            physical_total_pages: 0,
+            kernel_paged_pages: 0,
+            kernel_nonpaged_pages: 0,
+            page_size: 4096,
+            handle_count: 0,
+            process_count: 0,
+            thread_count: 0,
+        };
+        let pct = snap.commit_percent();
+        assert!(
+            (pct - 50.0).abs() < 0.01,
+            "commit_percent should be 50.0, got {pct}"
+        );
+    }
+
+    #[test]
+    fn commit_percent_zero_limit() {
+        let snap = MemorySnapshot {
+            memory_load_percent: 0,
+            total_physical: 0,
+            available_physical: 0,
+            used_physical: 0,
+            total_page_file: 0,
+            available_page_file: 0,
+            total_virtual: 0,
+            available_virtual: 0,
+            commit_total_pages: 100,
+            commit_limit_pages: 0, // zero limit — edge case
+            commit_peak_pages: 0,
+            physical_available_pages: 0,
+            physical_total_pages: 0,
+            kernel_paged_pages: 0,
+            kernel_nonpaged_pages: 0,
+            page_size: 4096,
+            handle_count: 0,
+            process_count: 0,
+            thread_count: 0,
+        };
+        assert!(
+            snap.commit_percent().abs() < f64::EPSILON,
+            "commit_percent should be 0.0 when limit is 0"
+        );
+    }
+
+    #[test]
+    fn memory_list_info_total_standby_pages() {
+        let info = MemoryListInfo {
+            zeroed_pages: 0,
+            free_pages: 0,
+            modified_pages: 0,
+            modified_no_write_pages: 0,
+            bad_pages: 0,
+            standby_pages: [100, 200, 300, 400, 500, 600, 700, 800],
+            repurposed_pages: [0; 8],
+            modified_pagefile_pages: 0,
+        };
+        assert_eq!(
+            info.total_standby_pages(),
+            3600,
+            "sum of 100..800 should be 3600"
+        );
+    }
+
+    #[test]
+    fn memory_list_info_total_standby_all_zero() {
+        let info = MemoryListInfo {
+            zeroed_pages: 0,
+            free_pages: 0,
+            modified_pages: 0,
+            modified_no_write_pages: 0,
+            bad_pages: 0,
+            standby_pages: [0; 8],
+            repurposed_pages: [0; 8],
+            modified_pagefile_pages: 0,
+        };
+        assert_eq!(info.total_standby_pages(), 0);
+    }
+
+    #[test]
+    fn format_bytes_boundary_values() {
+        // Exactly at boundary between ranges
+        assert_eq!(format_bytes(1024), "1.00 KB");
+        assert_eq!(format_bytes(1024 * 1024), "1.00 MB");
+        assert_eq!(format_bytes(1024 * 1024 * 1024), "1.00 GB");
         assert_eq!(format_bytes(1024 * 1024 * 1024 * 1024), "1.00 TB");
     }
 }

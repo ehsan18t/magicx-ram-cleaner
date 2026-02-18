@@ -188,7 +188,7 @@ fn dispatch_command(command: &Commands, quiet: bool) -> Result<bool> {
             exclude,
         } => {
             if *dry_run {
-                let plan = cleaner::dry_run_plan(*level);
+                let plan = cleaner::dry_run_plan(*level, !exclude.is_empty());
                 display::print_dry_run(*level, &plan);
             } else {
                 let effective_verbose = *verbose && !quiet;

@@ -31,6 +31,7 @@ pub fn pause_before_exit() {
 
 /// Enable ANSI virtual terminal processing on Windows consoles.
 pub fn enable_ansi_colors() {
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
     use windows_sys::Win32::System::Console::{
         ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode, GetStdHandle, STD_OUTPUT_HANDLE,
         SetConsoleMode,
@@ -39,6 +40,10 @@ pub fn enable_ansi_colors() {
     // with no preconditions beyond a valid handle. STD_OUTPUT_HANDLE is always valid.
     unsafe {
         let handle = GetStdHandle(STD_OUTPUT_HANDLE);
+        // Guard against INVALID_HANDLE_VALUE (e.g. output fully redirected with no console)
+        if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+            return;
+        }
         let mut mode: u32 = 0;
         if GetConsoleMode(handle, &raw mut mode) != 0 {
             let _ = SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);

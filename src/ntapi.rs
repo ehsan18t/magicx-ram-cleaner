@@ -200,6 +200,10 @@ const STATUS_NOT_IMPLEMENTED: NtStatus = 0xC000_0002_u32 as i32;
 const STATUS_UNSUCCESSFUL: NtStatus = 0xC000_0001_u32 as i32;
 const STATUS_PRIVILEGE_NOT_HELD: NtStatus = 0xC000_0061_u32 as i32;
 pub const STATUS_INFO_LENGTH_MISMATCH: NtStatus = 0xC000_0004_u32 as i32;
+const STATUS_BUFFER_TOO_SMALL: NtStatus = 0xC000_0023_u32 as i32;
+const STATUS_INSUFFICIENT_RESOURCES: NtStatus = 0xC000_009A_u32 as i32;
+const STATUS_NOT_SUPPORTED: NtStatus = 0xC000_00BB_u32 as i32;
+const STATUS_INVALID_DEVICE_REQUEST: NtStatus = 0xC000_0010_u32 as i32;
 
 /// Translate an NTSTATUS code to a human-readable message.
 pub const fn ntstatus_message(status: NtStatus) -> &'static str {
@@ -209,18 +213,81 @@ pub const fn ntstatus_message(status: NtStatus) -> &'static str {
         STATUS_ACCESS_DENIED => {
             "STATUS_ACCESS_DENIED - Run as Administrator with required privileges"
         }
-        STATUS_INVALID_HANDLE => "STATUS_INVALID_HANDLE",
-        STATUS_INVALID_PARAMETER => "STATUS_INVALID_PARAMETER",
+        STATUS_INVALID_HANDLE => "STATUS_INVALID_HANDLE - Invalid handle passed to NT API",
+        STATUS_INVALID_PARAMETER => "STATUS_INVALID_PARAMETER - Invalid command or parameter value",
         STATUS_NOT_IMPLEMENTED => {
             "STATUS_NOT_IMPLEMENTED - This command may not be supported on your Windows version"
         }
-        STATUS_UNSUCCESSFUL => "STATUS_UNSUCCESSFUL",
+        STATUS_UNSUCCESSFUL => {
+            "STATUS_UNSUCCESSFUL - The operation failed (the kernel could not complete it)"
+        }
         STATUS_PRIVILEGE_NOT_HELD => {
             "STATUS_PRIVILEGE_NOT_HELD - Enable SeProfileSingleProcessPrivilege"
         }
         STATUS_INFO_LENGTH_MISMATCH => {
             "STATUS_INFO_LENGTH_MISMATCH - Buffer too small or struct size mismatch"
         }
-        _ => "Unknown NTSTATUS code",
+        STATUS_BUFFER_TOO_SMALL => {
+            "STATUS_BUFFER_TOO_SMALL - Provided buffer is too small for the requested data"
+        }
+        STATUS_INSUFFICIENT_RESOURCES => {
+            "STATUS_INSUFFICIENT_RESOURCES - System has insufficient resources to complete the call"
+        }
+        STATUS_NOT_SUPPORTED => {
+            "STATUS_NOT_SUPPORTED - This operation is not supported on your Windows version"
+        }
+        STATUS_INVALID_DEVICE_REQUEST => {
+            "STATUS_INVALID_DEVICE_REQUEST - Invalid request for this device/subsystem"
+        }
+        _ => "Unknown NTSTATUS code (check Microsoft documentation for this code)",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ntstatus_success() {
+        assert_eq!(ntstatus_message(STATUS_SUCCESS), "SUCCESS");
+    }
+
+    #[test]
+    fn ntstatus_known_errors() {
+        assert!(ntstatus_message(STATUS_ACCESS_DENIED).contains("ACCESS_DENIED"));
+        assert!(ntstatus_message(STATUS_PRIVILEGE_NOT_HELD).contains("PRIVILEGE_NOT_HELD"));
+        assert!(ntstatus_message(STATUS_NOT_IMPLEMENTED).contains("NOT_IMPLEMENTED"));
+        assert!(ntstatus_message(STATUS_INFO_LENGTH_MISMATCH).contains("LENGTH_MISMATCH"));
+        assert!(ntstatus_message(STATUS_BUFFER_TOO_SMALL).contains("BUFFER_TOO_SMALL"));
+        assert!(ntstatus_message(STATUS_INSUFFICIENT_RESOURCES).contains("INSUFFICIENT_RESOURCES"));
+        assert!(ntstatus_message(STATUS_NOT_SUPPORTED).contains("NOT_SUPPORTED"));
+    }
+
+    #[test]
+    fn ntstatus_unknown_code() {
+        let msg = ntstatus_message(0x1234_5678_u32 as i32);
+        assert!(
+            msg.contains("Unknown"),
+            "unknown code should return 'Unknown' message"
+        );
+    }
+
+    #[test]
+    fn memory_list_command_values() {
+        // Verify that the enum discriminants match the Windows API constants
+        assert_eq!(MemoryListCommand::CaptureAccessedBits as i32, 0);
+        assert_eq!(MemoryListCommand::CaptureAndResetAccessedBits as i32, 1);
+        assert_eq!(MemoryListCommand::EmptyWorkingSets as i32, 2);
+        assert_eq!(MemoryListCommand::FlushModifiedList as i32, 3);
+        assert_eq!(MemoryListCommand::PurgeStandbyList as i32, 4);
+        assert_eq!(MemoryListCommand::PurgeLowPriorityStandbyList as i32, 5);
+    }
+
+    #[test]
+    fn system_info_class_constants() {
+        assert_eq!(SYSTEM_MEMORY_LIST_INFORMATION, 80);
+        assert_eq!(SYSTEM_COMBINE_PHYSICAL_MEMORY_INFORMATION, 130);
+        assert_eq!(SYSTEM_REGISTRY_RECONCILIATION_INFORMATION, 155);
+        assert_eq!(SYSTEM_FILE_CACHE_INFORMATION, 21);
     }
 }
