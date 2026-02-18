@@ -285,8 +285,10 @@ impl MagicXApp {
         let initial_dark_mode = settings.dark_mode;
 
         // Initialize tray icon if minimize-to-tray was previously enabled.
+        // Pass the egui context so the watcher thread can call request_repaint()
+        // and wake eframe's event loop even while the window is hidden.
         let tray_handle = if settings.minimize_to_tray {
-            tray::TrayHandle::new().ok()
+            tray::TrayHandle::new(cc.egui_ctx.clone()).ok()
         } else {
             None
         };
@@ -434,7 +436,7 @@ impl MagicXApp {
 
         if tray_changed {
             if self.settings.minimize_to_tray {
-                self.tray_handle = tray::TrayHandle::new().ok();
+                self.tray_handle = tray::TrayHandle::new(ctx.clone()).ok();
             } else {
                 self.tray_handle = None;
                 // Un-hide if the window was minimised while the setting was on.
