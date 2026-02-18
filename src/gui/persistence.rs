@@ -3,7 +3,7 @@
 //! Central [`SettingsManager`] for all [`super::app::GuiSettings`] I/O.
 //!
 //! Handles loading, saving, importing, and exporting settings.
-//! The default persistence path is `%APPDATA%\MagicX\RAM Cleaner\settings.json`.
+//! The default persistence path is `settings.json` next to the running executable.
 //! Import and export open native Win32 file-picker dialogs (COMDLG32).
 //!
 //! Gracefully falls back to [`Default`] on any read error so a missing or
@@ -15,16 +15,16 @@ use super::app::GuiSettings;
 
 // ─── Default Path ─────────────────────────────────────────────────────────────
 
-/// Returns the default settings JSON path: `%APPDATA%\MagicX\RAM Cleaner\settings.json`.
+/// Returns the default settings JSON path: `<exe directory>\settings.json`.
 ///
-/// Returns [`None`] if the `APPDATA` environment variable is absent.
-fn default_settings_path() -> Option<PathBuf> {
-    std::env::var_os("APPDATA").map(|appdata| {
-        PathBuf::from(appdata)
-            .join("MagicX")
-            .join("RAM Cleaner")
-            .join("settings.json")
-    })
+/// Falls back to `settings.json` in the current working directory if the
+/// executable path cannot be resolved.
+fn default_settings_path() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("settings.json")
 }
 
 // ─── File Dialog Helpers ──────────────────────────────────────────────────────
@@ -157,15 +157,13 @@ fn write_settings_file(path: &Path, settings: &GuiSettings) -> Result<(), String
 pub struct SettingsManager;
 
 impl SettingsManager {
-    /// Load [`GuiSettings`] from the default `%APPDATA%` path.
+    /// Load [`GuiSettings`] from the default exe-directory path.
     ///
     /// Returns [`GuiSettings::default`] if the file is absent, unreadable,
     /// or contains incompatible JSON. Unknown fields are silently ignored so
     /// existing files survive schema additions across app versions.
     pub fn load() -> GuiSettings {
-        let Some(path) = default_settings_path() else {
-            return GuiSettings::default();
-        };
+        let path = default_settings_path();
 
         let Ok(content) = std::fs::read_to_string(&path) else {
             return GuiSettings::default();
@@ -174,14 +172,12 @@ impl SettingsManager {
         serde_json::from_str(&content).unwrap_or_default()
     }
 
-    /// Save `settings` to the default `%APPDATA%` path.
+    /// Save `settings` to the default exe-directory path.
     ///
     /// I/O errors are silently discarded — a failed write must not surface
     /// to the user during normal app shutdown.
     pub fn save(settings: &GuiSettings) {
-        let Some(path) = default_settings_path() else {
-            return;
-        };
+        let path = default_settings_path();
 
         // Named binding avoids `let_underscore_drop`; error is intentionally ignored.
         let _write_result = write_settings_file(&path, settings);

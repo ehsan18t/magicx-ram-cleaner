@@ -65,8 +65,8 @@ pub fn run_gui() -> Result<()> {
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([720.0, 580.0])
-            .with_min_inner_size([600.0, 460.0])
+            .with_inner_size([620.0, 500.0])
+            .with_min_inner_size([620.0, 500.0])
             .with_title("MagicX RAM Cleaner")
             // Start hidden and reveal on first frame to avoid flash.
             .with_visible(false),
