@@ -393,10 +393,34 @@ pub struct ProcessMemoryInfo {
 
 /// Enumerate running processes and return the top `count` by working set size.
 ///
-/// Uses `Toolhelp32` for process enumeration (same approach as `cleaner.rs`)
-/// and `K32GetProcessMemoryInfo` for per-process memory counters.
+/// Uses [`enumerate_processes`] for process enumeration and
+/// `K32GetProcessMemoryInfo` for per-process memory counters.
 /// Processes that cannot be opened (system/protected) are silently skipped.
 pub fn query_top_processes(count: usize) -> Result<Vec<ProcessMemoryInfo>> {
+    let mut processes = Vec::new();
+
+    enumerate_processes(|pid, exe_name| {
+        if let Some(info) = query_single_process(pid, exe_name) {
+            processes.push(info);
+        }
+    })?;
+
+    // Sort descending by working set size and truncate to requested count
+    processes.sort_unstable_by(|a, b| b.working_set.cmp(&a.working_set));
+    processes.truncate(count);
+
+    Ok(processes)
+}
+
+/// Iterate all running processes, calling `callback` for each.
+///
+/// Uses `Toolhelp32` snapshot for reliable enumeration. System Idle (PID 0)
+/// and System (PID 4) are automatically skipped. The callback receives the
+/// process ID and executable name (already decoded from UTF-16).
+///
+/// This centralises the `CreateToolhelp32Snapshot` + `Process32First/Next`
+/// boilerplate so callers (stats and cleaner) don't duplicate it.
+pub fn enumerate_processes(mut callback: impl FnMut(u32, &str)) -> Result<()> {
     // SAFETY: CreateToolhelp32Snapshot with TH32CS_SNAPPROCESS and 0 is the
     // standard documented way to enumerate all running processes.
     let snap_raw = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
@@ -405,7 +429,6 @@ pub fn query_top_processes(count: usize) -> Result<Vec<ProcessMemoryInfo>> {
     }
     let snapshot = HandleGuard::new(snap_raw);
 
-    let mut processes = Vec::new();
     let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
     entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
 
@@ -417,28 +440,21 @@ pub fn query_top_processes(count: usize) -> Result<Vec<ProcessMemoryInfo>> {
         let pid = entry.th32ProcessID;
 
         // Skip System Idle (PID 0) and System (PID 4)
-        if pid != 0
-            && pid != 4
-            && let Some(info) = query_single_process(pid, &entry.szExeFile)
-        {
-            processes.push(info);
+        if pid != 0 && pid != 4 {
+            let exe_name = extract_exe_name(&entry.szExeFile);
+            callback(pid, &exe_name);
         }
 
         has_entry = unsafe { Process32NextW(snapshot.raw(), &raw mut entry) } != 0;
     }
 
     // snapshot guard dropped here — CloseHandle called automatically
-
-    // Sort descending by working set size and truncate to requested count
-    processes.sort_unstable_by(|a, b| b.working_set.cmp(&a.working_set));
-    processes.truncate(count);
-
-    Ok(processes)
+    Ok(())
 }
 
 /// Query memory info for a single process. Returns `None` if the process
 /// cannot be opened (protected/system processes).
-fn query_single_process(pid: u32, exe_name: &[u16]) -> Option<ProcessMemoryInfo> {
+fn query_single_process(pid: u32, exe_name: &str) -> Option<ProcessMemoryInfo> {
     // SAFETY: OpenProcess with PROCESS_QUERY_INFORMATION | PROCESS_VM_READ is the
     // documented way to open a process for memory info queries.
     let proc_handle = HandleGuard::new(unsafe {
@@ -465,12 +481,9 @@ fn query_single_process(pid: u32, exe_name: &[u16]) -> Option<ProcessMemoryInfo>
         counters
     };
 
-    // Extract process name from the wide-char szExeFile buffer
-    let name = extract_exe_name(exe_name);
-
     Some(ProcessMemoryInfo {
         pid,
-        name,
+        name: exe_name.to_owned(),
         working_set: counters.WorkingSetSize as u64,
         peak_working_set: counters.PeakWorkingSetSize as u64,
     })

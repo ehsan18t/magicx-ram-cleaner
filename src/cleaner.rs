@@ -4,13 +4,9 @@
 //! working set trimming to aggressive full standby list purging.
 //! Each operation is independently callable for maximum control.
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use colored::Colorize;
 use serde::Serialize;
-use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
-use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
-};
 use windows_sys::Win32::System::Memory::SetSystemFileCacheSize;
 use windows_sys::Win32::System::ProcessStatus::K32EmptyWorkingSet;
 use windows_sys::Win32::System::Threading::{
@@ -18,7 +14,7 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use crate::ntapi::{self, MemoryListCommand};
-use crate::stats::{HandleGuard, MemorySnapshot, QuickMemoryReading, extract_exe_name};
+use crate::stats::{HandleGuard, MemorySnapshot, QuickMemoryReading, enumerate_processes};
 
 // ─── File Cache Safety Guard ─────────────────────────────────────────────────
 
@@ -513,57 +509,40 @@ pub fn empty_working_sets_per_process(
         })
         .collect();
 
-    // Use Toolhelp32 snapshot for process enumeration (more reliable than K32EnumProcesses)
-    let snap_raw = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
-    if snap_raw == INVALID_HANDLE_VALUE {
-        bail!("CreateToolhelp32Snapshot failed");
-    }
-    let snapshot = HandleGuard::new(snap_raw);
-
-    let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
-    entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
-
-    let mut has_entry = unsafe { Process32FirstW(snapshot.raw(), &raw mut entry) } != 0;
-
-    while has_entry {
-        let pid = entry.th32ProcessID;
-
-        // Skip System (PID 0, 4) and ourselves
-        if pid != 0 && pid != 4 && pid != current_pid {
-            let exe_name = extract_exe_name(&entry.szExeFile);
-
-            if is_excluded(&exe_name, &normalised_excludes) {
-                if verbose {
-                    println!(
-                        "    {} Skipping {} (PID {pid}, excluded)",
-                        "·".dimmed(),
-                        exe_name.yellow()
-                    );
-                }
-                excluded_count += 1;
-            } else {
-                let proc_handle = HandleGuard::new(unsafe {
-                    OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_SET_QUOTA, 0, pid)
-                });
-
-                if proc_handle.raw().is_null() {
-                    fail_count += 1;
-                } else {
-                    let result = unsafe { K32EmptyWorkingSet(proc_handle.raw()) };
-                    if result != 0 {
-                        success_count += 1;
-                    } else {
-                        fail_count += 1;
-                    }
-                    // proc_handle dropped here — CloseHandle called automatically
-                }
-            }
+    enumerate_processes(|pid, exe_name| {
+        // Skip ourselves
+        if pid == current_pid {
+            return;
         }
 
-        has_entry = unsafe { Process32NextW(snapshot.raw(), &raw mut entry) } != 0;
-    }
+        if is_excluded(exe_name, &normalised_excludes) {
+            if verbose {
+                println!(
+                    "    {} Skipping {} (PID {pid}, excluded)",
+                    "·".dimmed(),
+                    exe_name.yellow()
+                );
+            }
+            excluded_count += 1;
+        } else {
+            let proc_handle = HandleGuard::new(unsafe {
+                OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_SET_QUOTA, 0, pid)
+            });
 
-    // snapshot guard dropped here — CloseHandle called automatically
+            if proc_handle.raw().is_null() {
+                fail_count += 1;
+            } else {
+                // SAFETY: proc_handle is a valid process handle from OpenProcess.
+                let result = unsafe { K32EmptyWorkingSet(proc_handle.raw()) };
+                if result != 0 {
+                    success_count += 1;
+                } else {
+                    fail_count += 1;
+                }
+                // proc_handle dropped here — CloseHandle called automatically
+            }
+        }
+    })?;
 
     let after = wait_for_settle(verbose, SettleMode::Full)?;
     let elapsed = start.elapsed();
