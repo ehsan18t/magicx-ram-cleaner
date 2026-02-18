@@ -1,117 +1,101 @@
 //! # Processes Panel
 //!
-//! Sortable table of top processes by memory usage, with working set and
-//! peak working set columns.
+//! Sortable table of the top processes ranked by memory usage.
+//! Click column headers to sort. Uses `egui_extras::TableBuilder`.
 
 use eframe::egui;
+use egui_extras::{Column, TableBuilder};
 
-use crate::stats::{self, ProcessMemoryInfo};
+use crate::stats;
 
 use super::super::app::MagicXApp;
 use super::super::{theme, widgets};
 
 /// Draw the processes panel.
 pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
-    widgets::page_title(ui, "\u{1F4CB} Top Processes");
+    let dark = app.settings.dark_mode;
+    widgets::page_title(ui, "\u{2630}", "Top Processes", dark);
 
-    // Clone data out of the lock to satisfy `significant_drop_tightening`.
-    let processes_data: Option<Vec<ProcessMemoryInfo>> =
-        app.top_processes.lock().ok().map(|p| p.clone());
-    let Some(procs) = processes_data else {
-        ui.label(egui::RichText::new("Loading...").color(theme::MUTED));
+    let procs = app.top_processes.lock().ok().map(|p| p.clone());
+
+    let Some(mut procs) = procs else {
+        ui.spinner();
         return;
     };
 
-    if procs.is_empty() {
-        ui.vertical_centered(|ui| {
-            ui.add_space(20.0);
-            ui.spinner();
-            ui.add_space(8.0);
-            ui.label(egui::RichText::new("Loading process list...").color(theme::MUTED));
-        });
-        return;
-    }
+    sort_processes(&mut procs, app.process_sort_col, app.process_sort_asc);
 
-    let sorted_procs = sort_processes(procs, app.process_sort_col, app.process_sort_asc);
+    widgets::card(ui, dark, |ui| {
+        ui.label(
+            egui::RichText::new(format!("Showing top {} by working set", procs.len()))
+                .size(11.0)
+                .color(theme::muted_color(dark)),
+        );
+        ui.add_space(6.0);
 
-    draw_table(ui, app, &sorted_procs);
-}
+        let available_height = ui.available_height().max(200.0);
 
-/// Sort the process list by the selected column.
-fn sort_processes(
-    mut procs: Vec<ProcessMemoryInfo>,
-    col: usize,
-    ascending: bool,
-) -> Vec<ProcessMemoryInfo> {
-    match col {
-        0 => procs.sort_by(|a, b| a.name.cmp(&b.name)),
-        1 => procs.sort_by(|a, b| a.pid.cmp(&b.pid)),
-        2 => procs.sort_by(|a, b| a.working_set.cmp(&b.working_set)),
-        3 => procs.sort_by(|a, b| a.peak_working_set.cmp(&b.peak_working_set)),
-        _ => {}
-    }
-    if !ascending {
-        procs.reverse();
-    }
-    procs
-}
+        TableBuilder::new(ui)
+            .striped(true)
+            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+            .column(Column::remainder().at_least(120.0)) // Name
+            .column(Column::exact(60.0))                 // PID
+            .column(Column::exact(90.0))                 // Working Set
+            .column(Column::exact(90.0))                 // Peak
+            .max_scroll_height(available_height)
+            .header(22.0, |mut header| {
+                let cols: &[(&str, usize)] =
+                    &[("Process", 0), ("PID", 1), ("Working Set", 2), ("Peak", 3)];
 
-/// Draw the sortable process table.
-fn draw_table(ui: &mut egui::Ui, app: &mut MagicXApp, sorted_procs: &[ProcessMemoryInfo]) {
-    let table = egui_extras::TableBuilder::new(ui)
-        .striped(true)
-        .resizable(true)
-        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-        .column(egui_extras::Column::initial(220.0).at_least(100.0))
-        .column(egui_extras::Column::initial(70.0).at_least(50.0))
-        .column(egui_extras::Column::initial(130.0).at_least(80.0))
-        .column(egui_extras::Column::initial(130.0).at_least(80.0))
-        .min_scrolled_height(0.0);
-
-    table
-        .header(28.0, |mut header| {
-            let cols = ["Process", "PID", "Working Set", "Peak"];
-            for (i, col_name) in cols.iter().enumerate() {
-                header.col(|ui| {
-                    draw_column_header(ui, col_name, i, app);
-                });
-            }
-        })
-        .body(|body| {
-            body.rows(24.0, sorted_procs.len(), |mut row| {
-                let idx = row.index();
-                let p = &sorted_procs[idx];
-                row.col(|ui| {
-                    ui.label(egui::RichText::new(&p.name).size(12.0));
-                });
-                row.col(|ui| {
-                    ui.label(
-                        egui::RichText::new(p.pid.to_string())
-                            .size(12.0)
-                            .color(theme::MUTED),
-                    );
-                });
-                row.col(|ui| {
-                    ui.label(
-                        egui::RichText::new(stats::format_bytes(p.working_set))
-                            .strong()
-                            .size(12.0),
-                    );
-                });
-                row.col(|ui| {
-                    ui.label(
-                        egui::RichText::new(stats::format_bytes(p.peak_working_set))
-                            .size(12.0)
-                            .color(theme::MUTED),
-                    );
+                for &(label, col_idx) in cols {
+                    header.col(|ui| {
+                        draw_sort_header(ui, label, col_idx, app, dark);
+                    });
+                }
+            })
+            .body(|body| {
+                body.rows(20.0, procs.len(), |mut row| {
+                    let idx = row.index();
+                    let p = &procs[idx];
+                    row.col(|ui| {
+                        ui.label(egui::RichText::new(&p.name).size(11.0));
+                    });
+                    row.col(|ui| {
+                        ui.label(
+                            egui::RichText::new(p.pid.to_string())
+                                .size(11.0)
+                                .color(theme::muted_color(dark)),
+                        );
+                    });
+                    row.col(|ui| {
+                        ui.label(
+                            egui::RichText::new(stats::format_bytes(p.working_set))
+                                .size(11.0)
+                                .color(theme::ACCENT),
+                        );
+                    });
+                    row.col(|ui| {
+                        ui.label(
+                            egui::RichText::new(stats::format_bytes(p.peak_working_set))
+                                .size(11.0)
+                                .color(theme::YELLOW),
+                        );
+                    });
                 });
             });
-        });
+    });
 }
 
-/// Draw a sortable column header button.
-fn draw_column_header(ui: &mut egui::Ui, name: &str, col_index: usize, app: &mut MagicXApp) {
-    let arrow = if app.process_sort_col == col_index {
+/// Draw a clickable column header with sort arrow.
+fn draw_sort_header(
+    ui: &mut egui::Ui,
+    label: &str,
+    col_idx: usize,
+    app: &mut MagicXApp,
+    dark: bool,
+) {
+    let is_sorted = app.process_sort_col == col_idx;
+    let arrow = if is_sorted {
         if app.process_sort_asc {
             " \u{25B2}"
         } else {
@@ -121,23 +105,38 @@ fn draw_column_header(ui: &mut egui::Ui, name: &str, col_index: usize, app: &mut
         ""
     };
 
+    let text = egui::RichText::new(format!("{label}{arrow}"))
+        .strong()
+        .size(11.0)
+        .color(if is_sorted {
+            theme::ACCENT
+        } else {
+            theme::text_color(dark)
+        });
+
     if ui
-        .add(
-            egui::Button::new(
-                egui::RichText::new(format!("{name}{arrow}"))
-                    .strong()
-                    .size(12.0),
-            )
-            .frame(false),
-        )
+        .add(egui::Label::new(text).sense(egui::Sense::click()))
         .clicked()
     {
-        if app.process_sort_col == col_index {
+        if app.process_sort_col == col_idx {
             app.process_sort_asc = !app.process_sort_asc;
         } else {
-            app.process_sort_col = col_index;
-            // Ascending for name/pid, descending for memory columns
-            app.process_sort_asc = col_index < 2;
+            app.process_sort_col = col_idx;
+            app.process_sort_asc = false;
         }
     }
+}
+
+/// Sort processes by the specified column.
+fn sort_processes(procs: &mut [stats::ProcessMemoryInfo], col: usize, ascending: bool) {
+    procs.sort_unstable_by(|a, b| {
+        let ord = match col {
+            0 => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            1 => a.pid.cmp(&b.pid),
+            3 => a.peak_working_set.cmp(&b.peak_working_set),
+            // Default: working set (col 2)
+            _ => a.working_set.cmp(&b.working_set),
+        };
+        if ascending { ord } else { ord.reverse() }
+    });
 }

@@ -1,7 +1,7 @@
 //! # Dashboard Panel
 //!
 //! Main overview showing real-time memory usage, a history chart, and
-//! quick-clean action buttons.
+//! quick system information.
 
 use std::collections::VecDeque;
 
@@ -14,29 +14,30 @@ use super::super::{theme, widgets};
 
 /// Draw the dashboard panel.
 pub fn draw(ui: &mut egui::Ui, app: &MagicXApp) {
-    widgets::page_title(ui, "\u{1F4CA} Dashboard");
+    let dark = app.settings.dark_mode;
+    widgets::page_title(ui, "\u{2261}", "Dashboard", dark);
 
     let snapshot = app.latest_snapshot.lock().ok().and_then(|s| s.clone());
 
     if let Some(snap) = &snapshot {
-        widgets::card(ui, app.settings.dark_mode, |ui| {
-            widgets::memory_overview(ui, snap, app.settings.dark_mode);
+        widgets::card(ui, dark, |ui| {
+            widgets::memory_overview(ui, snap, dark);
         });
 
         ui.add_space(theme::SECTION_SPACING);
         draw_memory_chart(ui, app);
 
         ui.add_space(theme::SECTION_SPACING);
-        draw_quick_actions(ui, snap);
+        draw_quick_info(ui, snap, dark);
     } else {
-        ui.add_space(40.0);
+        ui.add_space(30.0);
         ui.vertical_centered(|ui| {
             ui.spinner();
-            ui.add_space(8.0);
+            ui.add_space(6.0);
             ui.label(
                 egui::RichText::new("Loading memory information...")
-                    .size(14.0)
-                    .color(theme::MUTED),
+                    .size(12.0)
+                    .color(theme::muted_color(dark)),
             );
         });
     }
@@ -46,16 +47,15 @@ pub fn draw(ui: &mut egui::Ui, app: &MagicXApp) {
 fn draw_memory_chart(ui: &mut egui::Ui, app: &MagicXApp) {
     widgets::section_header(ui, "Memory History");
 
-    // Clone data out of the lock to satisfy `significant_drop_tightening`.
     let history_data: Option<VecDeque<super::super::app::HistoryPoint>> =
         app.history.lock().ok().map(|h| h.clone());
     let Some(history) = history_data else {
-        ui.label(egui::RichText::new("No data yet...").color(theme::MUTED));
+        ui.label(egui::RichText::new("No data yet...").color(theme::MUTED_DARK));
         return;
     };
 
     if history.len() < 2 {
-        ui.label(egui::RichText::new("Collecting data...").color(theme::MUTED));
+        ui.label(egui::RichText::new("Collecting data...").color(theme::MUTED_DARK));
         return;
     }
 
@@ -85,13 +85,13 @@ fn draw_memory_chart(ui: &mut egui::Ui, app: &MagicXApp) {
 
     let used_line = egui_plot::Line::new("Used", used_points)
         .color(theme::CHART_USED)
-        .width(2.0);
+        .width(1.5);
     let avail_line = egui_plot::Line::new("Available", avail_points)
         .color(theme::CHART_AVAILABLE)
-        .width(2.0);
+        .width(1.5);
 
     egui_plot::Plot::new("memory_history")
-        .height(180.0)
+        .height(150.0)
         .include_y(0.0)
         .include_y(total_gb * 1.05)
         .y_axis_label("GB")
@@ -103,8 +103,8 @@ fn draw_memory_chart(ui: &mut egui::Ui, app: &MagicXApp) {
         });
 }
 
-/// Draw quick-action info on the dashboard.
-fn draw_quick_actions(ui: &mut egui::Ui, snap: &stats::MemorySnapshot) {
+/// Draw quick system information.
+fn draw_quick_info(ui: &mut egui::Ui, snap: &stats::MemorySnapshot, dark: bool) {
     widgets::section_header(ui, "Quick Info");
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 20.0;
@@ -114,7 +114,7 @@ fn draw_quick_actions(ui: &mut egui::Ui, snap: &stats::MemorySnapshot) {
             "Total RAM",
             &stats::format_bytes(snap.total_physical),
             theme::ACCENT,
-            true, // dark_mode fallback — stat_labels work in both themes
+            dark,
         );
         widgets::stat_label(
             ui,
@@ -125,14 +125,14 @@ fn draw_quick_actions(ui: &mut egui::Ui, snap: &stats::MemorySnapshot) {
                 stats::format_bytes(snap.total_page_file)
             ),
             theme::YELLOW,
-            true,
+            dark,
         );
         widgets::stat_label(
             ui,
             "Threads",
             &snap.thread_count.to_string(),
-            theme::MUTED,
-            true,
+            theme::MUTED_DARK,
+            dark,
         );
     });
 }

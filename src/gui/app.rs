@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use eframe::egui;
+use egui::{FontFamily, FontId, TextStyle};
 
 use crate::cleaner::{self, CleanLevel, SmartCleanResult};
 use crate::stats::{self, MemorySnapshot, ProcessMemoryInfo};
@@ -82,7 +83,7 @@ pub struct GuiSettings {
     pub default_clean_level: CleanLevel,
     /// Number of top processes to show.
     pub top_process_count: usize,
-    /// Theme preference.
+    /// Theme preference (`true` = dark).
     pub dark_mode: bool,
 }
 
@@ -111,8 +112,7 @@ pub struct CleanResultMsg {
 // ─── Application State ───────────────────────────────────────────────────────
 
 /// The main GUI application state.
-// Four independent boolean flags (`cleaning_in_progress`, `monitor_active`,
-// `process_sort_asc`, `theme_applied`) that represent unrelated on/off states.
+// Five independent boolean flags that represent unrelated on/off states.
 // Collapsing them into enums would hurt readability without real benefit.
 #[allow(clippy::struct_excessive_bools)]
 pub struct MagicXApp {
@@ -164,8 +164,11 @@ pub struct MagicXApp {
     /// Process sort ascending.
     pub process_sort_asc: bool,
 
-    /// Whether the theme has been applied at least once.
+    /// Whether the dark theme was last applied (tracks theme changes).
     theme_applied: bool,
+
+    /// Whether the window has been revealed (for anti-flash).
+    window_revealed: bool,
 }
 
 impl MagicXApp {
@@ -174,11 +177,33 @@ impl MagicXApp {
         // Apply modern dark theme immediately
         theme::apply_dark_theme(&cc.egui_ctx);
 
-        // Configure font sizes for a more polished look
+        // Configure text styles for crisp rendering
         let mut style = (*cc.egui_ctx.style()).clone();
-        style.spacing.item_spacing = egui::vec2(8.0, 6.0);
-        style.spacing.button_padding = egui::vec2(10.0, 5.0);
-        style.spacing.window_margin = egui::Margin::same(12);
+        style.spacing.item_spacing = egui::vec2(6.0, 4.0);
+        style.spacing.button_padding = egui::vec2(8.0, 4.0);
+        style.spacing.window_margin = egui::Margin::same(10);
+
+        // Tighter text styles for a compact look
+        style.text_styles.insert(
+            TextStyle::Heading,
+            FontId::new(18.0, FontFamily::Proportional),
+        );
+        style
+            .text_styles
+            .insert(TextStyle::Body, FontId::new(13.0, FontFamily::Proportional));
+        style.text_styles.insert(
+            TextStyle::Small,
+            FontId::new(10.0, FontFamily::Proportional),
+        );
+        style.text_styles.insert(
+            TextStyle::Button,
+            FontId::new(13.0, FontFamily::Proportional),
+        );
+        style.text_styles.insert(
+            TextStyle::Monospace,
+            FontId::new(12.0, FontFamily::Monospace),
+        );
+
         cc.egui_ctx.set_style(style);
 
         let (clean_tx, clean_rx) = mpsc::channel();
@@ -220,9 +245,10 @@ impl MagicXApp {
             last_auto_clean: None,
             monitor_log: Vec::new(),
             settings: GuiSettings::default(),
-            process_sort_col: 2, // sort by working set by default
+            process_sort_col: 2,
             process_sort_asc: false,
             theme_applied: true,
+            window_revealed: false,
         }
     }
 
@@ -307,10 +333,16 @@ impl MagicXApp {
 
 impl eframe::App for MagicXApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Reveal the window on the first frame (anti-flash).
+        if !self.window_revealed {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            self.window_revealed = true;
+        }
+
         // Poll background results
         self.poll_clean_results();
 
-        // Check for completed auto-clean results in monitor log
+        // Log completed auto-clean results
         if let Some(ref result) = self.last_clean_result
             && self.monitor_active
         {
@@ -336,7 +368,7 @@ impl eframe::App for MagicXApp {
             self.maybe_refresh_processes();
         }
 
-        // Apply theme (only when changed)
+        // Apply theme when toggled
         if self.settings.dark_mode && !self.theme_applied {
             theme::apply_dark_theme(ctx);
             self.theme_applied = true;
@@ -395,69 +427,70 @@ fn stats_thread(
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 
-/// Navigation items for the sidebar.
+/// Navigation items: `(panel, icon, label)`.
+///
+/// Icons use simple Unicode glyphs that render reliably in egui's
+/// built-in font (no emoji variation selectors).
 const NAV_ITEMS: [(Panel, &str, &str); 5] = [
-    (Panel::Dashboard, "\u{1F4CA}", "Dashboard"),
-    (Panel::Clean, "\u{26A1}", "Clean"),
-    (Panel::Monitor, "\u{1F50D}", "Monitor"),
-    (Panel::Processes, "\u{1F4CB}", "Processes"),
-    (Panel::Settings, "\u{2699}\u{FE0F}", "Settings"),
+    (Panel::Dashboard, "\u{2261}", "Dashboard"), // ≡
+    (Panel::Clean, "\u{2726}", "Clean"),         // ✦
+    (Panel::Monitor, "\u{25C9}", "Monitor"),     // ◉
+    (Panel::Processes, "\u{2630}", "Processes"), // ☰
+    (Panel::Settings, "\u{2699}", "Settings"),   // ⚙ (no FE0F)
 ];
 
-/// Draw the modern sidebar with navigation buttons and branding.
+/// Draw the sidebar with navigation and branding.
 fn draw_sidebar(ctx: &egui::Context, app: &mut MagicXApp) {
-    let sidebar_bg = theme::sidebar_bg(app.settings.dark_mode);
+    let dark = app.settings.dark_mode;
 
     egui::SidePanel::left("sidebar")
         .resizable(false)
         .exact_width(theme::SIDEBAR_WIDTH)
         .frame(
             egui::Frame::new()
-                .fill(sidebar_bg)
-                .inner_margin(egui::Margin::symmetric(12, 16))
-                .stroke(egui::Stroke::new(
-                    0.5,
-                    theme::border_color(app.settings.dark_mode),
-                )),
+                .fill(theme::sidebar_bg(dark))
+                .inner_margin(egui::Margin::symmetric(10, 12))
+                .stroke(egui::Stroke::new(0.5, theme::border_color(dark))),
         )
         .show(ctx, |ui| {
-            draw_sidebar_brand(ui);
-            ui.add_space(20.0);
+            draw_sidebar_brand(ui, dark);
+            ui.add_space(14.0);
             draw_sidebar_nav(ui, app);
         });
 }
 
-/// Draw the `MagicX` branding in the sidebar header.
-fn draw_sidebar_brand(ui: &mut egui::Ui) {
+/// Draw the `MagicX` branding text.
+fn draw_sidebar_brand(ui: &mut egui::Ui, dark: bool) {
     ui.vertical_centered(|ui| {
         ui.label(
             egui::RichText::new("MagicX")
                 .strong()
-                .size(22.0)
+                .size(20.0)
                 .color(theme::ACCENT),
         );
         ui.label(
             egui::RichText::new("RAM Cleaner")
-                .size(11.0)
-                .color(theme::MUTED),
+                .size(10.0)
+                .color(theme::muted_color(dark)),
         );
-        ui.add_space(2.0);
+        ui.add_space(1.0);
         ui.label(
             egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
-                .size(10.0)
-                .color(theme::MUTED),
+                .size(9.0)
+                .color(theme::muted_color(dark)),
         );
     });
 }
 
-/// Draw the navigation buttons in the sidebar.
+/// Draw the navigation buttons.
 fn draw_sidebar_nav(ui: &mut egui::Ui, app: &mut MagicXApp) {
+    let dark = app.settings.dark_mode;
     for (panel, icon, label) in NAV_ITEMS {
         let selected = app.active_panel == panel;
-        draw_nav_button(ui, icon, label, selected, || {
+        draw_nav_button(ui, icon, label, selected, dark, || {
             app.active_panel = panel;
         });
-        ui.add_space(2.0);
+        ui.add_space(1.0);
     }
 }
 
@@ -470,6 +503,7 @@ fn draw_nav_button(
     icon: &str,
     label: &str,
     selected: bool,
+    dark: bool,
     on_click: impl FnOnce(),
 ) {
     let desired_size = egui::vec2(ui.available_width(), theme::SIDEBAR_BUTTON_HEIGHT);
@@ -489,39 +523,39 @@ fn draw_nav_button(
         } else {
             theme::ACCENT.gamma_multiply(0.06)
         };
-        painter.rect_filled(rect, egui::CornerRadius::same(8), bg);
+        painter.rect_filled(rect, egui::CornerRadius::same(6), bg);
     }
 
-    // Left accent bar for selected item
+    // Left accent bar when selected
     if selected {
         let bar = egui::Rect::from_min_size(rect.left_top(), egui::vec2(3.0, rect.height()));
         painter.rect_filled(bar, egui::CornerRadius::same(1), theme::ACCENT);
     }
 
-    // Icon + label
+    // Text colours (theme-aware)
     let text_color = if selected {
         theme::ACCENT
     } else if hovered {
         theme::ACCENT_HOVER
     } else {
-        egui::Color32::from_rgb(180, 180, 195)
+        theme::muted_color(dark)
     };
 
-    let icon_pos = egui::pos2(rect.left() + 14.0, rect.center().y);
+    let icon_pos = egui::pos2(rect.left() + 12.0, rect.center().y);
     painter.text(
         icon_pos,
         egui::Align2::LEFT_CENTER,
         icon,
-        egui::FontId::proportional(15.0),
+        egui::FontId::proportional(14.0),
         text_color,
     );
 
-    let label_pos = egui::pos2(rect.left() + 38.0, rect.center().y);
+    let label_pos = egui::pos2(rect.left() + 32.0, rect.center().y);
     painter.text(
         label_pos,
         egui::Align2::LEFT_CENTER,
         label,
-        egui::FontId::proportional(14.0),
+        egui::FontId::proportional(13.0),
         text_color,
     );
 }
@@ -531,7 +565,7 @@ fn draw_nav_button(
 /// Draw the main content area based on the active panel.
 fn draw_main_panel(ctx: &egui::Context, app: &mut MagicXApp) {
     egui::CentralPanel::default()
-        .frame(egui::Frame::new().inner_margin(egui::Margin::same(20)))
+        .frame(egui::Frame::new().inner_margin(egui::Margin::same(14)))
         .show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| match app.active_panel {
                 Panel::Dashboard => panels::dashboard::draw(ui, app),
