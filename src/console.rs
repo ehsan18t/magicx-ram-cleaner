@@ -379,6 +379,52 @@ fn pump_messages(duration_ms: u32) {
     }
 }
 
+/// Return the `HWND` of the first top-level window whose title equals `title`.
+///
+/// Returns `0` when no matching window is found.  Because we look up our
+/// **own** window we do not have to worry about the inherent race between
+/// `FindWindowW` and the window closing.
+#[must_use]
+pub fn find_app_window(title: &str) -> isize {
+    use windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW;
+
+    let wide: Vec<u16> = title.encode_utf16().chain(Some(0u16)).collect();
+
+    // SAFETY: `FindWindowW` is called with a valid null-terminated wide
+    // string allocated on this stack frame.  The return value is an `HWND`
+    // pointer valid for the lifetime of the target window; we immediately
+    // cast it to `isize` for `Send`-safe storage.
+    unsafe { FindWindowW(std::ptr::null(), wide.as_ptr()) as isize }
+}
+
+/// Post a synthetic `WM_PAINT` message directly to `hwnd`.
+///
+/// Unlike `RedrawWindow(RDW_INTERNALPAINT)`, `PostMessageW(WM_PAINT)` is
+/// **not** suppressed by Windows for windows whose `WS_VISIBLE` flag has
+/// been cleared (i.e. hidden windows).  The message goes straight into the
+/// owning thread's message queue and winit's `WndProc` dispatches it as a
+/// `WindowEvent::RedrawRequested`, which causes eframe to call
+/// `App::update()`.
+///
+/// This is the mechanism that allows tray-icon events to be processed
+/// promptly even while the main window is invisible.
+///
+/// Does nothing when `hwnd` is `0`.
+pub fn post_synthetic_wm_paint(hwnd: isize) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_PAINT};
+
+    if hwnd == 0 {
+        return;
+    }
+
+    // SAFETY: `hwnd` is our own main window, valid for the lifetime of the
+    // process.  `PostMessageW(WM_PAINT)` simply enqueues the message and
+    // returns immediately; it never dereferences the payload pointers.
+    unsafe {
+        PostMessageW(hwnd as *mut _, WM_PAINT, 0, 0);
+    }
+}
+
 /// Load the application icon (resource ID 1) from the running executable.
 ///
 /// Falls back to a null handle if loading fails (the balloon will show

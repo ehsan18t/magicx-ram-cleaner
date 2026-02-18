@@ -215,6 +215,13 @@ pub struct MagicXApp {
     /// Cached from [`crate::context_menu::is_installed`] at startup and updated
     /// by the Settings panel after each install or uninstall operation.
     pub context_menu_installed: bool,
+
+    /// Win32 `HWND` of the main application window, stored as `isize` for
+    /// `Send`-safe access from background threads.
+    ///
+    /// Used by the tray-watcher thread to post a synthetic `WM_PAINT` message
+    /// that wakes eframe's event loop even while the window is invisible.
+    hwnd: isize,
 }
 
 impl MagicXApp {
@@ -290,11 +297,18 @@ impl MagicXApp {
         // Capture dark_mode before settings is moved into Self.
         let initial_dark_mode = settings.dark_mode;
 
+        // Look up our own HWND so the tray-watcher thread can post a synthetic
+        // WM_PAINT message that wakes eframe even when WS_VISIBLE is cleared.
+        // FindWindowW succeeds here because the window is already created by
+        // eframe before the app_creator closure is called.
+        let hwnd = crate::console::find_app_window("MagicX RAM Cleaner");
+
         // Initialize tray icon if minimize-to-tray was previously enabled.
-        // Pass the egui context so the watcher thread can call request_repaint()
-        // and wake eframe's event loop even while the window is hidden.
+        // Pass the egui context and HWND so the watcher thread can both call
+        // request_repaint() (for visible windows) and post a synthetic WM_PAINT
+        // (for hidden windows, where request_repaint alone is suppressed by OS).
         let tray_handle = if settings.minimize_to_tray {
-            tray::TrayHandle::new(cc.egui_ctx.clone()).ok()
+            tray::TrayHandle::new(cc.egui_ctx.clone(), hwnd).ok()
         } else {
             None
         };
@@ -330,6 +344,7 @@ impl MagicXApp {
             hidden_to_tray: false,
             quit_requested: false,
             context_menu_installed: crate::context_menu::is_installed(),
+            hwnd,
         }
     }
 
@@ -443,7 +458,7 @@ impl MagicXApp {
 
         if tray_changed {
             if self.settings.minimize_to_tray {
-                self.tray_handle = tray::TrayHandle::new(ctx.clone()).ok();
+                self.tray_handle = tray::TrayHandle::new(ctx.clone(), self.hwnd).ok();
             } else {
                 self.tray_handle = None;
                 // Un-hide if the window was minimised while the setting was on.

@@ -61,15 +61,21 @@ impl TrayHandle {
     /// builds a two-item menu ("Open" + separator + "Quit"), registers the
     /// icon with Windows, and spawns the background event-watcher thread.
     ///
-    /// The `ctx` is cloned into the watcher thread so it can call
-    /// [`egui::Context::request_repaint`] when a tray event arrives — this
-    /// is necessary to wake eframe's event loop while the window is hidden.
+    /// `ctx` is cloned into the watcher thread so it can call
+    /// [`egui::Context::request_repaint`] when a tray event arrives.
+    ///
+    /// `hwnd` is the Win32 window handle of the main application window
+    /// (obtained via [`crate::console::find_app_window`]).  The watcher
+    /// thread uses it to post a synthetic `WM_PAINT` message that wakes
+    /// eframe's event loop even while the window is invisible — unlike
+    /// `request_repaint`, `PostMessageW(WM_PAINT)` is not suppressed for
+    /// windows with `WS_VISIBLE` cleared.
     ///
     /// # Errors
     ///
     /// Returns an error string on image-decode failure, menu-build failure, or
     /// if the `tray_icon` back-end or the watcher thread cannot be created.
-    pub fn new(ctx: egui::Context) -> Result<Self, String> {
+    pub fn new(ctx: egui::Context, hwnd: isize) -> Result<Self, String> {
         let icon = load_icon()?;
         let (show_item, quit_item, menu) = build_menu()?;
         let show_id = show_item.id().clone();
@@ -88,7 +94,9 @@ impl TrayHandle {
 
         std::thread::Builder::new()
             .name("tray-watcher".into())
-            .spawn(move || tray_watcher_thread(&show_id, &quit_id, &tx, &shutdown_ref, &ctx))
+            .spawn(move || {
+                tray_watcher_thread(&show_id, &quit_id, &tx, &shutdown_ref, &ctx, hwnd);
+            })
             .map_err(|e| format!("Failed to spawn tray watcher thread: {e}"))?;
 
         Ok(Self {
@@ -125,12 +133,32 @@ impl Drop for TrayHandle {
 /// When an event is decoded the function sends a [`TrayAction`] to the
 /// app and calls [`egui::Context::request_repaint`] to guarantee `update()`
 /// runs even while the window is hidden.
+/// Converts a tray action into a repaint signal that works even for
+/// **hidden** (WS_VISIBLE-cleared) windows.
+///
+/// `ctx.request_repaint()` ultimately calls `window.request_redraw()` →
+/// `RedrawWindow(RDW_INTERNALPAINT)`, which Windows suppresses for invisible
+/// windows.  `PostMessageW(WM_PAINT)` bypasses this check: it puts the
+/// message directly into the owning thread's queue, so winit's `WndProc`
+/// dispatches `WindowEvent::RedrawRequested` and eframe calls `update()`
+/// regardless of visibility.  Both mechanisms are used so that:
+///
+/// * Visible window → normal eframe repaint path (`request_repaint`).
+/// * Hidden window → synthetic `WM_PAINT` post that bypasses the OS guard.
+fn wake_eframe(ctx: &egui::Context, hwnd: isize) {
+    // Belt-and-suspenders: request_repaint works for visible windows.
+    ctx.request_repaint();
+    // Synthetic WM_PAINT works for hidden windows (WS_VISIBLE = 0).
+    crate::console::post_synthetic_wm_paint(hwnd);
+}
+
 fn tray_watcher_thread(
     show_id: &MenuId,
     quit_id: &MenuId,
     tx: &Sender<TrayAction>,
     shutdown: &Arc<AtomicBool>,
     ctx: &egui::Context,
+    hwnd: isize,
 ) {
     loop {
         if shutdown.load(Ordering::Relaxed) {
@@ -151,7 +179,7 @@ fn tray_watcher_thread(
             if tx.send(action).is_err() {
                 return; // app receiver dropped — exit cleanly
             }
-            ctx.request_repaint();
+            wake_eframe(ctx, hwnd);
             had_event = true;
         }
 
@@ -167,7 +195,7 @@ fn tray_watcher_thread(
                 if tx.send(TrayAction::Show).is_err() {
                     return;
                 }
-                ctx.request_repaint();
+                wake_eframe(ctx, hwnd);
                 had_event = true;
             }
         }
