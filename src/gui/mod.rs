@@ -39,6 +39,7 @@
 
 pub mod app;
 mod panels;
+pub(super) mod persistence;
 pub mod theme;
 mod widgets;
 

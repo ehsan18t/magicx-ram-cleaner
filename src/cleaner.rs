@@ -6,7 +6,7 @@
 
 use anyhow::Result;
 use colored::Colorize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use windows_sys::Win32::System::Memory::SetSystemFileCacheSize;
 use windows_sys::Win32::System::ProcessStatus::K32EmptyWorkingSet;
 use windows_sys::Win32::System::Threading::{
@@ -283,7 +283,9 @@ impl CleanResult {
 }
 
 /// Cleaning aggressiveness level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum, Serialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum, Serialize, Deserialize,
+)]
 pub enum CleanLevel {
     /// Gentle: Purge ALL standby pages (priorities 0–7).
     /// Standby pages are already outside every process's working set;

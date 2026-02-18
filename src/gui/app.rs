@@ -13,6 +13,8 @@ use eframe::egui;
 use egui::{FontFamily, FontId, TextStyle};
 use egui_phosphor::regular as ph;
 
+use serde::{Deserialize, Serialize};
+
 use crate::cleaner::{self, CleanLevel, SmartCleanResult};
 use crate::stats::{self, MemorySnapshot, ProcessMemoryInfo};
 
@@ -72,7 +74,7 @@ pub struct HistoryPoint {
 /// Contains several independent boolean preferences; no meaningful two-variant
 /// enum reduction exists without obscuring what each field controls.
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GuiSettings {
     /// Enable system tray icon (disabled by default).
     pub tray_enabled: bool,
@@ -164,6 +166,9 @@ pub struct MagicXApp {
     /// User settings.
     pub settings: GuiSettings,
 
+    /// Shadow copy of settings used to detect changes and trigger auto-save.
+    settings_snapshot: GuiSettings,
+
     /// Process sort column (0=name, 1=pid, 2=`working_set`, 3=peak).
     pub process_sort_col: usize,
 
@@ -185,8 +190,16 @@ impl MagicXApp {
         egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
         cc.egui_ctx.set_fonts(fonts);
 
-        // Apply modern dark theme immediately
-        theme::apply_dark_theme(&cc.egui_ctx);
+        // Load persisted settings before applying the theme so the window
+        // starts in the user's preferred mode without a one-frame flash.
+        let settings = super::persistence::load_settings();
+
+        // Apply the persisted theme immediately.
+        if settings.dark_mode {
+            theme::apply_dark_theme(&cc.egui_ctx);
+        } else {
+            theme::apply_light_theme(&cc.egui_ctx);
+        }
 
         // Configure text styles for crisp rendering
         let mut style = (*cc.egui_ctx.style()).clone();
@@ -239,6 +252,9 @@ impl MagicXApp {
                 .expect("failed to spawn stats thread");
         }
 
+        // Capture dark_mode before settings is moved into Self.
+        let initial_dark_mode = settings.dark_mode;
+
         Self {
             active_panel: Panel::Dashboard,
             latest_snapshot,
@@ -255,10 +271,11 @@ impl MagicXApp {
             monitor_active: false,
             last_auto_clean: None,
             monitor_log: Vec::new(),
-            settings: GuiSettings::default(),
+            settings_snapshot: settings.clone(),
+            settings,
             process_sort_col: 2,
             process_sort_asc: false,
-            theme_applied: true,
+            theme_applied: initial_dark_mode,
             window_revealed: false,
         }
     }
@@ -394,10 +411,17 @@ impl eframe::App for MagicXApp {
         // ── Layout ───────────────────────────────────────────────────
         draw_sidebar(ctx, self);
         draw_main_panel(ctx, self);
+
+        // Persist settings immediately whenever the user changes anything.
+        if self.settings != self.settings_snapshot {
+            super::persistence::save_settings(&self.settings);
+            self.settings_snapshot = self.settings.clone();
+        }
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.stats_running.store(false, Ordering::Release);
+        super::persistence::save_settings(&self.settings);
     }
 }
 
