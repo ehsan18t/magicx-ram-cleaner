@@ -478,6 +478,18 @@ impl MagicXApp {
 
 impl eframe::App for MagicXApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Reveal the window on the first frame (anti-flash).
+        if !self.window_revealed {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            self.window_revealed = true;
+        }
+
+        // Poll tray icon events FIRST so that `quit_requested` is set
+        // before the close intercept runs. Without this ordering, the
+        // close intercept would cancel the close and re-hide the window
+        // before the Quit action could be processed.
+        self.poll_tray_events(ctx);
+
         // ── Close intercept ─────────────────────────────────────────
         // When minimize-to-tray is active and the user has not explicitly
         // selected "Quit" from the tray menu, hide the window instead of
@@ -490,15 +502,6 @@ impl eframe::App for MagicXApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             self.hidden_to_tray = true;
         }
-
-        // Reveal the window on the first frame (anti-flash).
-        if !self.window_revealed {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-            self.window_revealed = true;
-        }
-
-        // Poll tray icon events (show / quit).
-        self.poll_tray_events(ctx);
 
         // Poll background results
         self.poll_clean_results();

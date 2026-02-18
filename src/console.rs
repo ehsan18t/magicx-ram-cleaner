@@ -397,31 +397,54 @@ pub fn find_app_window(title: &str) -> isize {
     unsafe { FindWindowW(std::ptr::null(), wide.as_ptr()) as isize }
 }
 
-/// Post a synthetic `WM_PAINT` message directly to `hwnd`.
+/// Restore a hidden window to the foreground.
 ///
-/// Unlike `RedrawWindow(RDW_INTERNALPAINT)`, `PostMessageW(WM_PAINT)` is
-/// **not** suppressed by Windows for windows whose `WS_VISIBLE` flag has
-/// been cleared (i.e. hidden windows).  The message goes straight into the
-/// owning thread's message queue and winit's `WndProc` dispatches it as a
-/// `WindowEvent::RedrawRequested`, which causes eframe to call
-/// `App::update()`.
+/// Calls `ShowWindow(SW_SHOW)` + `SetForegroundWindow` so the window
+/// becomes visible **and** receives input focus.  This is used by the
+/// tray-watcher thread when the user selects "Open" or left-clicks the
+/// tray icon.
 ///
-/// This is the mechanism that allows tray-icon events to be processed
-/// promptly even while the main window is invisible.
+/// Must be called **before** `egui::Context::request_repaint()` — the
+/// repaint path (`RedrawWindow(RDW_INTERNALPAINT)`) is suppressed by
+/// Windows for windows with `WS_VISIBLE` cleared, so the window must
+/// be visible first.
 ///
 /// Does nothing when `hwnd` is `0`.
-pub fn post_synthetic_wm_paint(hwnd: isize) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_PAINT};
+pub fn restore_window(hwnd: isize) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SW_SHOW, SetForegroundWindow, ShowWindow};
 
     if hwnd == 0 {
         return;
     }
 
-    // SAFETY: `hwnd` is our own main window, valid for the lifetime of the
-    // process.  `PostMessageW(WM_PAINT)` simply enqueues the message and
-    // returns immediately; it never dereferences the payload pointers.
+    // SAFETY: `hwnd` is our own main window, valid for the lifetime of
+    // the process.  ShowWindow + SetForegroundWindow are standard Win32
+    // calls with no preconditions beyond a valid handle.
     unsafe {
-        PostMessageW(hwnd as *mut _, WM_PAINT, 0, 0);
+        ShowWindow(hwnd as *mut _, SW_SHOW);
+        SetForegroundWindow(hwnd as *mut _);
+    }
+}
+
+/// Make a hidden window visible without activating or focusing it.
+///
+/// Calls `ShowWindow(SW_SHOWNOACTIVATE)` so the `WS_VISIBLE` flag is
+/// set (enabling eframe repaints) but the window does **not** steal
+/// focus.  Used by the tray-watcher thread for the "Quit" action: the
+/// window needs to be visible just long enough for eframe to process
+/// the close request.
+///
+/// Does nothing when `hwnd` is `0`.
+pub fn reveal_window(hwnd: isize) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SW_SHOWNOACTIVATE, ShowWindow};
+
+    if hwnd == 0 {
+        return;
+    }
+
+    // SAFETY: ShowWindow with a valid hwnd is safe.
+    unsafe {
+        ShowWindow(hwnd as *mut _, SW_SHOWNOACTIVATE);
     }
 }
 

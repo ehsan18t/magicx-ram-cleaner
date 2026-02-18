@@ -130,28 +130,13 @@ impl Drop for TrayHandle {
 /// [`TrayIconEvent::receiver()`] are called, ensuring no concurrent access to
 /// the non-`Sync` static receivers.
 ///
-/// When an event is decoded the function sends a [`TrayAction`] to the
-/// app and calls [`egui::Context::request_repaint`] to guarantee `update()`
-/// runs even while the window is hidden.
-/// Converts a tray action into a repaint signal that works even for
-/// **hidden** (WS_VISIBLE-cleared) windows.
+/// When an event is decoded the function:
 ///
-/// `ctx.request_repaint()` ultimately calls `window.request_redraw()` →
-/// `RedrawWindow(RDW_INTERNALPAINT)`, which Windows suppresses for invisible
-/// windows.  `PostMessageW(WM_PAINT)` bypasses this check: it puts the
-/// message directly into the owning thread's queue, so winit's `WndProc`
-/// dispatches `WindowEvent::RedrawRequested` and eframe calls `update()`
-/// regardless of visibility.  Both mechanisms are used so that:
-///
-/// * Visible window → normal eframe repaint path (`request_repaint`).
-/// * Hidden window → synthetic `WM_PAINT` post that bypasses the OS guard.
-fn wake_eframe(ctx: &egui::Context, hwnd: isize) {
-    // Belt-and-suspenders: request_repaint works for visible windows.
-    ctx.request_repaint();
-    // Synthetic WM_PAINT works for hidden windows (WS_VISIBLE = 0).
-    crate::console::post_synthetic_wm_paint(hwnd);
-}
-
+/// 1. Makes the window visible via Win32 `ShowWindow` so that eframe can
+///    process repaints (Windows suppresses `RedrawWindow` for invisible
+///    windows, defeating `ctx.request_repaint()`).
+/// 2. Sends a [`TrayAction`] through the channel.
+/// 3. Calls [`egui::Context::request_repaint`] to guarantee `update()` runs.
 fn tray_watcher_thread(
     show_id: &MenuId,
     quit_id: &MenuId,
@@ -176,10 +161,19 @@ fn tray_watcher_thread(
             } else {
                 continue;
             };
+
+            // Make the window visible BEFORE requesting a repaint.
+            // For Show: restore to foreground with focus.
+            // For Quit: reveal silently so eframe can process the close.
+            match action {
+                TrayAction::Show => crate::console::restore_window(hwnd),
+                TrayAction::Quit => crate::console::reveal_window(hwnd),
+            }
+
             if tx.send(action).is_err() {
                 return; // app receiver dropped — exit cleanly
             }
-            wake_eframe(ctx, hwnd);
+            ctx.request_repaint();
             had_event = true;
         }
 
@@ -192,10 +186,11 @@ fn tray_watcher_thread(
                 ..
             } = event
             {
+                crate::console::restore_window(hwnd);
                 if tx.send(TrayAction::Show).is_err() {
                     return;
                 }
-                wake_eframe(ctx, hwnd);
+                ctx.request_repaint();
                 had_event = true;
             }
         }
