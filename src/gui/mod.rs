@@ -17,11 +17,10 @@
 //! ├── widgets.rs   — reusable components (cards, stat labels, buttons)
 //! └── panels/
 //!     ├── mod.rs         — panel re-exports
-//!     ├── dashboard.rs   — memory overview, chart, quick info
-//!     ├── clean.rs       — cleaning level buttons + results
+//!     ├── dashboard.rs   — memory overview, cleaning buttons, quick info
 //!     ├── monitor.rs     — auto-clean threshold / cooldown controls
 //!     ├── processes.rs   — sortable process table
-//!     └── settings.rs    — appearance, integration, defaults
+//!     └── settings.rs    — appearance, integration preferences
 //! ```
 //!
 //! ## Threading Model

@@ -45,10 +45,8 @@ const DEFAULT_TOP_PROCESSES: usize = 20;
 /// Which panel is currently shown in the main content area.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Panel {
-    /// Memory overview with chart and stats.
+    /// Memory overview, cleaning, and quick stats.
     Dashboard,
-    /// One-click cleaning with severity levels.
-    Clean,
     /// Continuous monitoring with auto-clean.
     Monitor,
     /// Top processes by memory usage.
@@ -431,9 +429,8 @@ fn stats_thread(
 ///
 /// Icons use simple Unicode glyphs that render reliably in egui's
 /// built-in font (no emoji variation selectors).
-const NAV_ITEMS: [(Panel, &str, &str); 5] = [
+const NAV_ITEMS: [(Panel, &str, &str); 4] = [
     (Panel::Dashboard, "\u{2261}", "Dashboard"), // ≡
-    (Panel::Clean, "\u{2726}", "Clean"),         // ✦
     (Panel::Monitor, "\u{25C9}", "Monitor"),     // ◉
     (Panel::Processes, "\u{2630}", "Processes"), // ☰
     (Panel::Settings, "\u{2699}", "Settings"),   // ⚙ (no FE0F)
@@ -569,7 +566,6 @@ fn draw_main_panel(ctx: &egui::Context, app: &mut MagicXApp) {
         .show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| match app.active_panel {
                 Panel::Dashboard => panels::dashboard::draw(ui, app),
-                Panel::Clean => panels::clean::draw(ui, app),
                 Panel::Monitor => panels::monitor::draw(ui, app),
                 Panel::Processes => panels::processes::draw(ui, app),
                 Panel::Settings => panels::settings::draw(ui, app),

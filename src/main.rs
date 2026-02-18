@@ -8,10 +8,10 @@
     dead_code,
     rustdoc::broken_intra_doc_links
 )]
-// SUBSYSTEM:CONSOLE (the default) — the terminal waits for the process to exit
-// and standard I/O just works. For context-menu (`--notify`) launches we call
-// `console::hide_and_free_console()` immediately so the auto-created console
-// window is invisible.
+// SUBSYSTEM:WINDOWS — no console window is created at startup.
+// GUI launches are flash-free. For CLI usage, `console::setup_cli_console()`
+// attaches to the parent terminal (or allocates a fresh console) on demand.
+#![windows_subsystem = "windows"]
 
 //! `MagicX` RAM Cleaner — binary entry point.
 //!
@@ -34,25 +34,23 @@ use magicx_ram_cleaner::{cleaner, console, context_menu, display, gui, monitor, 
 /// - `1` — one or more cleaning operations failed (already reported)
 /// - `2` — fatal error (printed to stderr)
 fn main() -> ExitCode {
-    // Detect --notify BEFORE anything else so we can hide/free the
-    // auto-created console window before it becomes visible.
+    // Detect --notify BEFORE anything else.
     let notify = detect_flag("--notify");
 
     // Detect whether we're launching the GUI (no subcommand, no --help,
-    // no --version). When true, hide the console immediately to avoid
-    // the visible flash that SUBSYSTEM:CONSOLE would otherwise cause.
+    // no --version). With SUBSYSTEM:WINDOWS no console exists by default,
+    // so GUI launches are completely flash-free.
     let gui_launch = !notify && is_gui_launch();
 
     // ── Console setup ────────────────────────────────────────────────
-    // SUBSYSTEM:CONSOLE means a console always exists. In notify mode
-    // or GUI mode we immediately hide + free it (zero-flash launches).
-    // Otherwise, detect whether we're in a terminal or a standalone
-    // double-click console so we can pause-before-exit appropriately.
-    let standalone = if notify || gui_launch {
-        console::hide_and_free_console();
+    // SUBSYSTEM:WINDOWS means NO console exists at startup.
+    // For CLI mode: attach to the parent terminal (if launched from
+    // cmd/powershell) or allocate a fresh one. For GUI / notify modes
+    // we skip entirely — no console needed.
+    let standalone = if gui_launch || notify {
         false
     } else {
-        console::detect_console_mode() == console::ConsoleMode::Standalone
+        console::setup_cli_console() == console::ConsoleMode::Standalone
     };
 
     // Detect --no-color / NO_COLOR BEFORE anything else so that all output

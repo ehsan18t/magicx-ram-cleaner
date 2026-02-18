@@ -1,11 +1,9 @@
 //! # Settings Panel
 //!
-//! User preferences: appearance (dark/light theme), integration toggles
-//! (tray, context menu), and monitor default configuration.
+//! User preferences: appearance (dark/light theme) and integration toggles
+//! (tray icon, context menu).
 
 use eframe::egui;
-
-use crate::cleaner::CleanLevel;
 
 use super::super::app::MagicXApp;
 use super::super::{theme, widgets};
@@ -19,7 +17,7 @@ pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     ui.add_space(theme::SECTION_SPACING);
     draw_integration(ui, app);
     ui.add_space(theme::SECTION_SPACING);
-    draw_monitor_defaults(ui, app);
+    draw_display(ui, app);
 }
 
 /// Appearance section: theme toggle buttons.
@@ -117,89 +115,13 @@ fn draw_integration(ui: &mut egui::Ui, app: &mut MagicXApp) {
     });
 }
 
-/// Monitor defaults section: threshold, cooldown, level, process count.
-fn draw_monitor_defaults(ui: &mut egui::Ui, app: &mut MagicXApp) {
+/// Display section: top process count.
+fn draw_display(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
 
     widgets::card(ui, dark, |ui| {
-        widgets::section_header(ui, "Monitor Defaults");
+        widgets::section_header(ui, "Display");
 
-        // Threshold slider
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new("Default Threshold:")
-                    .size(12.0)
-                    .color(theme::text_color(dark)),
-            );
-            let mut threshold_f32 = f32::from(app.settings.monitor_threshold as u16);
-            let slider = egui::Slider::new(&mut threshold_f32, 50.0..=99.0)
-                .suffix("%")
-                .step_by(1.0);
-            ui.add(slider);
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "slider is clamped to 50..=99"
-            )]
-            {
-                app.settings.monitor_threshold = threshold_f32 as u32;
-            }
-        });
-
-        ui.add_space(4.0);
-
-        // Cooldown slider
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new("Default Cooldown:")
-                    .size(12.0)
-                    .color(theme::text_color(dark)),
-            );
-            let mut cooldown_f32 = app.settings.monitor_cooldown_secs as f32;
-            let slider = egui::Slider::new(&mut cooldown_f32, 10.0..=300.0)
-                .suffix("s")
-                .step_by(5.0);
-            ui.add(slider);
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "slider is clamped to 10..=300"
-            )]
-            {
-                app.settings.monitor_cooldown_secs = cooldown_f32 as u64;
-            }
-        });
-
-        ui.add_space(4.0);
-
-        // Default clean level
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new("Default Level:")
-                    .size(12.0)
-                    .color(theme::text_color(dark)),
-            );
-            egui::ComboBox::from_id_salt("settings_level")
-                .selected_text(format!("{}", app.settings.default_clean_level))
-                .show_ui(ui, |ui| {
-                    for level in [
-                        CleanLevel::Gentle,
-                        CleanLevel::Moderate,
-                        CleanLevel::Aggressive,
-                        CleanLevel::Nuclear,
-                    ] {
-                        ui.selectable_value(
-                            &mut app.settings.default_clean_level,
-                            level,
-                            format!("{level}"),
-                        );
-                    }
-                });
-        });
-
-        ui.add_space(4.0);
-
-        // Process count slider
         ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new("Top Processes:")

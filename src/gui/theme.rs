@@ -8,43 +8,43 @@ use eframe::egui;
 
 // ─── Colour Palette ──────────────────────────────────────────────────────────
 
-/// Primary accent colour (vibrant cyan).
-pub const ACCENT: egui::Color32 = egui::Color32::from_rgb(0, 180, 216);
+/// Primary accent colour (sky blue — modern, easy on the eyes).
+pub const ACCENT: egui::Color32 = egui::Color32::from_rgb(56, 189, 248);
 
 /// Lighter accent for hover states.
-pub const ACCENT_HOVER: egui::Color32 = egui::Color32::from_rgb(50, 210, 240);
+pub const ACCENT_HOVER: egui::Color32 = egui::Color32::from_rgb(96, 205, 252);
 
 /// Dimmed accent for subtle borders and indicators.
-pub const ACCENT_DIM: egui::Color32 = egui::Color32::from_rgb(0, 110, 140);
+pub const ACCENT_DIM: egui::Color32 = egui::Color32::from_rgb(30, 120, 170);
 
 /// Success / positive / healthy colour.
-pub const GREEN: egui::Color32 = egui::Color32::from_rgb(72, 199, 142);
+pub const GREEN: egui::Color32 = egui::Color32::from_rgb(63, 185, 80);
 
 /// Warning / caution colour.
-pub const YELLOW: egui::Color32 = egui::Color32::from_rgb(241, 196, 15);
+pub const YELLOW: egui::Color32 = egui::Color32::from_rgb(210, 153, 34);
 
 /// Error / danger colour.
-pub const RED: egui::Color32 = egui::Color32::from_rgb(231, 76, 60);
+pub const RED: egui::Color32 = egui::Color32::from_rgb(248, 81, 73);
 
 // ─── Dark Theme Colours ──────────────────────────────────────────────────────
 
 /// Card / elevated surface background (dark).
-pub const SURFACE_DARK: egui::Color32 = egui::Color32::from_rgb(28, 30, 38);
+pub const SURFACE_DARK: egui::Color32 = egui::Color32::from_rgb(22, 27, 34);
 
 /// Main content background (dark).
-pub const BG_DARK: egui::Color32 = egui::Color32::from_rgb(18, 18, 24);
+pub const BG_DARK: egui::Color32 = egui::Color32::from_rgb(13, 17, 23);
 
 /// Sidebar background (dark).
-pub const SIDEBAR_BG: egui::Color32 = egui::Color32::from_rgb(22, 24, 32);
+pub const SIDEBAR_BG: egui::Color32 = egui::Color32::from_rgb(17, 21, 28);
 
 /// Subtle border colour (dark).
-pub const BORDER_DARK: egui::Color32 = egui::Color32::from_rgb(46, 48, 60);
+pub const BORDER_DARK: egui::Color32 = egui::Color32::from_rgb(48, 54, 61);
 
 /// Primary text (dark theme).
-pub const TEXT_DARK: egui::Color32 = egui::Color32::from_rgb(220, 222, 230);
+pub const TEXT_DARK: egui::Color32 = egui::Color32::from_rgb(230, 237, 243);
 
 /// Muted / secondary text (dark theme).
-pub const MUTED_DARK: egui::Color32 = egui::Color32::from_rgb(130, 132, 150);
+pub const MUTED_DARK: egui::Color32 = egui::Color32::from_rgb(125, 133, 144);
 
 // ─── Light Theme Colours ─────────────────────────────────────────────────────
 
@@ -52,41 +52,33 @@ pub const MUTED_DARK: egui::Color32 = egui::Color32::from_rgb(130, 132, 150);
 pub const SURFACE_LIGHT: egui::Color32 = egui::Color32::from_rgb(255, 255, 255);
 
 /// Main content background (light).
-pub const BG_LIGHT: egui::Color32 = egui::Color32::from_rgb(242, 244, 248);
+pub const BG_LIGHT: egui::Color32 = egui::Color32::from_rgb(246, 248, 250);
 
 /// Sidebar background (light).
-pub const SIDEBAR_BG_LIGHT: egui::Color32 = egui::Color32::from_rgb(232, 235, 242);
+pub const SIDEBAR_BG_LIGHT: egui::Color32 = egui::Color32::from_rgb(240, 242, 245);
 
 /// Subtle border colour (light).
-pub const BORDER_LIGHT: egui::Color32 = egui::Color32::from_rgb(210, 214, 224);
+pub const BORDER_LIGHT: egui::Color32 = egui::Color32::from_rgb(216, 222, 228);
 
 /// Primary text (light theme).
-pub const TEXT_LIGHT: egui::Color32 = egui::Color32::from_rgb(30, 32, 42);
+pub const TEXT_LIGHT: egui::Color32 = egui::Color32::from_rgb(31, 35, 40);
 
 /// Muted / secondary text (light theme).
-pub const MUTED_LIGHT: egui::Color32 = egui::Color32::from_rgb(100, 105, 120);
+pub const MUTED_LIGHT: egui::Color32 = egui::Color32::from_rgb(101, 109, 118);
 
 // ─── Clean Level Colours ─────────────────────────────────────────────────────
 
 /// Gentle cleaning colour.
-pub const LEVEL_GENTLE: egui::Color32 = egui::Color32::from_rgb(72, 199, 142);
+pub const LEVEL_GENTLE: egui::Color32 = egui::Color32::from_rgb(63, 185, 80);
 
 /// Moderate cleaning colour.
-pub const LEVEL_MODERATE: egui::Color32 = egui::Color32::from_rgb(241, 196, 15);
+pub const LEVEL_MODERATE: egui::Color32 = egui::Color32::from_rgb(210, 153, 34);
 
 /// Aggressive cleaning colour.
-pub const LEVEL_AGGRESSIVE: egui::Color32 = egui::Color32::from_rgb(230, 126, 34);
+pub const LEVEL_AGGRESSIVE: egui::Color32 = egui::Color32::from_rgb(218, 109, 40);
 
 /// Nuclear cleaning colour.
-pub const LEVEL_NUCLEAR: egui::Color32 = egui::Color32::from_rgb(231, 76, 60);
-
-// ─── Chart Colours ───────────────────────────────────────────────────────────
-
-/// Used memory line colour in charts.
-pub const CHART_USED: egui::Color32 = egui::Color32::from_rgb(231, 76, 60);
-
-/// Available memory line colour in charts.
-pub const CHART_AVAILABLE: egui::Color32 = egui::Color32::from_rgb(72, 199, 142);
+pub const LEVEL_NUCLEAR: egui::Color32 = egui::Color32::from_rgb(248, 81, 73);
 
 // ─── Spacing Constants ───────────────────────────────────────────────────────
 
@@ -94,16 +86,16 @@ pub const CHART_AVAILABLE: egui::Color32 = egui::Color32::from_rgb(72, 199, 142)
 pub const SECTION_SPACING: f32 = 10.0;
 
 /// Inner padding for cards.
-pub const CARD_PADDING: i8 = 10;
+pub const CARD_PADDING: i8 = 12;
 
 /// Corner rounding for cards.
 pub const CARD_ROUNDING: u8 = 8;
 
 /// Sidebar width in logical points.
-pub const SIDEBAR_WIDTH: f32 = 148.0;
+pub const SIDEBAR_WIDTH: f32 = 150.0;
 
 /// Sidebar button height.
-pub const SIDEBAR_BUTTON_HEIGHT: f32 = 32.0;
+pub const SIDEBAR_BUTTON_HEIGHT: f32 = 34.0;
 
 // ─── Theme Application ───────────────────────────────────────────────────────
 
@@ -114,10 +106,10 @@ pub fn apply_dark_theme(ctx: &egui::Context) {
     v.panel_fill = BG_DARK;
     v.window_fill = SURFACE_DARK;
     v.faint_bg_color = SURFACE_DARK;
-    v.extreme_bg_color = egui::Color32::from_rgb(14, 14, 18);
-    v.code_bg_color = egui::Color32::from_rgb(32, 34, 44);
+    v.extreme_bg_color = egui::Color32::from_rgb(10, 13, 18);
+    v.code_bg_color = egui::Color32::from_rgb(30, 35, 42);
 
-    v.selection.bg_fill = ACCENT.gamma_multiply(0.25);
+    v.selection.bg_fill = ACCENT.gamma_multiply(0.22);
     v.selection.stroke = egui::Stroke::new(1.0, ACCENT);
 
     let rounding = egui::CornerRadius::same(6);
@@ -128,26 +120,26 @@ pub fn apply_dark_theme(ctx: &egui::Context) {
     v.widgets.noninteractive.bg_stroke = egui::Stroke::new(0.5, BORDER_DARK);
     v.widgets.noninteractive.corner_radius = rounding;
 
-    // Inactive
-    v.widgets.inactive.bg_fill = egui::Color32::from_rgb(38, 40, 52);
-    v.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(175, 178, 192));
+    // Inactive (buttons, sliders, checkboxes at rest)
+    v.widgets.inactive.bg_fill = egui::Color32::from_rgb(33, 38, 46);
+    v.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(180, 186, 196));
     v.widgets.inactive.bg_stroke = egui::Stroke::new(0.5, BORDER_DARK);
     v.widgets.inactive.corner_radius = rounding;
 
     // Hovered
-    v.widgets.hovered.bg_fill = egui::Color32::from_rgb(48, 52, 66);
+    v.widgets.hovered.bg_fill = egui::Color32::from_rgb(40, 46, 56);
     v.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
     v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, ACCENT_DIM);
     v.widgets.hovered.corner_radius = rounding;
 
     // Active / pressed
-    v.widgets.active.bg_fill = ACCENT.gamma_multiply(0.22);
+    v.widgets.active.bg_fill = ACCENT.gamma_multiply(0.20);
     v.widgets.active.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
     v.widgets.active.bg_stroke = egui::Stroke::new(1.0, ACCENT);
     v.widgets.active.corner_radius = rounding;
 
     // Open (menu expanded etc.)
-    v.widgets.open.bg_fill = egui::Color32::from_rgb(42, 44, 56);
+    v.widgets.open.bg_fill = egui::Color32::from_rgb(36, 42, 52);
     v.widgets.open.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
     v.widgets.open.bg_stroke = egui::Stroke::new(1.0, ACCENT_DIM);
     v.widgets.open.corner_radius = rounding;
@@ -180,12 +172,12 @@ pub fn apply_light_theme(ctx: &egui::Context) {
 
     v.panel_fill = BG_LIGHT;
     v.window_fill = SURFACE_LIGHT;
-    v.faint_bg_color = egui::Color32::from_rgb(248, 249, 252);
+    v.faint_bg_color = egui::Color32::from_rgb(250, 251, 253);
     v.extreme_bg_color = egui::Color32::WHITE;
-    v.code_bg_color = egui::Color32::from_rgb(236, 238, 244);
+    v.code_bg_color = egui::Color32::from_rgb(234, 237, 242);
 
-    v.selection.bg_fill = ACCENT.gamma_multiply(0.18);
-    v.selection.stroke = egui::Stroke::new(1.0, ACCENT);
+    v.selection.bg_fill = ACCENT.gamma_multiply(0.15);
+    v.selection.stroke = egui::Stroke::new(1.0, ACCENT_DIM);
 
     let rounding = egui::CornerRadius::same(6);
 
@@ -195,27 +187,27 @@ pub fn apply_light_theme(ctx: &egui::Context) {
     v.widgets.noninteractive.bg_stroke = egui::Stroke::new(0.5, BORDER_LIGHT);
     v.widgets.noninteractive.corner_radius = rounding;
 
-    // Inactive
-    v.widgets.inactive.bg_fill = egui::Color32::from_rgb(228, 231, 238);
-    v.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(55, 58, 68));
+    // Inactive (buttons, sliders at rest)
+    v.widgets.inactive.bg_fill = egui::Color32::from_rgb(234, 237, 242);
+    v.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(57, 62, 70));
     v.widgets.inactive.bg_stroke = egui::Stroke::new(0.5, BORDER_LIGHT);
     v.widgets.inactive.corner_radius = rounding;
 
     // Hovered
-    v.widgets.hovered.bg_fill = egui::Color32::from_rgb(218, 222, 232);
-    v.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(28, 30, 38));
+    v.widgets.hovered.bg_fill = egui::Color32::from_rgb(224, 228, 234);
+    v.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, TEXT_LIGHT);
     v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, ACCENT_DIM);
     v.widgets.hovered.corner_radius = rounding;
 
     // Active
-    v.widgets.active.bg_fill = ACCENT.gamma_multiply(0.18);
-    v.widgets.active.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(18, 20, 28));
-    v.widgets.active.bg_stroke = egui::Stroke::new(1.0, ACCENT);
+    v.widgets.active.bg_fill = ACCENT.gamma_multiply(0.15);
+    v.widgets.active.fg_stroke = egui::Stroke::new(1.0, TEXT_LIGHT);
+    v.widgets.active.bg_stroke = egui::Stroke::new(1.0, ACCENT_DIM);
     v.widgets.active.corner_radius = rounding;
 
     // Open
-    v.widgets.open.bg_fill = egui::Color32::from_rgb(222, 226, 235);
-    v.widgets.open.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(28, 30, 38));
+    v.widgets.open.bg_fill = egui::Color32::from_rgb(228, 232, 238);
+    v.widgets.open.fg_stroke = egui::Stroke::new(1.0, TEXT_LIGHT);
     v.widgets.open.bg_stroke = egui::Stroke::new(1.0, ACCENT_DIM);
     v.widgets.open.corner_radius = rounding;
 
@@ -223,10 +215,10 @@ pub fn apply_light_theme(ctx: &egui::Context) {
     v.window_corner_radius = egui::CornerRadius::same(8);
     v.window_stroke = egui::Stroke::new(1.0, BORDER_LIGHT);
     v.window_shadow = egui::Shadow {
-        offset: [0, 3],
-        blur: 12,
+        offset: [0, 2],
+        blur: 10,
         spread: 0,
-        color: egui::Color32::from_black_alpha(25),
+        color: egui::Color32::from_black_alpha(20),
     };
 
     v.resize_corner_size = 8.0;
@@ -234,7 +226,7 @@ pub fn apply_light_theme(ctx: &egui::Context) {
         offset: [0, 2],
         blur: 8,
         spread: 0,
-        color: egui::Color32::from_black_alpha(20),
+        color: egui::Color32::from_black_alpha(15),
     };
     v.interact_cursor = Some(egui::CursorIcon::PointingHand);
 
@@ -243,7 +235,7 @@ pub fn apply_light_theme(ctx: &egui::Context) {
 
 // ─── Theme-aware Helpers ─────────────────────────────────────────────────────
 
-/// Map a memory load fraction (0.0 – 1.0) to a colour (green \u{2192} yellow \u{2192} red).
+/// Map a memory load fraction (0.0 – 1.0) to a colour (green → yellow → red).
 ///
 /// Smooth gradient: green below 60 %, blending through yellow to red above 85 %.
 #[must_use]
@@ -253,16 +245,16 @@ pub fn load_color(load: f32) -> egui::Color32 {
     } else if load > 0.60 {
         let t = (load - 0.60) / 0.25;
         egui::Color32::from_rgb(
-            lerp_u8(241, 231, t),
-            lerp_u8(196, 126, t),
-            lerp_u8(15, 34, t),
+            lerp_u8(210, 248, t),
+            lerp_u8(153, 81, t),
+            lerp_u8(34, 73, t),
         )
     } else if load > 0.40 {
         let t = (load - 0.40) / 0.20;
         egui::Color32::from_rgb(
-            lerp_u8(72, 241, t),
-            lerp_u8(199, 196, t),
-            lerp_u8(142, 15, t),
+            lerp_u8(63, 210, t),
+            lerp_u8(185, 153, t),
+            lerp_u8(80, 34, t),
         )
     } else {
         GREEN

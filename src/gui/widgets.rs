@@ -145,23 +145,6 @@ pub fn memory_overview(ui: &mut egui::Ui, snap: &MemorySnapshot, dark_mode: bool
     });
 }
 
-// ─── Styled Button ───────────────────────────────────────────────────────────
-
-/// Create a coloured button with rounded styling. Returns `true` when clicked.
-pub fn colored_button(
-    ui: &mut egui::Ui,
-    label: &str,
-    color: egui::Color32,
-    width: f32,
-    enabled: bool,
-) -> bool {
-    let btn = egui::Button::new(egui::RichText::new(label).strong().color(color).size(12.0))
-        .min_size(egui::vec2(width, 30.0))
-        .corner_radius(egui::CornerRadius::same(6));
-
-    ui.add_enabled(enabled, btn).clicked()
-}
-
 // ─── Toggle Switch ───────────────────────────────────────────────────────────
 
 /// Draw an animated iOS-style toggle switch. Returns `true` when toggled.
@@ -181,9 +164,9 @@ pub fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
         let anim = ui.ctx().animate_bool(response.id, *on);
 
         let bg_color = egui::Color32::from_rgb(
-            lerp_color_u8(80, 0, anim),
-            lerp_color_u8(82, 180, anim),
-            lerp_color_u8(95, 216, anim),
+            lerp_color_u8(80, 56, anim),
+            lerp_color_u8(82, 189, anim),
+            lerp_color_u8(95, 248, anim),
         );
 
         // Track background
