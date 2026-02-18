@@ -222,6 +222,15 @@ pub struct Cli {
     /// Implies `--verbose false` for cleaning operations.
     #[arg(short, long, global = true)]
     pub quiet: bool,
+
+    /// Run silently and show a balloon notification with results.
+    ///
+    /// Hides the console window, suppresses all terminal output, and
+    /// displays a brief Windows balloon notification when the operation
+    /// finishes. The notification auto-dismisses and is not saved in the
+    /// Action Center. Used internally by context menu entries.
+    #[arg(long, global = true, hide = true)]
+    pub notify: bool,
 }
 
 /// Available CLI subcommands.

@@ -18,7 +18,7 @@
 //!     01boost\
 //!       MUIVerb   = "Boost"
 //!       Icon      = "C:\...\magicx-ram-cleaner.exe,-2"
-//!       command\  (default) = '"C:\...\exe" clean --level gentle --quiet'
+//!       command\  (default) = '"C:\...\exe" clean --level gentle --notify'
 //!     02moderate\
 //!       …
 //!     03aggressive\
@@ -50,8 +50,8 @@ use colored::Colorize;
 /// Each path is a location under `HKEY_CLASSES_ROOT` where a background
 /// right-click context menu can be registered.
 const ROOT_PATHS: &[&str] = &[
-    r"DesktopBackground\Shell\MagicXRAMCleaner",
-    r"Directory\Background\Shell\MagicXRAMCleaner",
+    r"DesktopBackground\Shell\zMagicXRAMCleaner",
+    r"Directory\Background\Shell\zMagicXRAMCleaner",
 ];
 
 // ─── Menu entry definitions ──────────────────────────────────────────────────
@@ -77,31 +77,31 @@ const ENTRIES: &[MenuEntry] = &[
         key: "01boost",
         label: "Boost",
         icon_resource_id: 2, // lite.ico
-        args: "clean --level gentle --quiet",
+        args: "clean --level gentle --notify",
     },
     MenuEntry {
         key: "02moderate",
         label: "Moderate Boost",
         icon_resource_id: 2, // lite.ico
-        args: "clean --level moderate --quiet",
+        args: "clean --level moderate --notify",
     },
     MenuEntry {
         key: "03aggressive",
         label: "Aggressive Boost",
         icon_resource_id: 3, // aggressive.ico
-        args: "clean --level aggressive --quiet",
+        args: "clean --level aggressive --notify",
     },
     MenuEntry {
         key: "04purge_standby",
         label: "Purge Standby",
         icon_resource_id: 1, // app.ico
-        args: "purge-standby --quiet",
+        args: "purge-standby --notify",
     },
     MenuEntry {
         key: "05status",
         label: "Memory Status",
         icon_resource_id: 1, // app.ico
-        args: "status --quiet",
+        args: "status --notify",
     },
 ];
 

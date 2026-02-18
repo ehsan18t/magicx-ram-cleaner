@@ -45,6 +45,9 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Console",
     "Win32_System_Registry",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 clap = { version = "4", features = ["derive", "color", "help", "usage", "suggestions"] }
 colored = "3"

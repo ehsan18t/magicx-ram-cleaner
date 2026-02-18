@@ -141,6 +141,15 @@ features = [
     # Console APIs (GetConsoleProcessList)
     "Win32_System_Console",
 
+    # Shell notification APIs (Shell_NotifyIconW, NOTIFYICONDATAW)
+    "Win32_UI_Shell",
+
+    # Icon loading and window messaging (LoadIconW, DestroyIcon)
+    "Win32_UI_WindowsAndMessaging",
+
+    # Module handle for icon loading (GetModuleHandleW)
+    "Win32_System_LibraryLoader",
+
     # Toolhelp32 APIs (CreateToolhelp32Snapshot, Process32FirstW)
     "Win32_System_Diagnostics_ToolHelp",
 ]
@@ -163,6 +172,9 @@ winresource = "0.1"
 | `Win32_System_SystemInformation`    | `GlobalMemoryStatusEx`, `MEMORYSTATUSEX`, `GetSystemInfo`                                                      |
 | `Win32_System_Console`              | `GetConsoleProcessList` (standalone detection)                                                                 |
 | `Win32_System_Diagnostics_ToolHelp` | `CreateToolhelp32Snapshot`, `Process32FirstW`, `Process32NextW`, `PROCESSENTRY32W` (per-process enumeration)   |
+| `Win32_UI_Shell`                    | `Shell_NotifyIconW`, `NOTIFYICONDATAW`, `NIM_ADD`, `NIM_DELETE`, `NIF_*` (balloon notifications)              |
+| `Win32_UI_WindowsAndMessaging`      | `LoadIconW`, `DestroyIcon` (icon loading for notifications)                                                    |
+| `Win32_System_LibraryLoader`        | `GetModuleHandleW` (module handle for icon resource loading)                                                   |
 
 ---
 
@@ -1594,7 +1606,7 @@ src/
   main.rs          — entry point: mod declarations, main(), run(), command dispatch
   cli.rs           — clap Parser, Commands enum, help text constants, STYLES
   cleaner.rs       — cleaning operations & orchestration (smart_clean, CleanLevel)
-  console.rs       — Windows console utilities (ANSI colours, standalone detection, pause)
+  console.rs       — Windows console utilities (ANSI colours, standalone detection, pause, notifications)
   context_menu.rs  — Windows Desktop context menu integration (registry install/uninstall)
   display.rs       — ALL terminal formatting: banner, status, clean output, box drawing
   monitor.rs       — continuous monitoring loop, Ctrl+C handler, auto-clean
@@ -1633,6 +1645,7 @@ src/
 | Monitor cooldown      | `monitor --cooldown SECS` | Minimum seconds between auto-cleans (default: 2× interval)                  |
 | Quiet mode            | `-q` / `--quiet`          | Suppress banner and non-essential output (global flag)                      |
 | No colour             | `--no-color`              | Disable coloured terminal output (also respects `NO_COLOR` env var)         |
+| Notify mode           | `--notify`                | Hide console, run silently, show balloon notification with results          |
 | Context menu install  | `context-menu install`    | Add Desktop right-click submenu for quick cleaning access                   |
 | Context menu remove   | `context-menu uninstall`  | Remove Desktop right-click submenu                                          |
 

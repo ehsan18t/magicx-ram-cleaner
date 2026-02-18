@@ -444,13 +444,15 @@ magicx-ram-cleaner context-menu <install|uninstall>
 **Context menu entries installed:**
 | Entry            | Action                              | Icon             |
 | ---------------- | ----------------------------------- | ---------------- |
-| Boost            | `clean --level gentle --quiet`      | lite.ico         |
-| Moderate Boost   | `clean --level moderate --quiet`    | lite.ico         |
-| Aggressive Boost | `clean --level aggressive --quiet`  | aggressive.ico   |
-| Purge Standby    | `purge-standby --quiet`             | app.ico          |
-| Memory Status    | `status --quiet`                    | app.ico          |
+| Boost            | `clean --level gentle --notify`     | lite.ico         |
+| Moderate Boost   | `clean --level moderate --notify`   | lite.ico         |
+| Aggressive Boost | `clean --level aggressive --notify` | aggressive.ico   |
+| Purge Standby    | `purge-standby --notify`            | app.ico          |
+| Memory Status    | `status --notify`                   | app.ico          |
 
 > **Note:** Nuclear is intentionally excluded from the context menu — it is too destructive for one-click access.
+
+Context menu entries use `--notify` mode: the terminal window is hidden, the operation runs silently, and a brief balloon notification shows the result (e.g. freed RAM, success/failure). The notification auto-dismisses after 2 seconds and is not saved in the Windows Action Center.
 
 **Examples:**
 ```powershell
