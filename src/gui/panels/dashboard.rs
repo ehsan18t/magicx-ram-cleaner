@@ -1,7 +1,7 @@
 //! # Dashboard Panel
 //!
 //! Main overview combining real-time memory status with one-click cleaning.
-//! Layout: unified system info card at the top, action buttons at the bottom.
+//! Layout: headline stats at top, uniform action buttons below, feedback at bottom.
 
 use eframe::egui;
 
@@ -14,9 +14,9 @@ use super::super::{theme, widgets};
 /// Draw the dashboard panel.
 ///
 /// Structure:
-/// 1. Unified memory + system info hero card (all informational data)
-/// 2. Clean action buttons (all interactive controls)
-/// 3. Progress / result feedback (contextual)
+/// 1. Memory overview card (headline %, slim bar, stat row, system info)
+/// 2. Clean buttons (uniform neutral cards with color dots)
+/// 3. Progress / result feedback
 pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
     widgets::page_title(ui, "\u{2261}", "Dashboard", dark);
@@ -24,15 +24,15 @@ pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let snapshot = app.latest_snapshot.lock().ok().and_then(|s| s.clone());
 
     if let Some(snap) = &snapshot {
-        // ── Unified info card: memory bar + all stats ────────────
+        // ── Info card ────────────────────────────────────────────
         draw_info_card(ui, snap, dark);
 
         ui.add_space(theme::SECTION_SPACING);
 
-        // ── Action section: clean buttons ────────────────────────
+        // ── Clean buttons ────────────────────────────────────────
         draw_clean_section(ui, app, dark);
 
-        // ── Contextual feedback ──────────────────────────────────
+        // ── Feedback ─────────────────────────────────────────────
         if app.cleaning_in_progress {
             ui.add_space(8.0);
             draw_progress_card(ui, dark);
@@ -56,18 +56,16 @@ pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     }
 }
 
-// ─── Unified Info Card ───────────────────────────────────────────────────────
+// ─── Info Card ───────────────────────────────────────────────────────────────
 
-/// Single hero card containing the memory bar, primary stats, and system info.
-/// Groups all informational data together instead of splitting it around actions.
+/// Unified info card: memory overview + system info below a thin divider.
 fn draw_info_card(ui: &mut egui::Ui, snap: &stats::MemorySnapshot, dark: bool) {
     widgets::card(ui, dark, |ui| {
-        // Memory bar and primary stats
         widgets::memory_overview(ui, snap, dark);
 
         ui.add_space(10.0);
 
-        // Thin divider between primary and secondary stats
+        // Thin divider
         let width = ui.available_width();
         let (sep, _) = ui.allocate_exact_size(egui::vec2(width, 1.0), egui::Sense::hover());
         ui.painter().rect_filled(
@@ -78,7 +76,7 @@ fn draw_info_card(ui: &mut egui::Ui, snap: &stats::MemorySnapshot, dark: bool) {
 
         ui.add_space(10.0);
 
-        // Secondary system info row
+        // Secondary system info
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 30.0;
 
@@ -111,9 +109,10 @@ fn draw_info_card(ui: &mut egui::Ui, snap: &stats::MemorySnapshot, dark: bool) {
     });
 }
 
-// ─── Clean Action Section ────────────────────────────────────────────────────
+// ─── Clean Buttons ───────────────────────────────────────────────────────────
 
-/// Clean action buttons — 2x2 grid of colour-filled clickable buttons.
+/// Four uniform clean buttons in a 2x2 grid.
+/// All share the same neutral background — only a small colour dot differentiates.
 fn draw_clean_section(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
     widgets::section_header(ui, "Clean Memory");
 
@@ -121,25 +120,25 @@ fn draw_clean_section(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
         (
             CleanLevel::Gentle,
             "Gentle",
-            "Low-priority standby only",
+            "Low-priority standby",
             theme::LEVEL_GENTLE,
         ),
         (
             CleanLevel::Moderate,
             "Moderate",
-            "Working sets + low standby",
+            "Working sets + standby",
             theme::LEVEL_MODERATE,
         ),
         (
             CleanLevel::Aggressive,
             "Aggressive",
-            "Cache + modified + standby",
+            "Cache + modified pages",
             theme::LEVEL_AGGRESSIVE,
         ),
         (
             CleanLevel::Nuclear,
             "Nuclear",
-            "Full deep clean + combining",
+            "Full deep clean",
             theme::LEVEL_NUCLEAR,
         ),
     ];
@@ -149,14 +148,14 @@ fn draw_clean_section(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
 
     for row in levels.chunks(2) {
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 10.0;
+            ui.spacing_mut().item_spacing.x = 8.0;
             for &(level, name, desc, color) in row {
-                if draw_action_button(ui, name, desc, color, enabled, dark) {
+                if draw_clean_button(ui, name, desc, color, enabled, dark) {
                     level_to_clean = Some(level);
                 }
             }
         });
-        ui.add_space(10.0);
+        ui.add_space(8.0);
     }
 
     if let Some(level) = level_to_clean {
@@ -164,10 +163,14 @@ fn draw_clean_section(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
     }
 }
 
-/// A colour-filled action button that actually looks clickable.
+/// A clean, flat button with a small colour indicator dot.
+///
+/// All buttons share the same neutral background. The colour dot next to
+/// the name is the only visual differentiator. On hover, a subtle border
+/// in the level colour appears.
 ///
 /// Returns `true` when clicked.
-fn draw_action_button(
+fn draw_clean_button(
     ui: &mut egui::Ui,
     name: &str,
     desc: &str,
@@ -175,106 +178,74 @@ fn draw_action_button(
     enabled: bool,
     dark: bool,
 ) -> bool {
-    let width = (ui.available_width() - 10.0) / 2.0;
-    let desired = egui::vec2(width, 62.0);
+    let width = (ui.available_width() - 8.0) / 2.0;
+    let desired = egui::vec2(width, 52.0);
     let (rect, response) = ui.allocate_exact_size(desired, egui::Sense::click());
 
     let hovered = response.hovered() && enabled;
     let painter = ui.painter();
+    let rounding = egui::CornerRadius::same(8);
 
-    // ── Background ───────────────────────────────────────────────
-    // Resting: soft colour fill. Hover: brighter fill + glow border.
-    // Disabled: desaturated grey.
-    let (bg, stroke) = if !enabled {
-        (
-            egui::Color32::from_rgb(35, 38, 44),
-            egui::Stroke::new(0.5, theme::border_color(dark)),
-        )
+    // ── Background: same neutral surface for all buttons ─────────
+    let bg = if !enabled {
+        egui::Color32::from_rgb(25, 28, 34)
     } else if hovered {
-        (
-            color.gamma_multiply(if dark { 0.30 } else { 0.22 }),
-            egui::Stroke::new(1.5, color.gamma_multiply(0.8)),
-        )
+        if dark {
+            egui::Color32::from_rgb(35, 40, 50)
+        } else {
+            egui::Color32::from_rgb(235, 238, 244)
+        }
     } else {
-        (
-            color.gamma_multiply(if dark { 0.14 } else { 0.10 }),
-            egui::Stroke::new(0.5, color.gamma_multiply(0.3)),
-        )
+        theme::surface_color(dark)
     };
 
-    painter.rect(
-        rect,
-        egui::CornerRadius::same(10),
-        bg,
-        stroke,
-        egui::StrokeKind::Inside,
-    );
+    let stroke = if hovered && enabled {
+        egui::Stroke::new(1.0, color.gamma_multiply(0.7))
+    } else {
+        egui::Stroke::new(0.5, theme::border_color(dark))
+    };
 
-    // ── Top highlight on hover (glass effect) ────────────────────
-    if hovered {
-        let hl = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), rect.height() * 0.4));
-        painter.rect_filled(
-            hl,
-            egui::CornerRadius {
-                nw: 10,
-                ne: 10,
-                sw: 0,
-                se: 0,
-            },
-            egui::Color32::from_white_alpha(8),
-        );
-    }
+    painter.rect(rect, rounding, bg, stroke, egui::StrokeKind::Inside);
+
+    // ── Colour dot (8px circle) ──────────────────────────────────
+    let dot_center = egui::pos2(rect.left() + 18.0, rect.top() + 19.0);
+    let dot_radius = 4.0;
+    let dot_color = if enabled {
+        color
+    } else {
+        theme::muted_color(dark)
+    };
+    painter.circle_filled(dot_center, dot_radius, dot_color);
 
     // ── Text ─────────────────────────────────────────────────────
-    let center_x = rect.center().x;
+    let text_x = rect.left() + 30.0;
     let name_color = if enabled {
-        if hovered {
-            egui::Color32::WHITE
-        } else {
-            theme::text_color(dark)
-        }
+        theme::text_color(dark)
     } else {
         theme::muted_color(dark)
     };
 
     painter.text(
-        egui::pos2(center_x, rect.top() + 22.0),
-        egui::Align2::CENTER_CENTER,
+        egui::pos2(text_x, rect.top() + 19.0),
+        egui::Align2::LEFT_CENTER,
         name,
-        egui::FontId::proportional(14.5),
+        egui::FontId::proportional(13.5),
         name_color,
     );
     painter.text(
-        egui::pos2(center_x, rect.top() + 42.0),
-        egui::Align2::CENTER_CENTER,
+        egui::pos2(text_x, rect.top() + 37.0),
+        egui::Align2::LEFT_CENTER,
         desc,
         egui::FontId::proportional(10.5),
-        if enabled {
-            theme::muted_color(dark)
-        } else {
-            theme::muted_color(dark).gamma_multiply(0.5)
-        },
+        theme::muted_color(dark),
     );
-
-    // ── Bottom accent line (colour identity) ─────────────────────
-    if enabled {
-        let line_rect = egui::Rect::from_min_size(
-            egui::pos2(rect.left() + 20.0, rect.bottom() - 3.0),
-            egui::vec2(rect.width() - 40.0, 2.0),
-        );
-        painter.rect_filled(
-            line_rect,
-            egui::CornerRadius::same(1),
-            color.gamma_multiply(if hovered { 0.9 } else { 0.5 }),
-        );
-    }
 
     response.clicked() && enabled
 }
 
 // ─── Feedback Cards ──────────────────────────────────────────────────────────
 
-/// Animated progress card shown while cleaning runs.
+/// Progress indicator while cleaning runs.
 fn draw_progress_card(ui: &mut egui::Ui, dark: bool) {
     widgets::card(ui, dark, |ui| {
         ui.horizontal(|ui| {
@@ -293,9 +264,7 @@ fn draw_progress_card(ui: &mut egui::Ui, dark: bool) {
 /// Draw the result of a cleaning operation.
 fn draw_result(ui: &mut egui::Ui, msg: &CleanResultMsg, dark: bool) {
     widgets::card(ui, dark, |ui| match &msg.result {
-        Ok(result) => {
-            draw_result_success(ui, msg, result, dark);
-        }
+        Ok(result) => draw_result_success(ui, msg, result, dark),
         Err(e) => {
             ui.label(
                 egui::RichText::new(format!("\u{2717} Clean failed: {e}"))
@@ -307,7 +276,7 @@ fn draw_result(ui: &mut egui::Ui, msg: &CleanResultMsg, dark: bool) {
     });
 }
 
-/// Draw a successful clean result with stats and operation list.
+/// Successful clean result with freed memory and operation breakdown.
 fn draw_result_success(
     ui: &mut egui::Ui,
     msg: &CleanResultMsg,
@@ -367,7 +336,7 @@ fn draw_result_success(
     draw_operation_list(ui, &result.results, dark);
 }
 
-/// Draw the per-operation result breakdown.
+/// Per-operation result breakdown.
 fn draw_operation_list(ui: &mut egui::Ui, results: &[crate::cleaner::CleanResult], dark: bool) {
     for r in results {
         let (icon, icon_color) = if r.success {
