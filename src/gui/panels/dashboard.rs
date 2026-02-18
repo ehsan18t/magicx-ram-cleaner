@@ -4,6 +4,7 @@
 //! Layout: headline stats at top, uniform action buttons below, feedback at bottom.
 
 use eframe::egui;
+use egui_phosphor::regular as ph;
 
 use crate::cleaner::CleanLevel;
 use crate::stats;
@@ -19,7 +20,7 @@ use super::super::{theme, widgets};
 /// 3. Progress / result feedback
 pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
-    widgets::page_title(ui, "\u{2261}", "Dashboard", dark);
+    widgets::page_title(ui, ph::GAUGE, "Dashboard", dark);
 
     let snapshot = app.latest_snapshot.lock().ok().and_then(|s| s.clone());
 
@@ -362,7 +363,7 @@ fn draw_result(ui: &mut egui::Ui, msg: &CleanResultMsg, dark: bool) {
         Ok(result) => draw_result_success(ui, msg, result, dark),
         Err(e) => {
             ui.label(
-                egui::RichText::new(format!("\u{2717} Clean failed: {e}"))
+                egui::RichText::new(format!("{} Clean failed: {e}", ph::X))
                     .color(theme::RED)
                     .strong()
                     .size(13.0),
@@ -380,7 +381,7 @@ fn draw_result_success(
 ) {
     ui.horizontal(|ui| {
         ui.label(
-            egui::RichText::new("\u{2713}")
+            egui::RichText::new(ph::CHECK)
                 .color(theme::GREEN)
                 .strong()
                 .size(14.0),
@@ -408,8 +409,10 @@ fn draw_result_success(
             ui,
             "Usage",
             &format!(
-                "{}% \u{2192} {}%",
-                result.overall_before.memory_load_percent, result.overall_after.memory_load_percent
+                "{}% {} {}%",
+                result.overall_before.memory_load_percent,
+                ph::ARROW_RIGHT,
+                result.overall_after.memory_load_percent
             ),
             theme::ACCENT,
             dark,
@@ -418,8 +421,9 @@ fn draw_result_success(
             ui,
             "Available",
             &format!(
-                "{} \u{2192} {}",
+                "{} {} {}",
                 stats::format_bytes(result.overall_before.available_physical),
+                ph::ARROW_RIGHT,
                 stats::format_bytes(result.overall_after.available_physical)
             ),
             theme::YELLOW,
@@ -435,9 +439,9 @@ fn draw_result_success(
 fn draw_operation_list(ui: &mut egui::Ui, results: &[crate::cleaner::CleanResult], dark: bool) {
     for r in results {
         let (icon, icon_color) = if r.success {
-            ("\u{2713}", theme::GREEN)
+            (ph::CHECK, theme::GREEN)
         } else {
-            ("\u{2717}", theme::RED)
+            (ph::X, theme::RED)
         };
 
         ui.horizontal(|ui| {

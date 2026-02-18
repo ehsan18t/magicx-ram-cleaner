@@ -5,6 +5,7 @@
 
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
+use egui_phosphor::regular as ph;
 
 use crate::stats;
 
@@ -14,7 +15,7 @@ use super::super::{theme, widgets};
 /// Draw the processes panel.
 pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
-    widgets::page_title(ui, "\u{2630}", "Top Processes", dark);
+    widgets::page_title(ui, ph::CPU, "Top Processes", dark);
 
     let procs = app.top_processes.lock().ok().map(|p| p.clone());
 
@@ -95,17 +96,18 @@ fn draw_sort_header(
     dark: bool,
 ) {
     let is_sorted = app.process_sort_col == col_idx;
-    let arrow = if is_sorted {
-        if app.process_sort_asc {
-            " \u{25B2}"
+    let header_text = if is_sorted {
+        let caret = if app.process_sort_asc {
+            ph::CARET_UP
         } else {
-            " \u{25BC}"
-        }
+            ph::CARET_DOWN
+        };
+        format!("{label} {caret}")
     } else {
-        ""
+        label.to_owned()
     };
 
-    let text = egui::RichText::new(format!("{label}{arrow}"))
+    let text = egui::RichText::new(header_text)
         .strong()
         .size(11.0)
         .color(if is_sorted {

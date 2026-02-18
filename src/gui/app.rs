@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui;
 use egui::{FontFamily, FontId, TextStyle};
+use egui_phosphor::regular as ph;
 
 use crate::cleaner::{self, CleanLevel, SmartCleanResult};
 use crate::stats::{self, MemorySnapshot, ProcessMemoryInfo};
@@ -179,6 +180,11 @@ pub struct MagicXApp {
 impl MagicXApp {
     /// Create the app, spawn background threads, and apply the initial theme.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // Register Phosphor icon font so all icon glyphs render correctly.
+        let mut fonts = egui::FontDefinitions::default();
+        egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+        cc.egui_ctx.set_fonts(fonts);
+
         // Apply modern dark theme immediately
         theme::apply_dark_theme(&cc.egui_ctx);
 
@@ -434,13 +440,13 @@ fn stats_thread(
 
 /// Navigation items: `(panel, icon, label)`.
 ///
-/// Icons use simple Unicode glyphs that render reliably in egui's
-/// built-in font (no emoji variation selectors).
+/// Icons are sourced from the Phosphor icon font (`egui_phosphor::regular`),
+/// which is registered at startup in [`MagicXApp::new`].
 const NAV_ITEMS: [(Panel, &str, &str); 4] = [
-    (Panel::Dashboard, "\u{2261}", "Dashboard"), // ≡
-    (Panel::Monitor, "\u{25C9}", "Monitor"),     // ◉
-    (Panel::Processes, "\u{2630}", "Processes"), // ☰
-    (Panel::Settings, "\u{2699}", "Settings"),   // ⚙ (no FE0F)
+    (Panel::Dashboard, ph::GAUGE, "Dashboard"),
+    (Panel::Monitor, ph::ACTIVITY, "Monitor"),
+    (Panel::Processes, ph::CPU, "Processes"),
+    (Panel::Settings, ph::GEAR, "Settings"),
 ];
 
 /// Draw the sidebar with navigation and branding.

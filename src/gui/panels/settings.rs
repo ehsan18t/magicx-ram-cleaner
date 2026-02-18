@@ -4,6 +4,7 @@
 //! (tray icon, context menu).
 
 use eframe::egui;
+use egui_phosphor::regular as ph;
 
 use super::super::app::MagicXApp;
 use super::super::{theme, widgets};
@@ -11,7 +12,7 @@ use super::super::{theme, widgets};
 /// Draw the settings panel.
 pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
-    widgets::page_title(ui, "\u{2699}", "Settings", dark);
+    widgets::page_title(ui, ph::GEAR, "Settings", dark);
 
     draw_appearance(ui, app);
     ui.add_space(theme::SECTION_SPACING);

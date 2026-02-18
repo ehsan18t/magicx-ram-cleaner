@@ -4,6 +4,7 @@
 //! configurable threshold, cooldown, cleaning level, and a live log.
 
 use eframe::egui;
+use egui_phosphor::regular as ph;
 
 use crate::cleaner::CleanLevel;
 
@@ -13,7 +14,7 @@ use super::super::{theme, widgets};
 /// Draw the monitoring panel.
 pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
-    widgets::page_title(ui, "\u{25C9}", "Memory Monitor", dark);
+    widgets::page_title(ui, ph::ACTIVITY, "Memory Monitor", dark);
 
     draw_toggle_card(ui, app, dark);
     ui.add_space(theme::SECTION_SPACING);
