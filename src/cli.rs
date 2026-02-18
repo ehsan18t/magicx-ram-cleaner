@@ -196,10 +196,14 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
 
-    /// Disable coloured terminal output.
+    /// Disable coloured terminal output (including help text).
     ///
-    /// Useful for piping output to files or non-ANSI terminals.
-    /// Also respects the `NO_COLOR` environment variable.
+    /// Strips all ANSI escape codes from both runtime output and clap
+    /// help text rendering. Useful for piping output to files or
+    /// non-ANSI terminals.
+    ///
+    /// Also respects the `NO_COLOR` environment variable
+    /// (any value, per <https://no-color.org/>).
     #[arg(long, global = true)]
     pub no_color: bool,
 

@@ -82,7 +82,7 @@ mod stats;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use clap::{CommandFactory, Parser};
+use clap::{ColorChoice, CommandFactory, FromArgMatches};
 use colored::Colorize;
 
 use cli::{Cli, Commands};
@@ -94,10 +94,18 @@ use cli::{Cli, Commands};
 /// - `1` — one or more cleaning operations failed (already reported)
 /// - `2` — fatal error (printed to stderr)
 fn main() -> ExitCode {
-    console::enable_ansi_colors();
+    // Detect --no-color / NO_COLOR BEFORE anything else so that all output
+    // (including clap help text and the banner) respects the preference.
+    let no_color = detect_no_color();
+    if no_color {
+        colored::control::set_override(false);
+    } else {
+        console::enable_ansi_colors();
+    }
+
     let standalone = console::is_standalone_console();
 
-    let result = run();
+    let result = run(no_color);
 
     // If launched by double-clicking the .exe, pause so the user can read the
     // output before the console window closes.
@@ -119,13 +127,11 @@ fn main() -> ExitCode {
 ///
 /// Returns `Ok(true)` if any cleaning operation reported a failure,
 /// `Ok(false)` on full success, or `Err` on fatal errors.
-fn run() -> Result<bool> {
-    let cli = Cli::parse();
-
-    // Disable coloured output if requested via --no-color flag
-    if cli.no_color {
-        colored::control::set_override(false);
-    }
+///
+/// `no_color` is pre-computed by [`detect_no_color`] before this function
+/// is called, so that clap help text rendering also strips ANSI codes.
+fn run(no_color: bool) -> Result<bool> {
+    let cli = parse_cli(no_color)?;
 
     let quiet = cli.quiet;
 
@@ -164,6 +170,34 @@ fn print_no_command_help() -> Result<()> {
         .context("Failed to print help")?;
     println!();
     Ok(())
+}
+
+/// Pre-scan `argv` and environment for colour suppression requests.
+///
+/// This runs BEFORE [`Cli::parse`] so that clap's `--help` rendering also
+/// respects the preference. Clap processes `--help` internally and exits
+/// during parsing, so checking `cli.no_color` after `parse()` would be
+/// too late for help text.
+///
+/// Checks two sources (matching the `--no-color` doc comment contract):
+/// - `--no-color` flag anywhere in `argv`
+/// - `NO_COLOR` environment variable (any value, per <https://no-color.org/>)
+fn detect_no_color() -> bool {
+    std::env::var_os("NO_COLOR").is_some() || std::env::args().any(|a| a == "--no-color")
+}
+
+/// Parse CLI arguments with colour support applied.
+///
+/// When `no_color` is `true`, sets [`ColorChoice::Never`] on the clap
+/// [`Command`](clap::Command) so it strips all ANSI escape codes from
+/// help text (`long_about`, `after_help`, etc.) before rendering.
+fn parse_cli(no_color: bool) -> Result<Cli> {
+    let mut cmd = Cli::command();
+    if no_color {
+        cmd = cmd.color(ColorChoice::Never);
+    }
+    let matches = cmd.get_matches();
+    Ok(Cli::from_arg_matches(&matches)?)
 }
 
 /// Print a single operation's result and return `true` if it failed.
