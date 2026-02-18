@@ -497,6 +497,12 @@ impl MagicXApp {
                 self.active_panel = Panel::Dashboard;
                 self.start_clean(level);
             }
+            tray::TrayAction::Navigate(panel) => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                self.hidden_to_tray = false;
+                self.active_panel = panel;
+            }
             tray::TrayAction::Quit => {
                 self.quit_requested = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);

@@ -27,10 +27,12 @@ use std::time::Duration;
 use eframe::egui;
 use tray_icon::{
     MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
-    menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu},
+    menu::{Icon, IconMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu},
 };
 
 use crate::cleaner::CleanLevel;
+
+use super::app::Panel;
 
 // ─── Public Types ─────────────────────────────────────────────────────────────
 
@@ -40,6 +42,8 @@ pub enum TrayAction {
     Show,
     /// Start a cleaning operation at the given level.
     Clean(CleanLevel),
+    /// Navigate to a specific panel in the GUI.
+    Navigate(Panel),
     /// Exit the application cleanly.
     Quit,
 }
@@ -61,6 +65,14 @@ struct MenuIds {
     clean_aggressive: MenuId,
     /// Clean → Nuclear item.
     clean_nuclear: MenuId,
+    /// Navigate → Dashboard item.
+    nav_dashboard: MenuId,
+    /// Navigate → Monitor item.
+    nav_monitor: MenuId,
+    /// Navigate → Processes item.
+    nav_processes: MenuId,
+    /// Navigate → Settings item.
+    nav_settings: MenuId,
 }
 
 /// Live system-tray icon handle.
@@ -186,15 +198,23 @@ fn tray_watcher_thread(
                 TrayAction::Clean(CleanLevel::Aggressive)
             } else if event.id == ids.clean_nuclear {
                 TrayAction::Clean(CleanLevel::Nuclear)
+            } else if event.id == ids.nav_dashboard {
+                TrayAction::Navigate(Panel::Dashboard)
+            } else if event.id == ids.nav_monitor {
+                TrayAction::Navigate(Panel::Monitor)
+            } else if event.id == ids.nav_processes {
+                TrayAction::Navigate(Panel::Processes)
+            } else if event.id == ids.nav_settings {
+                TrayAction::Navigate(Panel::Settings)
             } else {
                 continue;
             };
 
             // Make the window visible BEFORE requesting a repaint.
-            // For Show / Clean: restore to foreground with focus.
+            // For Show / Clean / Navigate: restore to foreground with focus.
             // For Quit: reveal silently so eframe can process the close.
             match action {
-                TrayAction::Show | TrayAction::Clean(_) => {
+                TrayAction::Show | TrayAction::Clean(_) | TrayAction::Navigate(_) => {
                     crate::console::restore_window(hwnd);
                 }
                 TrayAction::Quit => crate::console::reveal_window(hwnd),
@@ -249,24 +269,42 @@ fn load_icon() -> Result<tray_icon::Icon, String> {
 ///
 /// Layout:
 /// ```text
-/// Open MagicX RAM Cleaner
-/// ────────────────────────
-/// Clean RAM ▸
-///   Gentle
-///   Moderate
-///   Aggressive
-///   Nuclear
-/// ────────────────────────
-/// Quit
+/// 🖥  Open MagicX RAM Cleaner
+/// ────────────────────────────
+/// 🧹  Clean RAM ▸
+///     🟢  Gentle
+///     🟢  Moderate
+///     🔴  Aggressive
+///     🔴  Nuclear
+/// ────────────────────────────
+///     Dashboard
+///     Monitor
+///     Processes
+///     Settings
+/// ────────────────────────────
+///     Quit
 /// ```
 fn build_menu() -> Result<(MenuIds, Menu), String> {
-    let show_item = MenuItem::new("Open MagicX RAM Cleaner", true, None);
+    // Load embedded icons for menu items (16×16 from Windows PE resources).
+    let app_icon = load_menu_icon(include_bytes!("../../assets/app.ico"));
+    let lite_icon = load_menu_icon(include_bytes!("../../assets/lite.ico"));
+    let aggr_icon = load_menu_icon(include_bytes!("../../assets/aggressive.ico"));
+
+    // "Open" gets the main app icon.
+    let show_item = IconMenuItem::new("Open MagicX RAM Cleaner", true, app_icon, None);
     let quit_item = MenuItem::new("Quit", true, None);
 
-    let gentle_item = MenuItem::new("Gentle", true, None);
-    let moderate_item = MenuItem::new("Moderate", true, None);
-    let aggressive_item = MenuItem::new("Aggressive", true, None);
-    let nuclear_item = MenuItem::new("Nuclear", true, None);
+    // Cleaning sub-items: gentle/moderate = lite, aggressive/nuclear = aggressive.
+    let gentle_item = IconMenuItem::new("Gentle", true, lite_icon.clone(), None);
+    let moderate_item = IconMenuItem::new("Moderate", true, lite_icon, None);
+    let aggressive_item = IconMenuItem::new("Aggressive", true, aggr_icon.clone(), None);
+    let nuclear_item = IconMenuItem::new("Nuclear", true, aggr_icon, None);
+
+    // Navigation items (plain text — no distinct icons available).
+    let nav_dashboard = MenuItem::new("Dashboard", true, None);
+    let nav_monitor = MenuItem::new("Monitor", true, None);
+    let nav_processes = MenuItem::new("Processes", true, None);
+    let nav_settings = MenuItem::new("Settings", true, None);
 
     let ids = MenuIds {
         show: show_item.id().clone(),
@@ -275,6 +313,10 @@ fn build_menu() -> Result<(MenuIds, Menu), String> {
         clean_moderate: moderate_item.id().clone(),
         clean_aggressive: aggressive_item.id().clone(),
         clean_nuclear: nuclear_item.id().clone(),
+        nav_dashboard: nav_dashboard.id().clone(),
+        nav_monitor: nav_monitor.id().clone(),
+        nav_processes: nav_processes.id().clone(),
+        nav_settings: nav_settings.id().clone(),
     };
 
     let clean_submenu = Submenu::new("Clean RAM", true);
@@ -293,9 +335,28 @@ fn build_menu() -> Result<(MenuIds, Menu), String> {
         &PredefinedMenuItem::separator(),
         &clean_submenu,
         &PredefinedMenuItem::separator(),
+        &nav_dashboard,
+        &nav_monitor,
+        &nav_processes,
+        &nav_settings,
+        &PredefinedMenuItem::separator(),
         &quit_item,
     ])
     .map_err(|e| format!("Failed to build tray menu: {e}"))?;
 
     Ok((ids, menu))
+}
+
+/// Decode an embedded ICO file into a [`tray_icon::menu::Icon`] for use in
+/// menu items.
+///
+/// Returns `None` on decode failure so that menu items gracefully degrade
+/// to text-only when the icon cannot be loaded.
+fn load_menu_icon(bytes: &[u8]) -> Option<Icon> {
+    let img = image::load_from_memory(bytes).ok()?;
+    // Menu icons look best at 16×16; resize if the source is larger.
+    let thumb = img.resize_exact(16, 16, image::imageops::FilterType::Lanczos3);
+    let rgba = thumb.to_rgba8();
+    let (w, h) = rgba.dimensions();
+    Icon::from_rgba(rgba.into_raw(), w, h).ok()
 }
