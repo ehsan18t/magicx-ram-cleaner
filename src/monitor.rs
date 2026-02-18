@@ -3,6 +3,19 @@
 //! Continuous monitoring with optional auto-clean when memory usage
 //! exceeds a configurable threshold. Uses Win32 `SetConsoleCtrlHandler`
 //! for graceful Ctrl+C shutdown.
+//!
+//! ## Why global state is required
+//!
+//! Win32's `SetConsoleCtrlHandler` requires an `extern "system"` callback,
+//! which cannot capture any state (no closures, no `Arc`, no context pointer).
+//! Therefore the shutdown flag (`RUNNING`) **must** be a `static AtomicBool`.
+//! This is an inherent Win32 API limitation, not a design choice.
+//!
+//! `MONITOR_ACTIVE` is a separate guard that prevents concurrent calls to
+//! [`run_monitor`] — since all state is global, running two monitor loops
+//! simultaneously would produce undefined behaviour (both polling the same
+//! `RUNNING` flag, both registering the same ctrl handler). The guard is
+//! enforced via an RAII [`MonitorGuard`] that clears the flag on drop.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
@@ -15,8 +28,35 @@ use crate::cleaner::{self, CleanLevel};
 use crate::display;
 use crate::stats::MemorySnapshot;
 
-/// Global flag set to `false` by the console control handler to signal shutdown.
+/// Maximum consecutive auto-clean errors before the monitor aborts.
+/// Prevents infinite error-clean-error loops on a malfunctioning system.
+const MAX_CONSECUTIVE_ERRORS: u32 = 3;
+
+/// Global shutdown flag set to `false` by the console control handler.
+///
+/// Must be `static` because Win32 `SetConsoleCtrlHandler` callbacks are
+/// `extern "system"` functions that cannot capture any state.
 static RUNNING: AtomicBool = AtomicBool::new(true);
+
+/// Guard preventing concurrent [`run_monitor`] calls.
+///
+/// Since `RUNNING` is process-global and the ctrl handler is process-wide,
+/// running two monitor loops simultaneously would corrupt shared state.
+/// This flag is checked at entry and cleared on exit via [`MonitorGuard`].
+static MONITOR_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// RAII guard that clears `MONITOR_ACTIVE` when the monitor exits.
+///
+/// Ensures the flag is always reset, even if [`run_monitor`] returns early
+/// via `?` or an error path. Without this, a failed monitor run would
+/// permanently block future monitor calls for the process lifetime.
+struct MonitorGuard;
+
+impl Drop for MonitorGuard {
+    fn drop(&mut self) {
+        MONITOR_ACTIVE.store(false, Ordering::Release);
+    }
+}
 
 /// Win32 console control handler callback registered via `SetConsoleCtrlHandler`.
 ///
@@ -42,6 +82,12 @@ unsafe extern "system" fn ctrl_handler(ctrl_type: u32) -> i32 {
 /// * `cooldown_secs` — Optional override for cooldown seconds after an auto-clean.
 ///   Defaults to `2 × interval_secs` if `None`.
 /// * `verbose` — Show detailed output during auto-clean.
+///
+/// # Errors
+///
+/// Returns an error if a monitor loop is already running in this process
+/// (concurrent calls are prevented by the `MONITOR_ACTIVE` guard), or if
+/// the console ctrl handler cannot be installed.
 pub fn run_monitor(
     interval_secs: u64,
     threshold: Option<u32>,
@@ -49,9 +95,19 @@ pub fn run_monitor(
     cooldown_secs: Option<u64>,
     verbose: bool,
 ) -> Result<()> {
-    /// Maximum consecutive auto-clean errors before the monitor aborts.
-    /// Prevents infinite error-clean-error loops on a malfunctioning system.
-    const MAX_CONSECUTIVE_ERRORS: u32 = 3;
+    // Prevent concurrent monitor loops — all state is global (see module docs).
+    if MONITOR_ACTIVE
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        anyhow::bail!(
+            "A monitor loop is already running in this process. \
+             Only one monitor instance can run at a time because Win32 \
+             SetConsoleCtrlHandler state is process-global."
+        );
+    }
+    // RAII guard: clears MONITOR_ACTIVE on all exit paths (success, error, panic)
+    let _guard = MonitorGuard;
 
     // Reset the RUNNING flag in case run_monitor is called more than once
     RUNNING.store(true, Ordering::Release);
@@ -91,62 +147,15 @@ pub fn run_monitor(
         if let Some(thresh) = threshold
             && snapshot.memory_load_percent >= thresh
         {
-            let in_cooldown = last_clean.is_some_and(|t| t.elapsed() < cooldown);
-
-            if in_cooldown {
-                println!(
-                    "  {} Memory {}% >= {}% but cooldown active — skipping",
-                    "⏳".yellow(),
-                    snapshot.memory_load_percent,
-                    thresh
-                );
-            } else {
-                println!(
-                    "\n  {} Memory load {}% >= threshold {}% — auto-cleaning...",
-                    "⚠".yellow().bold(),
-                    snapshot.memory_load_percent,
-                    thresh
-                );
-                last_clean = Some(Instant::now());
-                display::print_clean_start(auto_level);
-                match cleaner::smart_clean(auto_level, verbose, &[]) {
-                    Ok(output) => {
-                        // Reset error streak on any successful execution
-                        consecutive_errors = 0;
-                        display::print_clean_summary(
-                            &output.results,
-                            &output.overall_before,
-                            &output.overall_after,
-                            output.total_freed,
-                            output.total_elapsed_secs,
-                        );
-                        let failures: Vec<_> =
-                            output.results.iter().filter(|r| !r.success).collect();
-                        if !failures.is_empty() {
-                            eprintln!(
-                                "  {} Auto-clean completed with {} failed operation(s)",
-                                "⚠".yellow(),
-                                failures.len()
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        consecutive_errors += 1;
-                        eprintln!("  {} Auto-clean error: {}", "✗".red().bold(), e);
-                        if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
-                            anyhow::bail!(
-                                "Monitor aborted: {MAX_CONSECUTIVE_ERRORS} consecutive \
-                                 auto-clean failures. Last error: {e}"
-                            );
-                        }
-                        eprintln!(
-                            "  {} ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS} \
-                             consecutive failures before abort)",
-                            "⚠".yellow()
-                        );
-                    }
-                }
-            }
+            handle_threshold_clean(
+                thresh,
+                &snapshot,
+                auto_level,
+                verbose,
+                cooldown,
+                &mut last_clean,
+                &mut consecutive_errors,
+            )?;
         }
 
         // Sleep in small increments so Ctrl+C is responsive.
@@ -164,5 +173,81 @@ pub fn run_monitor(
     }
 
     println!("\n{} Monitor stopped.", "◉".red());
+    Ok(())
+}
+
+/// Handle threshold-triggered auto-cleaning for a single monitor iteration.
+///
+/// Checks whether the cooldown period has elapsed since the last clean. If
+/// cooldown is active, prints a skip message. Otherwise executes
+/// [`cleaner::smart_clean`] and tracks consecutive errors, aborting the
+/// monitor after `max_errors` consecutive failures.
+fn handle_threshold_clean(
+    thresh: u32,
+    snapshot: &MemorySnapshot,
+    auto_level: CleanLevel,
+    verbose: bool,
+    cooldown: std::time::Duration,
+    last_clean: &mut Option<Instant>,
+    consecutive_errors: &mut u32,
+) -> Result<()> {
+    let in_cooldown = last_clean.is_some_and(|t| t.elapsed() < cooldown);
+
+    if in_cooldown {
+        println!(
+            "  {} Memory {}% >= {}% but cooldown active — skipping",
+            "⏳".yellow(),
+            snapshot.memory_load_percent,
+            thresh
+        );
+        return Ok(());
+    }
+
+    println!(
+        "\n  {} Memory load {}% >= threshold {}% — auto-cleaning...",
+        "⚠".yellow().bold(),
+        snapshot.memory_load_percent,
+        thresh
+    );
+    *last_clean = Some(Instant::now());
+    display::print_clean_start(auto_level);
+
+    match cleaner::smart_clean(auto_level, verbose, &[]) {
+        Ok(output) => {
+            // Reset error streak on any successful execution
+            *consecutive_errors = 0;
+            display::print_clean_summary(
+                &output.results,
+                &output.overall_before,
+                &output.overall_after,
+                output.total_freed,
+                output.total_elapsed_secs,
+            );
+            let failures: Vec<_> = output.results.iter().filter(|r| !r.success).collect();
+            if !failures.is_empty() {
+                eprintln!(
+                    "  {} Auto-clean completed with {} failed operation(s)",
+                    "⚠".yellow(),
+                    failures.len()
+                );
+            }
+        }
+        Err(e) => {
+            *consecutive_errors += 1;
+            eprintln!("  {} Auto-clean error: {}", "✗".red().bold(), e);
+            if *consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                anyhow::bail!(
+                    "Monitor aborted: {MAX_CONSECUTIVE_ERRORS} consecutive \
+                     auto-clean failures. Last error: {e}"
+                );
+            }
+            eprintln!(
+                "  {} ({}/{MAX_CONSECUTIVE_ERRORS} consecutive failures before abort)",
+                "⚠".yellow(),
+                *consecutive_errors,
+            );
+        }
+    }
+
     Ok(())
 }
