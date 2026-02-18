@@ -61,16 +61,14 @@ fn draw_table_card(
         );
         ui.add_space(6.0);
 
-        let available_height = ui.available_height().max(200.0);
-
         TableBuilder::new(ui)
             .striped(true)
+            .vscroll(false)
             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
             .column(Column::remainder().at_least(140.0)) // Name
             .column(Column::exact(58.0))                 // PID
             .column(Column::exact(115.0))                // Working Set + bar
             .column(Column::exact(90.0))                 // Peak
-            .max_scroll_height(available_height)
             .header(HEADER_HEIGHT, |mut header| {
                 let cols: &[(&str, usize)] =
                     &[("Process", 0), ("PID", 1), ("Working Set", 2), ("Peak", 3)];
