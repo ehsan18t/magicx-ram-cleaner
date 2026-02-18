@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::cleaner::{self, CleanLevel, SmartCleanResult};
 use crate::stats::{self, MemorySnapshot, ProcessMemoryInfo};
 
-use super::{panels, theme};
+use super::{panels, theme, tray};
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -76,10 +76,17 @@ pub struct HistoryPoint {
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GuiSettings {
-    /// Enable system tray icon (disabled by default).
-    pub tray_enabled: bool,
-    /// Enable context menu integration (disabled by default).
-    pub context_menu_enabled: bool,
+    /// Minimize to the system tray when the close button is clicked.
+    ///
+    /// When enabled, clicking ✕ hides the window to the notification area
+    /// rather than quitting. The tray icon provides "Open" and "Quit" actions.
+    #[serde(alias = "tray_enabled")]
+    pub minimize_to_tray: bool,
+    /// Launch automatically at Windows startup (current user only).
+    ///
+    /// Writes (or removes) a value under
+    /// `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+    pub auto_start: bool,
     /// Auto-clean threshold percentage (0 = disabled).
     pub monitor_threshold: u32,
     /// Cooldown between auto-cleans (seconds).
@@ -97,8 +104,8 @@ pub struct GuiSettings {
 impl Default for GuiSettings {
     fn default() -> Self {
         Self {
-            tray_enabled: false,
-            context_menu_enabled: false,
+            minimize_to_tray: false,
+            auto_start: false,
             monitor_threshold: DEFAULT_THRESHOLD,
             monitor_cooldown_secs: DEFAULT_COOLDOWN_SECS,
             default_clean_level: DEFAULT_CLEAN_LEVEL,
@@ -120,7 +127,7 @@ pub struct CleanResultMsg {
 // ─── Application State ───────────────────────────────────────────────────────
 
 /// The main GUI application state.
-// Five independent boolean flags that represent unrelated on/off states.
+// Seven independent boolean flags that represent unrelated on/off states.
 // Collapsing them into enums would hurt readability without real benefit.
 #[allow(clippy::struct_excessive_bools)]
 pub struct MagicXApp {
@@ -186,6 +193,22 @@ pub struct MagicXApp {
     /// Tuple of `(message, is_error, shown_at)`. The Settings panel auto-dismisses
     /// this after 8 seconds.
     pub settings_status: Option<(String, bool, std::time::Instant)>,
+
+    /// System-tray icon handle.
+    ///
+    /// `Some` while [`GuiSettings::minimize_to_tray`] is enabled; `None`
+    /// otherwise.  Dropping this value removes the tray icon from the
+    /// notification area.
+    tray_handle: Option<tray::TrayHandle>,
+
+    /// Whether the window is currently hidden to the system tray.
+    hidden_to_tray: bool,
+
+    /// Set to `true` when the user selects "Quit" from the tray menu.
+    ///
+    /// Allows the close-intercept logic to distinguish between a user quitting
+    /// via tray and a regular window close (which should minimize instead).
+    quit_requested: bool,
 }
 
 impl MagicXApp {
@@ -261,6 +284,17 @@ impl MagicXApp {
         // Capture dark_mode before settings is moved into Self.
         let initial_dark_mode = settings.dark_mode;
 
+        // Initialize tray icon if minimize-to-tray was previously enabled.
+        let tray_handle = if settings.minimize_to_tray {
+            tray::TrayHandle::new().ok()
+        } else {
+            None
+        };
+
+        // Sync Windows autostart registry entry with the last saved preference.
+        let _sync_autostart =
+            super::persistence::SettingsManager::set_autostart(settings.auto_start);
+
         Self {
             active_panel: Panel::Dashboard,
             latest_snapshot,
@@ -284,6 +318,9 @@ impl MagicXApp {
             theme_applied: initial_dark_mode,
             window_revealed: false,
             settings_status: None,
+            tray_handle,
+            hidden_to_tray: false,
+            quit_requested: false,
         }
     }
 
@@ -364,15 +401,80 @@ impl MagicXApp {
             self.start_clean(self.settings.default_clean_level);
         }
     }
+
+    /// Poll the tray icon event queues and dispatch any pending [`TrayAction`].
+    ///
+    /// Called every frame from [`eframe::App::update`].
+    fn poll_tray_events(&mut self, ctx: &egui::Context) {
+        let Some(action) = self.tray_handle.as_ref().and_then(tray::TrayHandle::poll) else {
+            return;
+        };
+        match action {
+            tray::TrayAction::Show => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                self.hidden_to_tray = false;
+            }
+            tray::TrayAction::Quit => {
+                self.quit_requested = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+    }
+
+    /// Synchronise the tray handle and autostart registry when the user
+    /// changes the relevant settings in the Settings panel.
+    ///
+    /// Compares live settings against the snapshot so this only acts on the
+    /// frame the toggle is flipped — it is a no-op every other frame.
+    fn sync_integration_settings(&mut self, ctx: &egui::Context) {
+        let tray_changed =
+            self.settings.minimize_to_tray != self.settings_snapshot.minimize_to_tray;
+        let autostart_changed = self.settings.auto_start != self.settings_snapshot.auto_start;
+
+        if tray_changed {
+            if self.settings.minimize_to_tray {
+                self.tray_handle = tray::TrayHandle::new().ok();
+            } else {
+                self.tray_handle = None;
+                // Un-hide if the window was minimised while the setting was on.
+                if self.hidden_to_tray {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                    self.hidden_to_tray = false;
+                }
+            }
+        }
+
+        if autostart_changed {
+            let _sync =
+                super::persistence::SettingsManager::set_autostart(self.settings.auto_start);
+        }
+    }
 }
 
 impl eframe::App for MagicXApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // ── Close intercept ─────────────────────────────────────────
+        // When minimize-to-tray is active and the user has not explicitly
+        // selected "Quit" from the tray menu, hide the window instead of
+        // closing it.
+        if ctx.input(|i| i.viewport().close_requested())
+            && self.settings.minimize_to_tray
+            && !self.quit_requested
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            self.hidden_to_tray = true;
+        }
+
         // Reveal the window on the first frame (anti-flash).
         if !self.window_revealed {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
             self.window_revealed = true;
         }
+
+        // Poll tray icon events (show / quit).
+        self.poll_tray_events(ctx);
 
         // Poll background results
         self.poll_clean_results();
@@ -418,6 +520,10 @@ impl eframe::App for MagicXApp {
         // ── Layout ───────────────────────────────────────────────────
         draw_sidebar(ctx, self);
         draw_main_panel(ctx, self);
+
+        // ── Settings sync ────────────────────────────────────────────
+        // Sync tray handle and autostart registry when settings change.
+        self.sync_integration_settings(ctx);
 
         // Persist settings immediately whenever the user changes anything.
         if self.settings != self.settings_snapshot {

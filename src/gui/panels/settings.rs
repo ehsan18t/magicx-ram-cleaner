@@ -1,7 +1,7 @@
 //! # Settings Panel
 //!
-//! User preferences: appearance (dark/light theme) and integration toggles
-//! (tray icon, context menu).
+//! User preferences: appearance (dark/light theme), integration toggles
+//! (minimize-to-tray, autostart), display options, and settings backup.
 
 use eframe::egui;
 use egui_phosphor::regular as ph;
@@ -80,42 +80,77 @@ fn draw_appearance(ui: &mut egui::Ui, app: &mut MagicXApp) {
     });
 }
 
-/// Integration section: tray and context menu toggles.
+/// Integration section: tray and autostart toggles.
 fn draw_integration(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
 
     widgets::card(ui, dark, |ui| {
         widgets::section_header(ui, "Integration");
 
+        // ── Minimize to Tray ──────────────────────────────────────
         ui.horizontal(|ui| {
-            ui.checkbox(&mut app.settings.tray_enabled, "");
-            ui.label(
-                egui::RichText::new("System tray icon")
-                    .size(12.0)
-                    .color(theme::text_color(dark)),
-            );
-            ui.label(
-                egui::RichText::new("(not yet implemented)")
+            ui.checkbox(&mut app.settings.minimize_to_tray, "");
+            ui.vertical(|ui| {
+                ui.label(
+                    egui::RichText::new("Minimize to Tray on Close")
+                        .size(12.0)
+                        .color(theme::text_color(dark)),
+                );
+                ui.label(
+                    egui::RichText::new(
+                        "Clicking \u{00d7} hides to the notification area instead of quitting",
+                    )
                     .size(10.0)
                     .color(theme::muted_color(dark)),
-            );
+                );
+            });
         });
 
-        ui.add_space(4.0);
+        ui.add_space(6.0);
 
+        // ── Launch at Startup ─────────────────────────────────────
+        let prev_auto_start = app.settings.auto_start;
         ui.horizontal(|ui| {
-            ui.checkbox(&mut app.settings.context_menu_enabled, "");
-            ui.label(
-                egui::RichText::new("Desktop context menu")
-                    .size(12.0)
-                    .color(theme::text_color(dark)),
-            );
-            ui.label(
-                egui::RichText::new("(not yet implemented)")
-                    .size(10.0)
-                    .color(theme::muted_color(dark)),
-            );
+            ui.checkbox(&mut app.settings.auto_start, "");
+            ui.vertical(|ui| {
+                ui.label(
+                    egui::RichText::new("Launch at Windows Startup")
+                        .size(12.0)
+                        .color(theme::text_color(dark)),
+                );
+                ui.label(
+                    egui::RichText::new("Registers in HKCU\\Run for the current user")
+                        .size(10.0)
+                        .color(theme::muted_color(dark)),
+                );
+            });
         });
+
+        // Immediate registry sync when the user toggles autostart.
+        if app.settings.auto_start != prev_auto_start {
+            match SettingsManager::set_autostart(app.settings.auto_start) {
+                Ok(()) => {
+                    app.settings_status = Some((
+                        if app.settings.auto_start {
+                            "Autostart enabled — registered in HKCU\\Run".to_owned()
+                        } else {
+                            "Autostart disabled — removed from HKCU\\Run".to_owned()
+                        },
+                        false,
+                        std::time::Instant::now(),
+                    ));
+                }
+                Err(e) => {
+                    // Roll back the toggle so the checkbox reflects reality.
+                    app.settings.auto_start = prev_auto_start;
+                    app.settings_status = Some((
+                        format!("Autostart change failed: {e}"),
+                        true,
+                        std::time::Instant::now(),
+                    ));
+                }
+            }
+        }
     });
 }
 

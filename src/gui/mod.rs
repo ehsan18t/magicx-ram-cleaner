@@ -14,6 +14,7 @@
 //! ├── mod.rs       — entry point (run_gui), module re-exports
 //! ├── app.rs       — MagicXApp state, eframe::App impl, sidebar, layout
 //! ├── theme.rs     — colour palette, spacing, custom Visuals
+//! ├── tray.rs      — system-tray icon handle and action routing
 //! ├── widgets.rs   — reusable components (cards, stat labels, buttons)
 //! └── panels/
 //!     ├── mod.rs         — panel re-exports
@@ -29,7 +30,8 @@
 //! ┌────────────────────────────────────────────┐
 //! │  eframe (winit + glow)                     │
 //! │  ├─ MagicXApp::update()  (UI thread)       │
-//! │  │  └─ polls channels for results          │
+//! │  │  ├─ polls channels for clean results    │
+//! │  │  └─ polls tray icon event queue         │
 //! │  ├─ stats_thread   (background, 1 Hz)      │
 //! │  │  └─ captures MemorySnapshot             │
 //! │  └─ clean_thread   (on demand)             │
@@ -42,6 +44,7 @@ mod panels;
 #[allow(unsafe_code)] // native Win32 file-picker dialogs (GetOpenFileNameW / GetSaveFileNameW)
 pub(super) mod persistence;
 pub mod theme;
+mod tray;
 mod widgets;
 
 use anyhow::{Context, Result};

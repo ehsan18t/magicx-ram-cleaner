@@ -2,9 +2,13 @@
 //!
 //! Central [`SettingsManager`] for all [`super::app::GuiSettings`] I/O.
 //!
-//! Handles loading, saving, importing, and exporting settings.
+//! Handles loading, saving, importing, exporting, and Windows system
+//! integration (autostart registry entry).
+//!
 //! The default persistence path is `settings.json` next to the running executable.
 //! Import and export open native Win32 file-picker dialogs (COMDLG32).
+//! Autostart writes/removes a value under
+//! `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` via the registry API.
 //!
 //! Gracefully falls back to [`Default`] on any read error so a missing or
 //! corrupted file never prevents the app from starting.
@@ -206,5 +210,90 @@ impl SettingsManager {
             return Ok(None);
         };
         read_settings_file(&path).map(Some)
+    }
+
+    /// Write or remove the Windows autostart registry entry for this executable.
+    ///
+    /// When `enabled` is `true`, creates (or updates) the value
+    /// `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\MagicX RAM Cleaner`
+    /// pointing to the running executable's full path.
+    ///
+    /// When `enabled` is `false`, removes the value if it exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error string if the registry key cannot be opened or the
+    /// value operation fails.
+    pub fn set_autostart(enabled: bool) -> Result<(), String> {
+        use windows_sys::Win32::System::Registry::{
+            HKEY_CURRENT_USER, KEY_WRITE, REG_SZ, RegCloseKey, RegDeleteValueW, RegOpenKeyExW,
+            RegSetValueExW,
+        };
+
+        const RUN_SUBKEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+        const VALUE_NAME: &str = "MagicX RAM Cleaner";
+
+        let subkey_wide = to_wide(RUN_SUBKEY);
+        let value_wide = to_wide(VALUE_NAME);
+        let mut hkey: windows_sys::Win32::System::Registry::HKEY = std::ptr::null_mut();
+
+        // SAFETY: `RegOpenKeyExW` is a standard Win32 registry call.
+        // `hkey` is zero-initialised and receives a valid handle on success.
+        // All wide-string slices are null-terminated and live for the full call.
+        let rc = unsafe {
+            RegOpenKeyExW(
+                HKEY_CURRENT_USER,
+                subkey_wide.as_ptr(),
+                0,
+                KEY_WRITE,
+                &raw mut hkey,
+            )
+        };
+        if rc != 0 {
+            return Err(format!(
+                "RegOpenKeyExW failed (code {rc}): cannot access autostart registry key"
+            ));
+        }
+
+        let result = if enabled {
+            let exe = std::env::current_exe()
+                .map_err(|e| format!("Cannot resolve executable path: {e}"))?;
+            let exe_str = exe
+                .to_str()
+                .ok_or_else(|| "Executable path contains non-UTF-8 characters".to_owned())?;
+            let data = to_wide(exe_str);
+            // REG_SZ value length in bytes, including the null terminator.
+            let byte_count = (data.len() * 2) as u32;
+            // SAFETY: `data` is a valid null-terminated UTF-16 buffer.
+            // `byte_count` correctly encodes its byte length for the REG_SZ type.
+            let w = unsafe {
+                RegSetValueExW(
+                    hkey,
+                    value_wide.as_ptr(),
+                    0,
+                    REG_SZ,
+                    data.as_ptr().cast(),
+                    byte_count,
+                )
+            };
+            if w == 0 {
+                Ok(())
+            } else {
+                Err(format!("RegSetValueExW failed (code {w})"))
+            }
+        } else {
+            // SAFETY: `value_wide` is a valid null-terminated UTF-16 string.
+            let w = unsafe { RegDeleteValueW(hkey, value_wide.as_ptr()) };
+            // ERROR_FILE_NOT_FOUND (2) — value was never set; treat as success.
+            if w == 0 || w == 2 {
+                Ok(())
+            } else {
+                Err(format!("RegDeleteValueW failed (code {w})"))
+            }
+        };
+
+        // SAFETY: `hkey` is a valid open registry handle obtained above.
+        unsafe { RegCloseKey(hkey) };
+        result
     }
 }
