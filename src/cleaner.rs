@@ -758,20 +758,27 @@ fn execute_nuclear_chain(verbose: bool, exclude_names: &[String]) -> Result<Vec<
     // Phase 4: Memory combining
     results.push(combine_memory_with_settle(verbose, SettleMode::Quick)?);
 
-    // Phase 5: Second pass — modified pages generated during combine
+    // Phase 5: Second pass — modified pages generated during combine.
+    // Append "(2nd pass)" to operation names so they match the dry-run labels
+    // and users can distinguish first-pass from second-pass results.
     if verbose {
         println!("  {} Running second pass cleanup...", "→".cyan());
     }
-    results.push(execute_kernel_memory_op(
+    let mut flush2 = execute_kernel_memory_op(
         MemoryListCommand::FlushModifiedList,
         verbose,
         SettleMode::Quick,
-    )?);
-    results.push(execute_kernel_memory_op(
+    )?;
+    flush2.operation = format!("{} (2nd pass)", flush2.operation);
+    results.push(flush2);
+
+    let mut purge2 = execute_kernel_memory_op(
         MemoryListCommand::PurgeStandbyList,
         verbose,
         SettleMode::Full,
-    )?);
+    )?;
+    purge2.operation = format!("{} (2nd pass)", purge2.operation);
+    results.push(purge2);
 
     Ok(results)
 }
