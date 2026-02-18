@@ -493,8 +493,8 @@ fn draw_sidebar_brand(ui: &mut egui::Ui) {
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
-            "MX",
-            egui::FontId::proportional(15.0),
+            "MGX",
+            egui::FontId::proportional(13.0),
             theme::ACCENT,
         );
     });

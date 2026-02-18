@@ -2,6 +2,9 @@
 //!
 //! Sortable table of the top processes ranked by memory usage.
 //! Click column headers to sort. Uses `egui_extras::TableBuilder`.
+//!
+//! The panel owns its own "Show top N" count control, keeping
+//! process-display preferences co-located with the display itself.
 
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
@@ -12,10 +15,19 @@ use crate::stats;
 use super::super::app::MagicXApp;
 use super::super::{theme, widgets};
 
+/// Row height for comfortable reading.
+const ROW_HEIGHT: f32 = 26.0;
+
+/// Header row height.
+const HEADER_HEIGHT: f32 = 26.0;
+
 /// Draw the processes panel.
 pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
     widgets::page_title(ui, ph::CPU, "Top Processes", dark);
+
+    draw_count_control(ui, app);
+    ui.add_space(8.0);
 
     let procs = app.top_processes.lock().ok().map(|p| p.clone());
 
@@ -25,12 +37,27 @@ pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     };
 
     sort_processes(&mut procs, app.process_sort_col, app.process_sort_asc);
+    let max_ws = procs.first().map_or(1, |p| p.working_set.max(1));
+    draw_table_card(ui, app, &procs, max_ws, dark);
+}
 
+/// Draw the card containing the info row and sortable process table.
+fn draw_table_card(
+    ui: &mut egui::Ui,
+    app: &mut MagicXApp,
+    procs: &[stats::ProcessMemoryInfo],
+    max_ws: u64,
+    dark: bool,
+) {
     widgets::card(ui, dark, |ui| {
         ui.label(
-            egui::RichText::new(format!("Showing top {} by working set", procs.len()))
-                .size(11.0)
-                .color(theme::muted_color(dark)),
+            egui::RichText::new(format!(
+                "{} processes  \u{b7}  sorted by {}",
+                procs.len(),
+                col_name(app.process_sort_col)
+            ))
+            .size(11.0)
+            .color(theme::muted_color(dark)),
         );
         ui.add_space(6.0);
 
@@ -39,52 +66,144 @@ pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
         TableBuilder::new(ui)
             .striped(true)
             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-            .column(Column::remainder().at_least(120.0)) // Name
-            .column(Column::exact(60.0))                 // PID
-            .column(Column::exact(90.0))                 // Working Set
+            .column(Column::remainder().at_least(140.0)) // Name
+            .column(Column::exact(58.0))                 // PID
+            .column(Column::exact(115.0))                // Working Set + bar
             .column(Column::exact(90.0))                 // Peak
             .max_scroll_height(available_height)
-            .header(22.0, |mut header| {
+            .header(HEADER_HEIGHT, |mut header| {
                 let cols: &[(&str, usize)] =
                     &[("Process", 0), ("PID", 1), ("Working Set", 2), ("Peak", 3)];
-
                 for &(label, col_idx) in cols {
                     header.col(|ui| {
-                        draw_sort_header(ui, label, col_idx, app, dark);
+                        if col_idx == 0 {
+                            draw_sort_header(ui, label, col_idx, app, dark);
+                        } else {
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| draw_sort_header(ui, label, col_idx, app, dark),
+                            );
+                        }
                     });
                 }
             })
             .body(|body| {
-                body.rows(20.0, procs.len(), |mut row| {
+                body.rows(ROW_HEIGHT, procs.len(), |mut row| {
                     let idx = row.index();
                     let p = &procs[idx];
                     row.col(|ui| {
-                        ui.label(egui::RichText::new(&p.name).size(11.0));
-                    });
-                    row.col(|ui| {
+                        ui.add_space(2.0);
                         ui.label(
-                            egui::RichText::new(p.pid.to_string())
-                                .size(11.0)
-                                .color(theme::muted_color(dark)),
+                            egui::RichText::new(&p.name)
+                                .size(12.0)
+                                .color(theme::text_color(dark)),
                         );
                     });
                     row.col(|ui| {
-                        ui.label(
-                            egui::RichText::new(stats::format_bytes(p.working_set))
-                                .size(11.0)
-                                .color(theme::ACCENT),
+                        ui.with_layout(
+                            egui::Layout::right_to_left(egui::Align::Center),
+                            |ui| {
+                                ui.add_space(4.0);
+                                ui.label(
+                                    egui::RichText::new(p.pid.to_string())
+                                        .size(11.0)
+                                        .color(theme::muted_color(dark)),
+                                );
+                            },
                         );
                     });
+                    row.col(|ui| draw_ws_cell(ui, p.working_set, max_ws));
                     row.col(|ui| {
-                        ui.label(
-                            egui::RichText::new(stats::format_bytes(p.peak_working_set))
-                                .size(11.0)
-                                .color(theme::YELLOW),
+                        ui.with_layout(
+                            egui::Layout::right_to_left(egui::Align::Center),
+                            |ui| {
+                                ui.add_space(4.0);
+                                ui.label(
+                                    egui::RichText::new(stats::format_bytes(
+                                        p.peak_working_set,
+                                    ))
+                                    .size(11.0)
+                                    .color(theme::YELLOW),
+                                );
+                            },
                         );
                     });
                 });
             });
     });
+}
+
+/// Right-aligned working-set cell with a relative-usage micro bar below the value.
+fn draw_ws_cell(ui: &mut egui::Ui, working_set: u64, max_ws: u64) {
+    let fraction = (working_set as f32 / max_ws as f32).clamp(0.0, 1.0);
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.add_space(4.0);
+        ui.vertical(|ui| {
+            ui.add_space(3.0);
+            ui.label(
+                egui::RichText::new(stats::format_bytes(working_set))
+                    .size(11.5)
+                    .strong()
+                    .color(theme::ACCENT),
+            );
+            let (bar, _) =
+                ui.allocate_exact_size(egui::vec2(ui.available_width(), 2.5), egui::Sense::hover());
+            ui.painter().rect_filled(
+                bar,
+                egui::CornerRadius::same(1),
+                theme::ACCENT.gamma_multiply(0.18),
+            );
+            let fill = egui::Rect::from_min_size(
+                bar.left_top(),
+                egui::vec2(bar.width() * fraction, bar.height()),
+            );
+            ui.painter().rect_filled(
+                fill,
+                egui::CornerRadius::same(1),
+                theme::ACCENT.gamma_multiply(0.85),
+            );
+        });
+    });
+}
+
+/// Compact "Show top N" control rendered between the page title and the table.
+fn draw_count_control(ui: &mut egui::Ui, app: &mut MagicXApp) {
+    let dark = app.settings.dark_mode;
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new("Show top")
+                .size(11.5)
+                .color(theme::muted_color(dark)),
+        );
+        ui.add_space(4.0);
+        let mut count_f32 = app.settings.top_process_count as f32;
+        let slider = egui::Slider::new(&mut count_f32, 5.0..=50.0)
+            .step_by(5.0)
+            .show_value(true)
+            .integer()
+            .suffix(" processes")
+            .text("");
+        if ui.add(slider).changed() {
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "slider is clamped to 5..=50"
+            )]
+            {
+                app.settings.top_process_count = count_f32 as usize;
+            }
+        }
+    });
+}
+
+/// Human-readable name for a sort column index.
+const fn col_name(col: usize) -> &'static str {
+    match col {
+        0 => "name",
+        1 => "PID",
+        3 => "peak",
+        _ => "working set",
+    }
 }
 
 /// Draw a clickable column header with sort arrow.

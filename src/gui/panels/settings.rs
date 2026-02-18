@@ -116,33 +116,12 @@ fn draw_integration(ui: &mut egui::Ui, app: &mut MagicXApp) {
     });
 }
 
-/// Display section: top process count and tooltip preference.
+/// Preferences section: tooltip visibility.
 fn draw_display(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
 
     widgets::card(ui, dark, |ui| {
-        widgets::section_header(ui, "Display");
-
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new("Top Processes:")
-                    .size(12.0)
-                    .color(theme::text_color(dark)),
-            );
-            let mut count_f32 = app.settings.top_process_count as f32;
-            let slider = egui::Slider::new(&mut count_f32, 5.0..=50.0).step_by(5.0);
-            ui.add(slider);
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "slider is clamped to 5..=50"
-            )]
-            {
-                app.settings.top_process_count = count_f32 as usize;
-            }
-        });
-
-        ui.add_space(6.0);
+        widgets::section_header(ui, "Preferences");
 
         ui.horizontal(|ui| {
             ui.checkbox(&mut app.settings.show_level_tooltips, "");
