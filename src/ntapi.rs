@@ -6,22 +6,24 @@
 /// NTSTATUS type alias.
 pub type NtStatus = i32;
 
-// NTSTATUS success
+/// NTSTATUS success (0x00000000).
 pub const STATUS_SUCCESS: NtStatus = 0;
 
-// SystemMemoryListInformation information class for NtSetSystemInformation / NtQuerySystemInformation
-pub const SYSTEM_MEMORY_LIST_INFORMATION: u32 = 80; // 0x50
+/// `SystemMemoryListInformation` class (0x50) for `NtSet/QuerySystemInformation`.
+pub const SYSTEM_MEMORY_LIST_INFORMATION: u32 = 80;
 
-// SystemCombinePhysicalMemoryInformation information class for NtSetSystemInformation
-pub const SYSTEM_COMBINE_PHYSICAL_MEMORY_INFORMATION: u32 = 130; // 0x82
+/// `SystemCombinePhysicalMemoryInformation` class (0x82) for `NtSetSystemInformation`.
+pub const SYSTEM_COMBINE_PHYSICAL_MEMORY_INFORMATION: u32 = 130;
 
-// SystemRegistryReconciliationInformation information class for NtSetSystemInformation
-// Flushes the registry cache (dirty hive pages) to disk.
-pub const SYSTEM_REGISTRY_RECONCILIATION_INFORMATION: u32 = 155; // 0x9B
+/// `SystemRegistryReconciliationInformation` class (0x9B) for `NtSetSystemInformation`.
+///
+/// Flushes the registry cache (dirty hive pages) to disk.
+pub const SYSTEM_REGISTRY_RECONCILIATION_INFORMATION: u32 = 155;
 
-// SystemFileCacheInformation information class for NtQuerySystemInformation
-// Returns current and peak file system cache sizes.
-pub const SYSTEM_FILE_CACHE_INFORMATION: u32 = 21; // 0x15
+/// `SystemFileCacheInformation` class (0x15) for `NtQuerySystemInformation`.
+///
+/// Returns current and peak file system cache sizes.
+pub const SYSTEM_FILE_CACHE_INFORMATION: u32 = 21;
 
 /// File system cache information returned by
 /// `NtQuerySystemInformation(SystemFileCacheInformation)`.
@@ -181,13 +183,18 @@ pub fn execute_registry_flush() -> Result<(), NtStatus> {
 }
 
 /// Safe wrapper around `NtQuerySystemInformation`.
-pub fn nt_query_system_information(
+///
+/// # Safety
+///
+/// `buffer` must point to a valid, writable allocation of at least `length`
+/// bytes. `return_length` must point to a valid `u32` or be null.
+pub unsafe fn nt_query_system_information(
     class: u32,
     buffer: *mut std::ffi::c_void,
     length: u32,
     return_length: *mut u32,
 ) -> NtStatus {
-    // SAFETY: Caller provides valid buffer/length. Forwarded directly to NT API.
+    // SAFETY: Caller upholds pointer validity per the function's safety contract.
     unsafe { NtQuerySystemInformation(class, buffer, length, return_length) }
 }
 
@@ -199,6 +206,7 @@ const STATUS_INVALID_PARAMETER: NtStatus = 0xC000_000D_u32 as i32;
 const STATUS_NOT_IMPLEMENTED: NtStatus = 0xC000_0002_u32 as i32;
 const STATUS_UNSUCCESSFUL: NtStatus = 0xC000_0001_u32 as i32;
 const STATUS_PRIVILEGE_NOT_HELD: NtStatus = 0xC000_0061_u32 as i32;
+/// NTSTATUS indicating the supplied buffer was too small (`0xC0000004`).
 pub const STATUS_INFO_LENGTH_MISMATCH: NtStatus = 0xC000_0004_u32 as i32;
 const STATUS_BUFFER_TOO_SMALL: NtStatus = 0xC000_0023_u32 as i32;
 const STATUS_INSUFFICIENT_RESOURCES: NtStatus = 0xC000_009A_u32 as i32;
@@ -206,6 +214,7 @@ const STATUS_NOT_SUPPORTED: NtStatus = 0xC000_00BB_u32 as i32;
 const STATUS_INVALID_DEVICE_REQUEST: NtStatus = 0xC000_0010_u32 as i32;
 
 /// Translate an NTSTATUS code to a human-readable message.
+#[must_use]
 pub const fn ntstatus_message(status: NtStatus) -> &'static str {
     match status {
         STATUS_SUCCESS => "SUCCESS",

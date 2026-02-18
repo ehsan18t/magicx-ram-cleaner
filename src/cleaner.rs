@@ -224,9 +224,13 @@ fn execute_kernel_memory_op(
 /// Result of a cleaning operation, with before/after memory stats.
 #[derive(Debug, Serialize)]
 pub struct CleanResult {
+    /// Human-readable name of the cleaning operation performed.
     pub operation: String,
+    /// Whether the operation completed successfully.
     pub success: bool,
-    pub freed_bytes: i64, // can be negative if memory increased during clean
+    /// Net bytes freed (can be negative if memory increased during clean).
+    pub freed_bytes: i64,
+    /// Human-readable status or error message.
     pub message: String,
     /// Available physical memory before the operation (bytes).
     pub available_before: u64,
@@ -777,6 +781,7 @@ fn execute_nuclear_chain(verbose: bool, exclude_names: &[String]) -> Result<Vec<
 /// This is used by `--dry-run` to preview the cleaning plan without executing
 /// any kernel operations. When `has_excludes` is `true`, the working-set
 /// operation label reflects per-process mode instead of kernel-level.
+#[must_use]
 pub fn dry_run_plan(level: CleanLevel, has_excludes: bool) -> Vec<&'static str> {
     let ws_label = if has_excludes {
         "Empty Working Sets (Per-Process, with exclusions)"

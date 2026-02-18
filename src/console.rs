@@ -12,6 +12,7 @@ use colored::Colorize;
 ///
 /// Uses `GetConsoleProcessList` — if only our process is attached, the console
 /// was created just for us and will vanish when we exit.
+#[must_use]
 pub fn is_standalone_console() -> bool {
     use windows_sys::Win32::System::Console::GetConsoleProcessList;
     let mut pids = [0u32; 2];

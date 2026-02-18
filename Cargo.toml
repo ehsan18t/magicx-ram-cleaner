@@ -20,6 +20,11 @@ cast_possible_wrap = "allow"
 cast_possible_truncation = "allow"
 cast_precision_loss = "allow"
 cast_sign_loss = "allow"
+# Binary-only crate: modules are pub solely for criterion benchmark access,
+# not for use as a public library API. Public-API documentation lints are
+# intentionally relaxed.
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
@@ -58,6 +63,13 @@ Comments = "Surpasses EmptyStandbyList with granular control over every Windows 
 [build-dependencies]
 embed-manifest = "1"
 winresource = "0.1"
+
+[dev-dependencies]
+criterion = { version = "0.8", features = ["html_reports"] }
+
+[[bench]]
+name = "benchmarks"
+harness = false
 
 [profile.release]
 opt-level = 3

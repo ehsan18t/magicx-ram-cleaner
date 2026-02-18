@@ -38,6 +38,7 @@ impl HandleGuard {
     }
 
     /// Borrow the underlying handle for FFI calls.
+    #[must_use]
     pub const fn raw(&self) -> HANDLE {
         self.handle
     }
@@ -140,6 +141,7 @@ impl MemorySnapshot {
     }
 
     /// Get commit charge as a percentage.
+    #[must_use]
     pub fn commit_percent(&self) -> f64 {
         if self.commit_limit_pages == 0 {
             return 0.0;
@@ -182,6 +184,7 @@ impl QuickMemoryReading {
 }
 
 /// Extract a UTF-8 process name from a null-terminated UTF-16 `szExeFile` buffer.
+#[must_use]
 pub fn extract_exe_name(sz_exe_file: &[u16]) -> String {
     let len = sz_exe_file
         .iter()
@@ -191,6 +194,7 @@ pub fn extract_exe_name(sz_exe_file: &[u16]) -> String {
 }
 
 /// Format bytes into a human-readable string (e.g., "3.42 GB").
+#[must_use]
 pub fn format_bytes(bytes: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = 1024 * KB;
@@ -211,18 +215,26 @@ pub fn format_bytes(bytes: u64) -> String {
 }
 
 /// Detailed memory list information from the kernel (undocumented API).
+///
 /// This gives exact page counts for each memory list (Zeroed, Free, Modified,
 /// `ModifiedNoWrite`, Bad, Standby priorities 0-7, Repurposed priorities 0-7).
 #[derive(Debug, Clone, Serialize)]
 // Every field genuinely represents a page count — the `_pages` suffix is intentional.
 #[allow(clippy::struct_field_names)]
 pub struct MemoryListInfo {
+    /// Pages on the zeroed-page list (already zero-filled, ready for allocation).
     pub zeroed_pages: u64,
+    /// Pages on the free-page list (available but not yet zeroed).
     pub free_pages: u64,
+    /// Pages on the modified-page list (dirty, awaiting writeback).
     pub modified_pages: u64,
+    /// Modified pages that will not be written to the pagefile.
     pub modified_no_write_pages: u64,
+    /// Pages flagged as physically defective.
     pub bad_pages: u64,
+    /// Standby pages by priority (index 0 = lowest, 7 = highest).
     pub standby_pages: [u64; 8],
+    /// Repurposed standby pages by priority.
     pub repurposed_pages: [u64; 8],
     /// Modified pages destined for the pagefile (subset of `modified_pages`).
     pub modified_pagefile_pages: u64,
@@ -245,12 +257,16 @@ impl MemoryListInfo {
         let mut stack_buf = [0usize; 30];
         let mut return_length: u32 = 0;
 
-        let mut status = crate::ntapi::nt_query_system_information(
-            SYSTEM_MEMORY_LIST_INFORMATION,
-            stack_buf.as_mut_ptr().cast(),
-            std::mem::size_of_val(&stack_buf) as u32,
-            &raw mut return_length,
-        );
+        // SAFETY: stack_buf is a valid, zero-initialized array with correct size.
+        // return_length is a valid stack-allocated u32.
+        let mut status = unsafe {
+            crate::ntapi::nt_query_system_information(
+                SYSTEM_MEMORY_LIST_INFORMATION,
+                stack_buf.as_mut_ptr().cast(),
+                std::mem::size_of_val(&stack_buf) as u32,
+                &raw mut return_length,
+            )
+        };
 
         // If the kernel needs more than 30 entries (unlikely but defensive),
         // fall back to a heap allocation with the exact size requested.
@@ -259,16 +275,20 @@ impl MemoryListInfo {
             let needed_entries = (return_length as usize).div_ceil(std::mem::size_of::<usize>());
             let buf = vec![0usize; needed_entries];
             heap_buf = Some(buf);
-            status = crate::ntapi::nt_query_system_information(
-                SYSTEM_MEMORY_LIST_INFORMATION,
-                heap_buf
-                    .as_mut()
-                    .expect("just assigned")
-                    .as_mut_ptr()
-                    .cast(),
-                return_length,
-                &raw mut return_length,
-            );
+            // SAFETY: heap_buf was just allocated with exactly `needed_entries`
+            // elements. return_length matches the kernel's required size.
+            status = unsafe {
+                crate::ntapi::nt_query_system_information(
+                    SYSTEM_MEMORY_LIST_INFORMATION,
+                    heap_buf
+                        .as_mut()
+                        .expect("just assigned")
+                        .as_mut_ptr()
+                        .cast(),
+                    return_length,
+                    &raw mut return_length,
+                )
+            };
         }
 
         // Use the heap buffer if it was allocated, otherwise the stack buffer
@@ -323,6 +343,7 @@ impl MemoryListInfo {
     }
 
     /// Total standby pages across all priority levels.
+    #[must_use]
     pub fn total_standby_pages(&self) -> u64 {
         self.standby_pages.iter().sum()
     }
@@ -354,12 +375,16 @@ impl FileCacheSnapshot {
         let mut info: SystemFileCacheInfo = unsafe { std::mem::zeroed() };
         let mut return_length: u32 = 0;
 
-        let status = crate::ntapi::nt_query_system_information(
-            SYSTEM_FILE_CACHE_INFORMATION,
-            (&raw mut info).cast(),
-            std::mem::size_of::<SystemFileCacheInfo>() as u32,
-            &raw mut return_length,
-        );
+        // SAFETY: info is a valid, zero-initialized SystemFileCacheInfo struct.
+        // return_length is a valid stack-allocated u32.
+        let status = unsafe {
+            crate::ntapi::nt_query_system_information(
+                SYSTEM_FILE_CACHE_INFORMATION,
+                (&raw mut info).cast(),
+                std::mem::size_of::<SystemFileCacheInfo>() as u32,
+                &raw mut return_length,
+            )
+        };
 
         if status != 0 {
             bail!(

@@ -1,83 +1,18 @@
 // ─── Compiler-enforced quality gates ─────────────────────────────────────────
-// These cannot be overridden by individual modules. Any violation = build failure.
 #![deny(
-    // Correctness
-    unused_must_use,         // ignoring Result/Option is a bug
-    unreachable_patterns,    // dead match arms = confusion
-    // Safety — unsafe is denied globally; modules that need FFI get #[allow(unsafe_code)]
+    unused_must_use,
+    unreachable_patterns,
     unsafe_code,
-    unsafe_op_in_unsafe_fn,  // unsafe blocks inside unsafe fn must be explicit
-    // Quality
-    unused_imports,          // dead imports = sloppy code
-    unused_variables,        // unused vars = incomplete work
-    dead_code,               // dead code = maintenance burden
-    // Documentation
-    rustdoc::broken_intra_doc_links,
+    unused_imports,
+    unused_variables,
+    dead_code,
+    rustdoc::broken_intra_doc_links
 )]
 
-//! # `MagicX` RAM Cleaner
+//! `MagicX` RAM Cleaner — binary entry point.
 //!
-//! The most powerful Windows RAM cleaner CLI tool.
-//! Surpasses `EmptyStandbyList` with granular control over every memory subsystem.
-//!
-//! ## Architecture
-//!
-//! ```text
-//! ┌─────────────────────────────────────────────────────────────┐
-//! │                    MagicX RAM Cleaner                       │
-//! ├──────────┬──────────────┬──────────────┬───────────────────┤
-//! │   CLI    │  Cleaner     │  Monitor     │  Display          │
-//! │ (cli.rs) │  Engine      │  Loop        │  Formatting       │
-//! ├──────────┤              │              │                   │
-//! │ Console  │              │              │                   │
-//! │ (ANSI)   │              │              │                   │
-//! ├──────────┴──────────────┴──────────────┴───────────────────┤
-//! │              NT Native API Bindings (ntapi)                │
-//! │     NtSetSystemInformation / NtQuerySystemInformation      │
-//! ├────────────────────────────────────────────────────────────┤
-//! │              Win32 API  (windows-sys)                       │
-//! │  GlobalMemoryStatusEx, SetSystemFileCacheSize,             │
-//! │  K32EmptyWorkingSet, SetProcessWorkingSetSizeEx            │
-//! ├────────────────────────────────────────────────────────────┤
-//! │              Privilege Manager                              │
-//! │  SeProfileSingleProcessPrivilege, SeIncreaseQuotaPrivilege │
-//! └────────────────────────────────────────────────────────────┘
-//! ```
-//!
-//! ## Why `MagicX` is better than `EmptyStandbyList`
-//!
-//! | Feature | EmptyStandbyList | MagicX |
-//! |---|---|---|
-//! | Standby list purge | ✓ | ✓ |
-//! | Low-priority only purge | ✓ | ✓ |
-//! | Working set empty | ✓ | ✓ (kernel-level AND per-process) |
-//! | Modified list flush | ✓ | ✓ |
-//! | File cache flush | ✗ | ✓ |
-//! | Memory combining/dedup | ✗ | ✓ |
-//! | Smart multi-step cleaning | ✗ | ✓ (4 levels) |
-//! | Before/after reporting | ✗ | ✓ |
-//! | Detailed memory list stats | ✗ | ✓ (per-priority breakdown) |
-//! | Monitoring with auto-clean | ✗ | ✓ |
-//! | JSON output | ✗ | ✓ |
-//! | Optimal operation ordering | ✗ | ✓ |
-//! | Second-pass cleaning | ✗ | ✓ |
-
-// Modules that legitimately need unsafe get a scoped allow
-#[allow(unsafe_code)]
-mod cleaner;
-mod cli;
-#[allow(unsafe_code)]
-mod console;
-#[allow(unsafe_code)]
-mod display;
-#[allow(unsafe_code)]
-mod monitor;
-#[allow(unsafe_code)]
-mod ntapi;
-#[allow(unsafe_code)]
-mod privilege;
-#[allow(unsafe_code)]
-mod stats;
+//! Thin entry point: CLI parsing, command dispatch, and exit code mapping.
+//! All domain logic lives in the library modules (see [`lib.rs`](../magicx_ram_cleaner/index.html)).
 
 use std::process::ExitCode;
 
@@ -85,7 +20,8 @@ use anyhow::{Context, Result};
 use clap::{ColorChoice, CommandFactory, FromArgMatches};
 use colored::Colorize;
 
-use cli::{Cli, Commands};
+use magicx_ram_cleaner::cli::{Cli, Commands};
+use magicx_ram_cleaner::{cleaner, console, display, monitor, privilege, stats};
 
 /// Entry point — returns [`ExitCode`] instead of calling `std::process::exit()`.
 ///
