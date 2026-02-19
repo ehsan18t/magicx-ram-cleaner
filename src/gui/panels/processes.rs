@@ -84,9 +84,7 @@ pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
     widgets::page_title(ui, ph::CPU, "Top Processes", dark);
 
-    draw_count_control(ui, app);
-    ui.add_space(4.0);
-    draw_search_bar(ui, app);
+    draw_toolbar(ui, app);
     ui.add_space(8.0);
 
     let procs = app.top_processes.lock().ok().map(|p| p.clone());
@@ -256,10 +254,11 @@ fn draw_ws_cell(ui: &mut egui::Ui, working_set: u64, max_ws: u64) -> egui::Respo
     .response
 }
 
-/// Compact "Show top N" control rendered between the page title and the table.
-fn draw_count_control(ui: &mut egui::Ui, app: &mut MagicXApp) {
+/// Combined toolbar: "Show top" slider on the left, search box on the right.
+fn draw_toolbar(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
     ui.horizontal(|ui| {
+        // ── Left: count slider ─────────────────────────────────────────────
         ui.label(
             egui::RichText::new("Show top")
                 .size(11.5)
@@ -283,32 +282,27 @@ fn draw_count_control(ui: &mut egui::Ui, app: &mut MagicXApp) {
                 app.settings.top_process_count = count_f32 as usize;
             }
         }
-    });
-}
 
-/// Search text input for filtering the process list by name.
-fn draw_search_bar(ui: &mut egui::Ui, app: &mut MagicXApp) {
-    let dark = app.settings.dark_mode;
-    ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new(format!("{} Filter", ph::MAGNIFYING_GLASS))
-                .size(12.0)
-                .color(theme::muted_color(dark)),
-        );
-        ui.add_space(4.0);
-        let edit = egui::TextEdit::singleline(&mut app.process_search)
-            .hint_text("type to search…")
-            .desired_width(180.0);
-        ui.add(edit);
-
-        if !app.process_search.is_empty()
-            && ui
-                .small_button(ph::X)
-                .on_hover_text("Clear search")
-                .clicked()
-        {
-            app.process_search.clear();
-        }
+        // ── Right: search box ──────────────────────────────────────────────
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if !app.process_search.is_empty()
+                && ui
+                    .small_button(ph::X)
+                    .on_hover_text("Clear search")
+                    .clicked()
+            {
+                app.process_search.clear();
+            }
+            let edit = egui::TextEdit::singleline(&mut app.process_search)
+                .hint_text("search…")
+                .desired_width(140.0);
+            ui.add(edit);
+            ui.label(
+                egui::RichText::new(ph::MAGNIFYING_GLASS)
+                    .size(13.0)
+                    .color(theme::muted_color(dark)),
+            );
+        });
     });
 }
 
