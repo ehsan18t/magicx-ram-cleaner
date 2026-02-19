@@ -730,7 +730,7 @@ pub fn reveal_window(hwnd: isize) {
 
 /// Immediately hide the window by calling `ShowWindow(SW_HIDE)` directly.
 ///
-/// Unlike [`egui::ViewportCommand::Visible`] with `false`, which is an async
+/// Unlike `egui::ViewportCommand::Visible` with `false`, which is an async
 /// request processed by winit on the next event-loop cycle, this call
 /// synchronously clears the `WS_VISIBLE` flag so the window disappears on
 /// the current frame.
