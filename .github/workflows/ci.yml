@@ -2,18 +2,28 @@
 # Enforces code quality on pull requests. All checks must pass before merging.
 #
 # Gates (ALL must pass):
-#   1. cargo fmt --check     → consistent formatting
-#   2. cargo clippy (deny)   → zero lint warnings
-#   3. cargo test            → all tests pass
-#   4. cargo build --release → release binary compiles
-#   5. cargo deny check      → no vulnerable/banned dependencies
-#   6. cargo doc             → documentation builds without errors
+#   1. cargo fmt --check            → consistent formatting
+#   2. cargo clippy (deny)          → zero lint warnings (all+pedantic+nursery)
+#   3. cargo test --locked          → all tests pass, Cargo.lock respected
+#   4. cargo bench --no-run         → benchmarks compile without errors
+#   5. cargo build --release        → release binary compiles
+#   6. cargo doc                    → documentation + doc-comment format valid
+#   7. cargo deny check             → no vulnerable/banned dependencies
 
 name: CI
 
 on:
   pull_request:
     branches: [main]
+
+# Principle of least privilege — CI only reads source, never pushes.
+permissions:
+  contents: read
+
+# Cancel any in-progress run for the same PR branch to avoid wasted minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -23,8 +33,9 @@ jobs:
   quality-gate:
     name: Quality Gate
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -32,45 +43,88 @@ jobs:
           components: rustfmt, clippy
 
       - name: Cache cargo registry & build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       # Gate 1: Formatting — rejects inconsistent style
       - name: "Gate 1: cargo fmt --check"
         run: cargo fmt --all -- --check
 
-      # Gate 2: Clippy (pedantic+nursery, deny level) — rejects lint violations
+      # Gate 2: Clippy (all+pedantic+nursery at deny level) — rejects lint violations.
+      # Cargo.toml [lints.clippy] already sets deny levels; the explicit -W flags here
+      # act as belt-and-suspenders to ensure CI always enforces them regardless of
+      # any future Cargo.toml changes.
       - name: "Gate 2: cargo clippy"
-        run: cargo clippy --all-targets -- -D warnings
+        run: >
+          cargo clippy --locked --all-targets --
+          -D warnings
+          -W clippy::pedantic
+          -W clippy::nursery
 
-      # Gate 3: Tests — rejects broken logic
+      # Gate 3: Tests — rejects broken logic; --locked ensures Cargo.lock is honoured
       - name: "Gate 3: cargo test"
-        run: cargo test --all-targets
+        run: cargo test --locked --all-targets
 
-      # Gate 4: Release build — rejects code that only works in debug
-      - name: "Gate 4: cargo build --release"
-        run: cargo build --release
+      # Gate 4: Benchmarks — rejects benchmarks that do not compile
+      - name: "Gate 4: cargo bench --no-run"
+        run: cargo bench --locked --no-run
 
-      # Gate 5: Documentation — rejects broken doc links
-      - name: "Gate 5: cargo doc"
-        run: cargo doc --no-deps
+      # Gate 5: Release build — rejects code that only works in debug
+      - name: "Gate 5: cargo build --release"
+        run: cargo build --locked --release
+
+      # Upload the release binary for inspection / smoke-testing.
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: magicx-ram-cleaner-${{ github.sha }}
+          path: target/release/magicx-ram-cleaner.exe
+          retention-days: 7
+          if-no-files-found: error
+
+      # Gate 6: Documentation & doc-comment format — rejects broken links, bare URLs,
+      # invalid code blocks, and missing crate-level docs.
+      - name: "Gate 6: cargo doc"
+        run: cargo doc --locked --no-deps
         env:
-          RUSTDOCFLAGS: "-D warnings"
+          RUSTDOCFLAGS: >-
+            -D warnings
+            -D rustdoc::bare_urls
+            -D rustdoc::invalid_rust_codeblocks
+            -D rustdoc::private_intra_doc_links
+            -D rustdoc::unescaped_backticks
 
-  # Gate 6: Dependency audit — rejects vulnerable/banned dependencies
+  # Gate 7: Dependency audit — rejects vulnerable/banned/unlicensed dependencies.
+  # cargo-deny binary is cached to avoid re-downloading on every run.
   audit:
     name: Dependency Audit
     runs-on: windows-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo-deny binary
+        id: cache-deny
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/cargo-deny.exe
+          # Bump the suffix (v1 → v2, etc.) to force a fresh install when
+          # upgrading cargo-deny to a new major/minor version.
+          key: cargo-deny-${{ runner.os }}-v1
 
       - name: Install cargo-deny
+        if: steps.cache-deny.outputs.cache-hit != 'true'
         run: cargo install cargo-deny --locked
 
-      - name: "Gate 6: cargo deny check"
+      - name: "Gate 7: cargo deny check"
         run: cargo deny check
