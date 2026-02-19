@@ -534,6 +534,49 @@ impl MagicXApp {
                 super::persistence::SettingsManager::set_autostart(self.settings.auto_start);
         }
     }
+
+    /// Run the parts of the UI that are only needed when the window is
+    /// actually visible (not minimized, not hidden to tray).
+    ///
+    /// Splitting this out of [`eframe::App::update`] keeps both
+    /// functions below the `too_many_lines` lint threshold and makes the
+    /// visibility gate explicit.
+    fn update_visible_ui(&mut self, ctx: &egui::Context) {
+        // Refresh processes only when the panel is shown.
+        if self.active_panel == Panel::Processes {
+            self.maybe_refresh_processes();
+        }
+
+        // Switch theme when the user toggles the preference.
+        if self.settings.dark_mode != self.last_applied_dark {
+            theme::set_active_theme(ctx, self.settings.dark_mode);
+            self.last_applied_dark = self.settings.dark_mode;
+
+            crate::console::set_process_dark_mode(self.settings.dark_mode);
+            crate::console::set_title_bar_dark_mode(self.hwnd, self.settings.dark_mode);
+
+            if self.settings.minimize_to_tray {
+                self.tray_handle =
+                    tray::TrayHandle::new(ctx.clone(), self.hwnd, self.settings.dark_mode).ok();
+            }
+        }
+
+        // Enforce the app's theme preference every visible frame.
+        // Eframe's system-theme detection can silently override
+        // our set_theme between frames when the OS theme differs.
+        let desired = if self.settings.dark_mode {
+            egui::Theme::Dark
+        } else {
+            egui::Theme::Light
+        };
+        if ctx.theme() != desired {
+            theme::set_active_theme(ctx, self.settings.dark_mode);
+        }
+
+        // ── Layout ───────────────────────────────────────────
+        draw_sidebar(ctx, self);
+        draw_main_panel(ctx, self);
+    }
 }
 
 impl eframe::App for MagicXApp {
@@ -586,58 +629,28 @@ impl eframe::App for MagicXApp {
         // Auto-clean if monitoring
         self.handle_monitor_auto_clean();
 
-        // Maybe refresh processes
-        if self.active_panel == Panel::Processes {
-            self.maybe_refresh_processes();
+        // ── Visibility gate ────────────────────────────────────────
+        // Use Win32 IsIconic for reliable minimized detection —
+        // egui's ViewportInfo::minimized can return None when the
+        // platform does not report the state.
+        let minimized = crate::console::is_window_minimized(self.hwnd);
+        let window_visible = !self.hidden_to_tray && !minimized;
+
+        // Tell the stats thread whether the UI needs periodic data.
+        // When the window is not visible and monitoring is off, the
+        // stats thread skips captures and repaints entirely so the
+        // app uses zero CPU / GPU.
+        self.needs_repaint
+            .store(window_visible || self.monitor_active, Ordering::Release);
+
+        // Skip ALL rendering when the window is not visible.  This
+        // prevents widgets like spinners and toggle animations from
+        // calling request_repaint() which would otherwise create a
+        // perpetual layout → repaint → layout loop even while
+        // minimized or hidden to tray.
+        if window_visible {
+            self.update_visible_ui(ctx);
         }
-
-        // Switch theme when the user toggles the preference.
-        if self.settings.dark_mode != self.last_applied_dark {
-            theme::set_active_theme(ctx, self.settings.dark_mode);
-            self.last_applied_dark = self.settings.dark_mode;
-
-            // Update native Windows dark mode to match: title bar + menus.
-            crate::console::set_process_dark_mode(self.settings.dark_mode);
-            crate::console::set_title_bar_dark_mode(self.hwnd, self.settings.dark_mode);
-
-            // Rebuild tray icon so glyph colours match the new menu theme.
-            if self.settings.minimize_to_tray {
-                self.tray_handle =
-                    tray::TrayHandle::new(ctx.clone(), self.hwnd, self.settings.dark_mode).ok();
-            }
-        }
-
-        // Enforce the app's theme preference every frame.
-        // Eframe's system-theme detection can silently override our
-        // explicit `set_theme` call between frames when the OS theme
-        // differs from the in-app preference.  Re-applying here is
-        // cheap (one write to the options struct) and guarantees the
-        // sidebar, panels, and all widgets use the correct visuals
-        // regardless of the Windows system theme.
-        let desired = if self.settings.dark_mode {
-            egui::Theme::Dark
-        } else {
-            egui::Theme::Light
-        };
-        if ctx.theme() != desired {
-            theme::set_active_theme(ctx, self.settings.dark_mode);
-        }
-
-        // Detect whether the window is OS-minimized (taskbar only).
-        let minimized = ctx.input(|i| i.viewport().minimized.unwrap_or(false));
-
-        // Tell the stats thread whether the UI needs periodic repaints.
-        // When hidden to tray OR minimized (with monitoring inactive), the
-        // app goes truly idle — zero CPU, zero GPU.  The tray-watcher
-        // thread or a winit restore event will wake us back up.
-        self.needs_repaint.store(
-            !(self.hidden_to_tray || minimized) || self.monitor_active,
-            Ordering::Release,
-        );
-
-        // ── Layout ───────────────────────────────────────────────────
-        draw_sidebar(ctx, self);
-        draw_main_panel(ctx, self);
 
         // ── Settings sync ────────────────────────────────────────────
         // Sync tray handle and autostart registry when settings change.

@@ -594,6 +594,26 @@ pub fn restore_window(hwnd: isize) {
     }
 }
 
+/// Check whether the application window is currently minimized (iconic).
+///
+/// Uses the Win32 `IsIconic` API for reliable minimized-state detection.
+/// Unlike `egui::ViewportInfo::minimized` (which may return `None` when
+/// the windowing back-end does not report it), this always returns a
+/// definitive answer on Windows.
+///
+/// Returns `false` when `hwnd` is `0`.
+#[must_use]
+pub fn is_window_minimized(hwnd: isize) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::IsIconic;
+
+    if hwnd == 0 {
+        return false;
+    }
+
+    // SAFETY: IsIconic is a read-only state check on a valid owned window.
+    unsafe { IsIconic(hwnd as *mut _) != 0 }
+}
+
 /// Make a hidden window visible without activating or focusing it.
 ///
 /// Calls `ShowWindow(SW_SHOWNOACTIVATE)` so the `WS_VISIBLE` flag is
