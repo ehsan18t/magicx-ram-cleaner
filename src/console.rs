@@ -108,7 +108,7 @@ fn redirect_std_handles() {
     const GENERIC_READ: u32 = 0x8000_0000;
     const GENERIC_WRITE: u32 = 0x4000_0000;
 
-    let conout_name = wide_literal::<7>(b"CONOUT$");
+    let conout_name = wide_literal::<8>(b"CONOUT$");
 
     // SAFETY: CreateFileW with CONOUT$ opens the active console output
     // buffer. The parameters are standard: read/write access, shared write,

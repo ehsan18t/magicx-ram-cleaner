@@ -78,6 +78,8 @@ Comments = "Surpasses EmptyStandbyList with granular control over every Windows 
 [build-dependencies]
 embed-manifest = "1"
 winresource = "0.1"
+ab_glyph = "0.2"
+egui-phosphor = { version = "0.11", features = ["regular"] }
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }

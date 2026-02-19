@@ -71,7 +71,7 @@ src/
   ntapi.rs         — NT kernel FFI (NtSetSystemInformation, NtQuerySystemInformation)
   privilege.rs     — Windows privilege elevation (Se*Privilege) + admin check
   stats.rs         — memory statistics, Win32 API calls, MemorySnapshot
-build.rs           — embeds admin-elevation manifest, application icon, and version metadata
+build.rs           — embeds admin-elevation manifest, application icon, Phosphor context-menu sub-icons (IDs 2–6), and version metadata
 assets/
   app.ico          — multi-size application icon (16–256 px) embedded as resource ID 1
 ```
