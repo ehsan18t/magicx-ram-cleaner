@@ -669,6 +669,14 @@ impl eframe::App for MagicXApp {
         self.stats_running.store(false, Ordering::Release);
         super::persistence::SettingsManager::save(&self.settings);
     }
+
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        // The default eframe implementation returns a hardcoded near-black
+        // colour, which bleeds through any panel that uses a transparent
+        // frame fill. Return the app's own background colour instead so
+        // the viewport clear colour always matches the in-app theme.
+        theme::bg_color(self.settings.dark_mode).to_normalized_gamma_f32()
+    }
 }
 
 // ─── Background Stats Thread ─────────────────────────────────────────────────
@@ -844,8 +852,9 @@ fn draw_nav_button(
 
 /// Draw the main content area based on the active panel.
 fn draw_main_panel(ctx: &egui::Context, app: &mut MagicXApp) {
+    let dark = app.settings.dark_mode;
     egui::CentralPanel::default()
-        .frame(egui::Frame::new())
+        .frame(egui::Frame::new().fill(theme::bg_color(dark)))
         .show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 egui::Frame::new()

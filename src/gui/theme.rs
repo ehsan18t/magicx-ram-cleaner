@@ -321,6 +321,12 @@ pub const fn sidebar_bg(dark: bool) -> egui::Color32 {
     if dark { SIDEBAR_BG } else { SIDEBAR_BG_LIGHT }
 }
 
+/// Main content area / panel background for the current theme.
+#[must_use]
+pub const fn bg_color(dark: bool) -> egui::Color32 {
+    if dark { BG_DARK } else { BG_LIGHT }
+}
+
 /// Linear interpolation between two `u8` values.
 fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
     let t = t.clamp(0.0, 1.0);
