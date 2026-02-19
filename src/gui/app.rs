@@ -431,11 +431,10 @@ impl MagicXApp {
         if self.last_process_refresh.elapsed() >= Duration::from_secs(PROCESS_REFRESH_SECS) {
             self.last_process_refresh = Instant::now();
             let procs_ref = Arc::clone(&self.top_processes);
-            let count = self.settings.top_process_count;
             std::thread::Builder::new()
                 .name("gui-procs".into())
                 .spawn(move || {
-                    if let Ok(procs) = stats::query_top_processes(count)
+                    if let Ok(procs) = stats::query_all_processes()
                         && let Ok(mut lock) = procs_ref.lock()
                     {
                         *lock = procs;
