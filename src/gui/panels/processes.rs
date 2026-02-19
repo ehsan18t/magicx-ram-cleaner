@@ -85,6 +85,8 @@ pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     widgets::page_title(ui, ph::CPU, "Top Processes", dark);
 
     draw_count_control(ui, app);
+    ui.add_space(4.0);
+    draw_search_bar(ui, app);
     ui.add_space(8.0);
 
     let procs = app.top_processes.lock().ok().map(|p| p.clone());
@@ -95,6 +97,13 @@ pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     };
 
     let mut grouped = group_processes(&procs);
+
+    // Filter by search text (case-insensitive substring match).
+    let query = app.process_search.trim().to_lowercase();
+    if !query.is_empty() {
+        grouped.retain(|g| g.name.to_lowercase().contains(&query));
+    }
+
     // Sort first so the slice we show is the correct top-N by the active column.
     sort_processes(&mut grouped, app.process_sort_col, app.process_sort_asc);
     grouped.truncate(app.settings.top_process_count);
@@ -173,7 +182,7 @@ fn draw_table_card(
                                 let label = if g.instance_count > 1 {
                                     format!("{}×", g.instance_count)
                                 } else {
-                                    String::new()
+                                    "1".to_owned()
                                 };
                                 ui.label(
                                     egui::RichText::new(label)
@@ -183,7 +192,14 @@ fn draw_table_card(
                             },
                         );
                     });
-                    row.col(|ui| draw_ws_cell(ui, g.private_working_set, max_ws));
+                    row.col(|ui| {
+                        let resp = draw_ws_cell(ui, g.private_working_set, max_ws);
+                        resp.on_hover_text(format!(
+                            "Private: {}\nFull WS: {}",
+                            stats::format_bytes(g.private_working_set),
+                            stats::format_bytes(g.working_set),
+                        ));
+                    });
                     row.col(|ui| {
                         ui.with_layout(
                             egui::Layout::right_to_left(egui::Align::Center),
@@ -205,7 +221,9 @@ fn draw_table_card(
 }
 
 /// Right-aligned working-set cell with a relative-usage micro bar below the value.
-fn draw_ws_cell(ui: &mut egui::Ui, working_set: u64, max_ws: u64) {
+///
+/// Returns the [`egui::Response`] so callers can attach tooltips.
+fn draw_ws_cell(ui: &mut egui::Ui, working_set: u64, max_ws: u64) -> egui::Response {
     let fraction = (working_set as f32 / max_ws as f32).clamp(0.0, 1.0);
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         ui.add_space(4.0);
@@ -234,7 +252,8 @@ fn draw_ws_cell(ui: &mut egui::Ui, working_set: u64, max_ws: u64) {
                 theme::ACCENT.gamma_multiply(0.85),
             );
         });
-    });
+    })
+    .response
 }
 
 /// Compact "Show top N" control rendered between the page title and the table.
@@ -267,13 +286,39 @@ fn draw_count_control(ui: &mut egui::Ui, app: &mut MagicXApp) {
     });
 }
 
+/// Search text input for filtering the process list by name.
+fn draw_search_bar(ui: &mut egui::Ui, app: &mut MagicXApp) {
+    let dark = app.settings.dark_mode;
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(format!("{} Filter", ph::MAGNIFYING_GLASS))
+                .size(12.0)
+                .color(theme::muted_color(dark)),
+        );
+        ui.add_space(4.0);
+        let edit = egui::TextEdit::singleline(&mut app.process_search)
+            .hint_text("type to search…")
+            .desired_width(180.0);
+        ui.add(edit);
+
+        if !app.process_search.is_empty()
+            && ui
+                .small_button(ph::X)
+                .on_hover_text("Clear search")
+                .clicked()
+        {
+            app.process_search.clear();
+        }
+    });
+}
+
 /// Human-readable name for a sort column index.
 const fn col_name(col: usize) -> &'static str {
     match col {
         0 => "name",
         1 => "count",
         3 => "peak",
-        _ => "working set",
+        _ => "memory",
     }
 }
 

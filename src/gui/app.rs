@@ -211,11 +211,14 @@ pub struct MagicXApp {
     /// Shadow copy of settings used to detect changes and trigger auto-save.
     settings_snapshot: GuiSettings,
 
-    /// Process sort column (0=name, 1=pid, 2=`working_set`, 3=peak).
+    /// Process sort column (0=name, 1=count, 2=memory, 3=peak).
     pub process_sort_col: usize,
 
     /// Process sort ascending.
     pub process_sort_asc: bool,
+
+    /// Real-time search / filter text for the processes panel.
+    pub process_search: String,
 
     /// Tracks the last `dark_mode` value written to the egui context so
     /// the theme is only switched on the frame the setting changes.
@@ -368,6 +371,7 @@ impl MagicXApp {
             settings,
             process_sort_col: 2,
             process_sort_asc: false,
+            process_search: String::new(),
             last_applied_dark: initial_dark_mode,
             window_revealed: false,
             settings_status: None,
