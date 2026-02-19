@@ -192,8 +192,9 @@ pub struct MagicXApp {
     /// Process sort ascending.
     pub process_sort_asc: bool,
 
-    /// Whether the dark theme was last applied (tracks theme changes).
-    theme_applied: bool,
+    /// Tracks the last `dark_mode` value written to the egui context so
+    /// the theme is only switched on the frame the setting changes.
+    last_applied_dark: bool,
 
     /// Whether the window has been revealed (for anti-flash).
     window_revealed: bool,
@@ -246,12 +247,13 @@ impl MagicXApp {
         // starts in the user's preferred mode without a one-frame flash.
         let settings = super::persistence::SettingsManager::load();
 
-        // Apply the persisted theme immediately.
-        if settings.dark_mode {
-            theme::apply_dark_theme(&cc.egui_ctx);
-        } else {
-            theme::apply_light_theme(&cc.egui_ctx);
-        }
+        // Register custom visuals for both Dark and Light themes, then
+        // explicitly switch to the user's persisted preference.  Using
+        // `set_visuals_of` + `set_theme` (rather than the legacy
+        // `set_visuals`) prevents the OS dark/light preference from
+        // silently overriding the in-app selection.
+        theme::register_themes(&cc.egui_ctx);
+        theme::set_active_theme(&cc.egui_ctx, settings.dark_mode);
 
         // Configure text styles for crisp rendering
         let mut style = (*cc.egui_ctx.style()).clone();
@@ -349,7 +351,7 @@ impl MagicXApp {
             settings,
             process_sort_col: 2,
             process_sort_asc: false,
-            theme_applied: initial_dark_mode,
+            last_applied_dark: initial_dark_mode,
             window_revealed: false,
             settings_status: None,
             tray_handle,
@@ -595,13 +597,10 @@ impl eframe::App for MagicXApp {
             self.maybe_refresh_processes();
         }
 
-        // Apply theme when toggled
-        if self.settings.dark_mode && !self.theme_applied {
-            theme::apply_dark_theme(ctx);
-            self.theme_applied = true;
-        } else if !self.settings.dark_mode && self.theme_applied {
-            theme::apply_light_theme(ctx);
-            self.theme_applied = false;
+        // Switch theme when the user toggles the preference.
+        if self.settings.dark_mode != self.last_applied_dark {
+            theme::set_active_theme(ctx, self.settings.dark_mode);
+            self.last_applied_dark = self.settings.dark_mode;
         }
 
         // Request repaint for live updates

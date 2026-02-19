@@ -222,10 +222,19 @@ pub fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     if ui.is_rect_visible(rect) {
         let anim = ui.ctx().animate_bool(response.id, *on);
 
+        // Off-state background adapts to the current theme so the track
+        // does not look jarring on light backgrounds.
+        let dark_mode = ui.visuals().dark_mode;
+        let (off_r, off_g, off_b) = if dark_mode {
+            (80_u8, 82_u8, 95_u8)
+        } else {
+            (175_u8, 178_u8, 190_u8)
+        };
+
         let bg_color = egui::Color32::from_rgb(
-            lerp_color_u8(80, 56, anim),
-            lerp_color_u8(82, 189, anim),
-            lerp_color_u8(95, 248, anim),
+            lerp_color_u8(off_r, 56, anim),
+            lerp_color_u8(off_g, 189, anim),
+            lerp_color_u8(off_b, 248, anim),
         );
 
         // Track background

@@ -99,8 +99,37 @@ pub const SIDEBAR_BUTTON_HEIGHT: f32 = 44.0;
 
 // ─── Theme Application ───────────────────────────────────────────────────────
 
-/// Apply the custom dark theme to the egui context.
-pub fn apply_dark_theme(ctx: &egui::Context) {
+/// Register both custom themes (dark & light) with the egui context.
+///
+/// Uses [`egui::Context::set_visuals_of`] so that each [`egui::Theme`] variant
+/// carries our bespoke colours, widget styles, and shadows.  After calling this
+/// once at startup the active theme can be switched cheaply with
+/// [`set_active_theme`] — no need to rebuild the full `Visuals` struct on
+/// every toggle.
+///
+/// This also prevents the OS dark/light preference from silently overriding the
+/// user's in-app selection, because we explicitly set the theme rather than
+/// leaving it at `ThemePreference::System`.
+pub fn register_themes(ctx: &egui::Context) {
+    ctx.set_visuals_of(egui::Theme::Dark, build_dark_visuals());
+    ctx.set_visuals_of(egui::Theme::Light, build_light_visuals());
+}
+
+/// Switch the active theme.
+///
+/// The custom visuals must already have been registered via
+/// [`register_themes`]; this simply tells egui which variant to use.
+pub fn set_active_theme(ctx: &egui::Context, dark: bool) {
+    let theme = if dark {
+        egui::Theme::Dark
+    } else {
+        egui::Theme::Light
+    };
+    ctx.set_theme(theme);
+}
+
+/// Build the custom dark-mode [`egui::Visuals`].
+fn build_dark_visuals() -> egui::Visuals {
     let mut v = egui::Visuals::dark();
 
     v.panel_fill = BG_DARK;
@@ -163,11 +192,11 @@ pub fn apply_dark_theme(ctx: &egui::Context) {
     };
     v.interact_cursor = Some(egui::CursorIcon::PointingHand);
 
-    ctx.set_visuals(v);
+    v
 }
 
-/// Apply the custom light theme to the egui context.
-pub fn apply_light_theme(ctx: &egui::Context) {
+/// Build the custom light-mode [`egui::Visuals`].
+fn build_light_visuals() -> egui::Visuals {
     let mut v = egui::Visuals::light();
 
     v.panel_fill = BG_LIGHT;
@@ -230,7 +259,7 @@ pub fn apply_light_theme(ctx: &egui::Context) {
     };
     v.interact_cursor = Some(egui::CursorIcon::PointingHand);
 
-    ctx.set_visuals(v);
+    v
 }
 
 // ─── Theme-aware Helpers ─────────────────────────────────────────────────────
