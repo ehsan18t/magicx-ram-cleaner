@@ -323,12 +323,17 @@ impl MagicXApp {
         // eframe before the app_creator closure is called.
         let hwnd = crate::console::find_app_window("MagicX RAM Cleaner");
 
+        // Force Windows dark mode at the process level so native menus
+        // and the title bar match the user's in-app theme from the start.
+        crate::console::set_process_dark_mode(initial_dark_mode);
+        crate::console::set_title_bar_dark_mode(hwnd, initial_dark_mode);
+
         // Initialize tray icon if minimize-to-tray was previously enabled.
         // Pass the egui context and HWND so the watcher thread can both call
         // request_repaint() (for visible windows) and post a synthetic WM_PAINT
         // (for hidden windows, where request_repaint alone is suppressed by OS).
         let tray_handle = if settings.minimize_to_tray {
-            tray::TrayHandle::new(cc.egui_ctx.clone(), hwnd).ok()
+            tray::TrayHandle::new(cc.egui_ctx.clone(), hwnd, initial_dark_mode).ok()
         } else {
             None
         };
@@ -531,12 +536,13 @@ impl MagicXApp {
         let autostart_changed = self.settings.auto_start != self.settings_snapshot.auto_start;
 
         // Rebuild the tray handle when the tray toggle changes.
-        // Tray icon glyph colours follow the OS theme (detected inside
-        // `TrayHandle::new`), not the in-app preference, because the
-        // native context menu background is always drawn by Windows.
+        // Glyph colours match the in-app theme: the process-wide menu
+        // theme is forced dark/light via set_process_dark_mode(), so the
+        // glyphs must match the app's dark_mode, not the OS theme.
         if tray_changed {
             if self.settings.minimize_to_tray {
-                self.tray_handle = tray::TrayHandle::new(ctx.clone(), self.hwnd).ok();
+                self.tray_handle =
+                    tray::TrayHandle::new(ctx.clone(), self.hwnd, self.settings.dark_mode).ok();
             } else {
                 self.tray_handle = None;
                 // Un-hide if the window was minimised while the setting was on.
@@ -613,6 +619,16 @@ impl eframe::App for MagicXApp {
         if self.settings.dark_mode != self.last_applied_dark {
             theme::set_active_theme(ctx, self.settings.dark_mode);
             self.last_applied_dark = self.settings.dark_mode;
+
+            // Update native Windows dark mode to match: title bar + menus.
+            crate::console::set_process_dark_mode(self.settings.dark_mode);
+            crate::console::set_title_bar_dark_mode(self.hwnd, self.settings.dark_mode);
+
+            // Rebuild tray icon so glyph colours match the new menu theme.
+            if self.settings.minimize_to_tray {
+                self.tray_handle =
+                    tray::TrayHandle::new(ctx.clone(), self.hwnd, self.settings.dark_mode).ok();
+            }
         }
 
         // Enforce the app's theme preference every frame.

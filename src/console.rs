@@ -255,6 +255,100 @@ pub fn is_system_dark_mode() -> bool {
     data == 0
 }
 
+/// Force the process's native Win32 menus to render in dark or light theme.
+///
+/// Uses the undocumented but stable `SetPreferredAppMode` (ordinal 135) and
+/// `FlushMenuThemes` (ordinal 136) exports from `uxtheme.dll`.  These ordinals
+/// have been stable since Windows 10 1903 and are relied on by production
+/// apps such as Firefox, VS Code, and Notepad++.
+///
+/// Does nothing silently if the DLL cannot be loaded or the ordinals are
+/// missing (e.g. on older Windows builds).
+#[expect(
+    clippy::as_conversions,
+    reason = "MAKEINTRESOURCE pattern: ordinal as *const u8 is the Win32 convention"
+)]
+pub fn set_process_dark_mode(dark: bool) {
+    use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+
+    /// `SetPreferredAppMode` argument: force dark context menus.
+    const FORCE_DARK: i32 = 2;
+    /// `SetPreferredAppMode` argument: force light context menus.
+    const FORCE_LIGHT: i32 = 3;
+
+    let lib_name: Vec<u16> = "uxtheme.dll".encode_utf16().chain(Some(0)).collect();
+
+    // SAFETY: LoadLibraryW is a standard Win32 call with a null-terminated
+    // wide string.  Returns null on failure.
+    let hmodule = unsafe { LoadLibraryW(lib_name.as_ptr()) };
+    if hmodule.is_null() {
+        return;
+    }
+
+    // Ordinal 135 — SetPreferredAppMode(mode: i32) -> i32
+    // SAFETY: GetProcAddress with a MAKEINTRESOURCE-style ordinal (low 16
+    // bits = ordinal, high bits zero) is the documented Win32 pattern for
+    // looking up exports by ordinal number.
+    let set_mode_addr = unsafe { GetProcAddress(hmodule, 135_usize as *const u8) };
+    if let Some(f) = set_mode_addr {
+        // SAFETY: Ordinal 135 is `fn(i32) -> i32` (stdcall).  This
+        // signature has been stable across all Windows 10/11 builds since
+        // 1903.  Transmute between equal-sized function pointer types is sound.
+        let set_mode: unsafe extern "system" fn(i32) -> i32 = unsafe { std::mem::transmute(f) };
+        unsafe {
+            set_mode(if dark { FORCE_DARK } else { FORCE_LIGHT });
+        }
+    }
+
+    // Ordinal 136 — FlushMenuThemes()
+    // Forces all menus in the process to re-evaluate their theme on next show.
+    let flush_addr = unsafe { GetProcAddress(hmodule, 136_usize as *const u8) };
+    if let Some(f) = flush_addr {
+        // SAFETY: Ordinal 136 is `fn()`.  Transmute is sound (same size).
+        let flush: unsafe extern "system" fn() = unsafe { std::mem::transmute(f) };
+        unsafe {
+            flush();
+        }
+    }
+}
+
+/// Set the window title bar to dark or light mode independently of the OS theme.
+///
+/// Uses [`DwmSetWindowAttribute`] with `DWMWA_USE_IMMERSIVE_DARK_MODE`
+/// (value 20, stable since Windows 10 build 18985 / 19H2).  This ensures the
+/// title bar matches the in-app theme rather than inheriting the OS-level
+/// dark/light preference.
+///
+/// Does nothing when `hwnd` is `0` (no window found) or on failure.
+///
+/// [`DwmSetWindowAttribute`]: https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/nf-dwmapi-dwmsetwindowattribute
+pub fn set_title_bar_dark_mode(hwnd: isize, dark: bool) {
+    use windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute;
+
+    /// `DWMWA_USE_IMMERSIVE_DARK_MODE` attribute constant.
+    /// Stable since Windows 10 Build 18985 (19H2+).
+    const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
+
+    if hwnd == 0 {
+        return;
+    }
+
+    let value: i32 = i32::from(dark);
+
+    // SAFETY: DwmSetWindowAttribute is a documented Win32 DWM call.
+    // We pass a valid HWND, the attribute constant, a pointer to a
+    // BOOL-valued i32, and its byte size (4).  The isize→HWND cast
+    // is the reverse of find_app_window's HWND→isize return convention.
+    let _ = unsafe {
+        DwmSetWindowAttribute(
+            hwnd as windows_sys::Win32::Foundation::HWND,
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            std::ptr::from_ref(&value).cast(),
+            std::mem::size_of::<i32>() as u32,
+        )
+    };
+}
+
 // ─── Balloon notification ────────────────────────────────────────────────────
 
 /// Notification icon unique ID (arbitrary, scoped to this process).

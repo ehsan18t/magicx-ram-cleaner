@@ -107,17 +107,21 @@ impl TrayHandle {
     /// `request_repaint`, `PostMessageW(WM_PAINT)` is not suppressed for
     /// windows with `WS_VISIBLE` cleared.
     ///
+    /// `dark` controls the glyph colour in menu icons: white glyphs for
+    /// dark menus, charcoal for light menus.  The caller should pass the
+    /// in-app theme preference, which **must** match the process-wide menu
+    /// theme forced by [`crate::console::set_process_dark_mode`].
+    ///
     /// # Errors
     ///
     /// Returns an error string on image-decode failure, menu-build failure, or
     /// if the `tray_icon` back-end or the watcher thread cannot be created.
-    pub fn new(ctx: egui::Context, hwnd: isize) -> Result<Self, String> {
+    pub fn new(ctx: egui::Context, hwnd: isize, dark: bool) -> Result<Self, String> {
         let icon = load_icon()?;
-        // The tray context menu background is drawn by Windows using the
-        // **OS** theme, so glyph colours must match the OS theme — not
-        // the in-app theme preference.
-        let os_dark = crate::console::is_system_dark_mode();
-        let (ids, menu) = build_menu(os_dark)?;
+        // The process-wide menu theme is forced by set_process_dark_mode()
+        // before this call, so glyph colours should match the app's theme,
+        // not the OS theme.
+        let (ids, menu) = build_menu(dark)?;
 
         let tray = TrayIconBuilder::new()
             .with_icon(icon)
