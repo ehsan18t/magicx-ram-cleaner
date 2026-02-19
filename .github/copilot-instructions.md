@@ -146,7 +146,7 @@ Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`,
 
 Rules:
 
-- Description starts lowercase, 5–72 characters.
+- Description starts lowercase, 5–200 characters.
 - No trailing period.
 - Scope is optional, lowercase, alphanumeric + hyphens.
 
