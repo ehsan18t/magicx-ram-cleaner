@@ -56,6 +56,8 @@ pub enum Panel {
     Processes,
     /// User preferences.
     Settings,
+    /// Application information, credits, and links.
+    About,
 }
 
 /// A timestamped memory snapshot for the history chart.
@@ -238,6 +240,13 @@ pub struct MagicXApp {
     /// Whether the window is currently hidden to the system tray.
     hidden_to_tray: bool,
 
+    /// Timestamp when `hidden_to_tray` was last set to `true` via the
+    /// close intercept.  Used to suppress the external-restore detection
+    /// for a short grace period so that the asynchronous `Visible(false)`
+    /// viewport command has time to take effect before we poll
+    /// `IsWindowVisible`.
+    hide_requested_at: Option<Instant>,
+
     /// Set to `true` when the user selects "Quit" from the tray menu.
     ///
     /// Allows the close-intercept logic to distinguish between a user quitting
@@ -364,6 +373,7 @@ impl MagicXApp {
             settings_status: None,
             tray_handle,
             hidden_to_tray: false,
+            hide_requested_at: None,
             quit_requested: false,
             context_menu_installed: crate::context_menu::is_installed(),
             hwnd,
@@ -621,6 +631,7 @@ impl eframe::App for MagicXApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             self.hidden_to_tray = true;
+            self.hide_requested_at = Some(Instant::now());
         }
 
         // ── External restore detection ───────────────────────────────
@@ -629,12 +640,17 @@ impl eframe::App for MagicXApp {
         // Detect the WS_VISIBLE flag and reconcile our internal state
         // so the UI renders and the close button works normally.
         //
-        // Skip this check on close-request frames: the Visible(false)
-        // viewport command above is asynchronous — WS_VISIBLE may
-        // still be set when we check, which would immediately undo
+        // A 500 ms grace period after the close intercept prevents this
+        // check from racing with the asynchronous Visible(false)
+        // viewport command.  Without the cooldown, WS_VISIBLE may
+        // still be set when we poll, which would immediately undo
         // the hide and leave the close button inoperative.
-        if self.hidden_to_tray && !close_requested && crate::console::is_window_visible(self.hwnd) {
+        let hide_settled = self
+            .hide_requested_at
+            .is_none_or(|t| t.elapsed() >= Duration::from_millis(500));
+        if self.hidden_to_tray && hide_settled && crate::console::is_window_visible(self.hwnd) {
             self.hidden_to_tray = false;
+            self.hide_requested_at = None;
         }
 
         // Poll background results
@@ -699,9 +715,7 @@ impl eframe::App for MagicXApp {
             // transitioning to hidden — skip the sleep so eframe
             // can process the Visible(false) command immediately.
             ctx.request_repaint_after(Duration::from_secs(1));
-            if !close_requested {
-                std::thread::sleep(Duration::from_millis(200));
-            }
+            std::thread::sleep(Duration::from_millis(200));
         } else if self.monitor_active {
             // Window is minimized but auto-clean is enabled.
             // Schedule a low-frequency wake-up so the threshold check
@@ -839,11 +853,12 @@ fn stats_thread(
 ///
 /// Icons are sourced from the Phosphor icon font (`egui_phosphor::regular`),
 /// which is registered at startup in [`MagicXApp::new`].
-const NAV_ITEMS: [(Panel, &str, &str); 4] = [
+const NAV_ITEMS: [(Panel, &str, &str); 5] = [
     (Panel::Dashboard, ph::GAUGE, "Dashboard"),
     (Panel::Monitor, ph::ACTIVITY, "Monitor"),
     (Panel::Processes, ph::CPU, "Processes"),
     (Panel::Settings, ph::GEAR, "Settings"),
+    (Panel::About, ph::INFO, "About"),
 ];
 
 /// Draw the sidebar with navigation and branding.
@@ -983,6 +998,7 @@ fn draw_main_panel(ctx: &egui::Context, app: &mut MagicXApp) {
                         Panel::Monitor => panels::monitor::draw(ui, app),
                         Panel::Processes => panels::processes::draw(ui, app),
                         Panel::Settings => panels::settings::draw(ui, app),
+                        Panel::About => panels::about::draw(ui, app),
                     });
             });
         });
