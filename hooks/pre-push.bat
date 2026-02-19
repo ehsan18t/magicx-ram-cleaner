@@ -81,16 +81,16 @@ if %ERRORLEVEL% equ 0 (
     echo   SKIP cargo-deny not installed ^(install: cargo install cargo-deny^)
 )
 
-REM Gate 6: Release build
-echo -^> [6/6] Building release...
-cargo build --release
+REM Gate 6: Debug build
+echo -^> [6/6] Building debug binary...
+cargo build
 if %ERRORLEVEL% neq 0 (
     echo.
-    echo X RELEASE BUILD FAILED
+    echo X DEBUG BUILD FAILED
     echo   Fix the build errors, then try pushing again.
     exit /b 1
 )
-echo   OK Release build
+echo   OK Debug build
 
 echo.
 echo All quality gates passed. Pushing...

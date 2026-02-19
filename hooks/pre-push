@@ -84,15 +84,15 @@ else
     echo "  ⊘ cargo-deny not installed, skipping (install: cargo install cargo-deny)"
 fi
 
-# Gate 6: Release build
-echo "→ [6/6] Building release..."
-if ! cargo build --release; then
+# Gate 6: Debug build
+echo "→ [6/6] Building debug binary..."
+if ! cargo build; then
     echo ""
-    echo "✗ RELEASE BUILD FAILED"
+    echo "✗ DEBUG BUILD FAILED"
     echo "  Fix the build errors, then try pushing again."
     exit 1
 fi
-echo "  ✓ Release build OK"
+echo "  ✓ Debug build OK"
 
 echo ""
 echo "✓ All quality gates passed. Pushing..."
