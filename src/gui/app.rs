@@ -630,6 +630,12 @@ impl eframe::App for MagicXApp {
         if close_requested && self.settings.minimize_to_tray && !self.quit_requested {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            // Belt-and-braces: call SW_HIDE directly so the window vanishes
+            // on this frame even when winit's internal visibility state is
+            // stale (e.g. after a second instance called ShowWindow(SW_RESTORE)
+            // which winit didn't observe).  Without this the async Visible(false)
+            // command is silently dropped and the window stays on screen.
+            crate::console::hide_window(self.hwnd);
             self.hidden_to_tray = true;
             self.hide_requested_at = Some(Instant::now());
         }
@@ -853,12 +859,11 @@ fn stats_thread(
 ///
 /// Icons are sourced from the Phosphor icon font (`egui_phosphor::regular`),
 /// which is registered at startup in [`MagicXApp::new`].
-const NAV_ITEMS: [(Panel, &str, &str); 5] = [
+const NAV_ITEMS: [(Panel, &str, &str); 4] = [
     (Panel::Dashboard, ph::GAUGE, "Dashboard"),
     (Panel::Monitor, ph::ACTIVITY, "Monitor"),
     (Panel::Processes, ph::CPU, "Processes"),
     (Panel::Settings, ph::GEAR, "Settings"),
-    (Panel::About, ph::INFO, "About"),
 ];
 
 /// Draw the sidebar with navigation and branding.
@@ -878,14 +883,12 @@ fn draw_sidebar(ctx: &egui::Context, app: &mut MagicXApp) {
             draw_sidebar_brand(ui);
             ui.add_space(8.0);
             draw_sidebar_nav(ui, app);
-            // Pin version string to the bottom of the sidebar.
+            // Pin the About button to the bottom of the sidebar.
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-                ui.add_space(2.0);
-                ui.label(
-                    egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
-                        .size(9.0)
-                        .color(theme::muted_color(dark)),
-                );
+                let selected = app.active_panel == Panel::About;
+                draw_nav_button(ui, ph::INFO, "About", selected, dark, || {
+                    app.active_panel = Panel::About;
+                });
             });
         });
 }
