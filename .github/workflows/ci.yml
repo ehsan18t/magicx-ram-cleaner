@@ -58,15 +58,12 @@ jobs:
         run: cargo fmt --all -- --check
 
       # Gate 2: Clippy (all+pedantic+nursery at deny level) — rejects lint violations.
-      # Cargo.toml [lints.clippy] already sets deny levels; the explicit -W flags here
-      # act as belt-and-suspenders to ensure CI always enforces them regardless of
-      # any future Cargo.toml changes.
+      # Lint levels and per-lint overrides are configured in Cargo.toml [lints.clippy].
+      # Only -D warnings is passed here to turn any remaining warnings into errors;
+      # adding -W clippy::pedantic on the CLI would override the per-lint "allow"
+      # entries in Cargo.toml (e.g. cast_precision_loss, missing_errors_doc).
       - name: "Gate 2: cargo clippy"
-        run: >
-          cargo clippy --locked --all-targets --
-          -D warnings
-          -W clippy::pedantic
-          -W clippy::nursery
+        run: cargo clippy --locked --all-targets -- -D warnings
 
       # Gate 3: Tests — rejects broken logic; --locked ensures Cargo.lock is honoured
       - name: "Gate 3: cargo test"
