@@ -35,6 +35,8 @@ fn draw_toggle_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
             );
             ui.add_space(8.0);
             widgets::toggle_switch(ui, &mut app.monitor_active);
+            // Keep the persisted setting in sync with the ephemeral toggle.
+            app.settings.auto_clean_enabled = app.monitor_active;
             ui.add_space(8.0);
             let (status_text, status_color) = if app.monitor_active {
                 ("Running", theme::GREEN)

@@ -99,6 +99,12 @@ pub struct GuiSettings {
     pub dark_mode: bool,
     /// Show tooltip with level details on circle hover (`true` = enabled).
     pub show_level_tooltips: bool,
+    /// Whether auto-clean monitoring is enabled.
+    ///
+    /// Persisted so the monitor resumes automatically when the app is
+    /// restarted.
+    #[serde(default)]
+    pub auto_clean_enabled: bool,
 }
 
 impl Default for GuiSettings {
@@ -112,6 +118,7 @@ impl Default for GuiSettings {
             top_process_count: DEFAULT_TOP_PROCESSES,
             dark_mode: true,
             show_level_tooltips: true,
+            auto_clean_enabled: false,
         }
     }
 }
@@ -145,11 +152,19 @@ pub struct MagicXApp {
 
     /// Shared flag: `true` when the UI needs periodic repaints.
     ///
-    /// Set every frame in [`update()`] based on window visibility and
-    /// monitoring state.  The background stats thread reads this to
-    /// decide whether to call [`egui::Context::request_repaint`].
-    /// When `false` the app goes truly idle (zero CPU / GPU).
+    /// Set every frame in [`update()`] based on window visibility.
+    /// The background stats thread reads this to decide whether to call
+    /// [`egui::Context::request_repaint`].  When `false` the app goes
+    /// truly idle (zero CPU / GPU) unless the monitor is collecting data.
     needs_repaint: Arc<AtomicBool>,
+
+    /// Shared flag: `true` when the stats thread should capture snapshots
+    /// even if the window is not visible (e.g. auto-clean monitoring).
+    ///
+    /// When this is `true` but `needs_repaint` is `false`, the stats
+    /// thread captures data but does **not** request repaints, avoiding
+    /// unnecessary UI wake-ups while hidden/minimized.
+    needs_capture: Arc<AtomicBool>,
 
     /// Channel for receiving cleaning results from worker threads.
     clean_rx: Receiver<CleanResultMsg>,
@@ -263,6 +278,7 @@ impl MagicXApp {
         let history = Arc::new(Mutex::new(VecDeque::with_capacity(HISTORY_CAPACITY)));
         let stats_running = Arc::new(AtomicBool::new(true));
         let needs_repaint = Arc::new(AtomicBool::new(true));
+        let needs_capture = Arc::new(AtomicBool::new(true));
         let top_processes = Arc::new(Mutex::new(Vec::new()));
 
         // Spawn background stats collection thread
@@ -272,6 +288,7 @@ impl MagicXApp {
             let history_ref = Arc::clone(&history);
             let running_ref = Arc::clone(&stats_running);
             let repaint_ref = Arc::clone(&needs_repaint);
+            let capture_ref = Arc::clone(&needs_capture);
             let ctx = cc.egui_ctx.clone();
 
             std::thread::Builder::new()
@@ -282,6 +299,7 @@ impl MagicXApp {
                         &history_ref,
                         &running_ref,
                         &repaint_ref,
+                        &capture_ref,
                         start_time,
                         &ctx,
                     );
@@ -323,6 +341,7 @@ impl MagicXApp {
             history,
             stats_running,
             needs_repaint,
+            needs_capture,
             clean_rx,
             clean_tx,
             cleaning_in_progress: false,
@@ -331,7 +350,7 @@ impl MagicXApp {
             last_process_refresh: Instant::now()
                 .checked_sub(Duration::from_secs(PROCESS_REFRESH_SECS + 1))
                 .unwrap_or_else(Instant::now),
-            monitor_active: false,
+            monitor_active: settings.auto_clean_enabled,
             last_auto_clean: None,
             last_monitor_status_log: None,
             prev_monitor_active: false,
@@ -637,10 +656,10 @@ impl eframe::App for MagicXApp {
         let window_visible = !self.hidden_to_tray && !minimized;
 
         // Tell the stats thread whether the UI needs periodic data.
-        // When the window is not visible and monitoring is off, the
-        // stats thread skips captures and repaints entirely so the
-        // app uses zero CPU / GPU.
-        self.needs_repaint
+        // When the window is not visible and monitoring is off, skip all
+        // work — no Win32 calls, no mutex locks, no repaints.
+        self.needs_repaint.store(window_visible, Ordering::Release);
+        self.needs_capture
             .store(window_visible || self.monitor_active, Ordering::Release);
 
         // Skip ALL rendering when the window is not visible.  This
@@ -664,6 +683,13 @@ impl eframe::App for MagicXApp {
             // immediately when the user interacts with the tray icon.
             ctx.request_repaint_after(Duration::from_secs(1));
             std::thread::sleep(Duration::from_millis(200));
+        } else if self.monitor_active {
+            // Window is minimized but auto-clean is enabled.
+            // Schedule a low-frequency wake-up so the threshold check
+            // in handle_monitor_auto_clean() runs without the stats
+            // thread having to call request_repaint() (which would
+            // cause unnecessary rendering work).
+            ctx.request_repaint_after(Duration::from_secs(2));
         }
 
         // ── Settings sync ────────────────────────────────────────────
@@ -747,6 +773,7 @@ fn stats_thread(
     history: &Arc<Mutex<VecDeque<HistoryPoint>>>,
     running: &Arc<AtomicBool>,
     needs_repaint: &Arc<AtomicBool>,
+    needs_capture: &Arc<AtomicBool>,
     start_time: Instant,
     ctx: &egui::Context,
 ) {
@@ -755,7 +782,7 @@ fn stats_thread(
         // update() to run for auto-clean threshold checks.  When the
         // window is hidden/minimized with monitoring off, skip all
         // work — no Win32 calls, no mutex locks, no repaints.
-        if needs_repaint.load(Ordering::Acquire)
+        if needs_capture.load(Ordering::Acquire)
             && let Ok(snap) = MemorySnapshot::capture()
         {
             let point = HistoryPoint {
@@ -774,7 +801,13 @@ fn stats_thread(
                 lock.push_back(point);
             }
 
-            ctx.request_repaint();
+            // Only request a repaint when the window is actually visible.
+            // When the monitor is running but the window is hidden, we
+            // still capture data above for threshold checks, but skip
+            // the repaint to avoid unnecessary UI wake-ups and CPU usage.
+            if needs_repaint.load(Ordering::Acquire) {
+                ctx.request_repaint();
+            }
         }
 
         std::thread::sleep(Duration::from_millis(STATS_POLL_INTERVAL_MS));
