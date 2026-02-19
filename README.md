@@ -446,17 +446,19 @@ magicx-ram-cleaner context-menu <install|uninstall>
 | `uninstall` | Remove context menu entries (deletes registry keys)         |
 
 **Context menu entries installed:**
-| Entry            | Action                              | Icon           |
-| ---------------- | ----------------------------------- | -------------- |
-| Boost            | `clean --level gentle --notify`     | lite.ico       |
-| Moderate Boost   | `clean --level moderate --notify`   | lite.ico       |
-| Aggressive Boost | `clean --level aggressive --notify` | aggressive.ico |
-| Purge Standby    | `purge-standby --notify`            | app.ico        |
-| Memory Status    | `status --notify`                   | app.ico        |
+| Entry              | Action                              | Icon    |
+| ------------------ | ----------------------------------- | ------- |
+| Quick Clean        | `clean --level gentle --notify`     | app.ico |
+| Standard Clean     | `clean --level moderate --notify`   | app.ico |
+| Deep Clean         | `clean --level aggressive --notify` | app.ico |
+| Purge Standby List | `purge-standby --notify`            | app.ico |
+| Memory Status      | `status`                            | app.ico |
 
 > **Note:** Nuclear is intentionally excluded from the context menu — it is too destructive for one-click access.
 
-Context menu entries use `--notify` mode: no terminal window appears (the binary uses `SUBSYSTEM:WINDOWS` and skips console attachment entirely), the operation runs silently, and a brief balloon notification shows the result (e.g. freed RAM, success/failure). The notification auto-dismisses after 2 seconds and is not saved in the Windows Action Center.
+Cleaning entries use `--notify` mode: no terminal window appears (the binary uses `SUBSYSTEM:WINDOWS` and skips console attachment entirely), the operation runs silently, and a brief balloon notification shows the result (e.g. freed RAM, success/failure). The notification auto-dismisses after 2 seconds and is not saved in the Windows Action Center.
+
+Memory Status opens a console window with full status output (no `--notify`) so the information is always visible regardless of whether the GUI is running.
 
 **Examples:**
 ```powershell

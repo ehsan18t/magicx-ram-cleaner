@@ -15,13 +15,13 @@
 //!   SubCommands = ""
 //!   Icon        = "C:\...\magicx-ram-cleaner.exe,-1"
 //!   Shell\
-//!     01boost\
-//!       MUIVerb   = "Boost"
-//!       Icon      = "C:\...\magicx-ram-cleaner.exe,-2"
+//!     01quick\
+//!       MUIVerb   = "Quick Clean"
+//!       Icon      = "C:\...\magicx-ram-cleaner.exe,-1"
 //!       command\  (default) = '"C:\...\exe" clean --level gentle --notify'
-//!     02moderate\
+//!     02standard\
 //!       …
-//!     03aggressive\
+//!     03deep\
 //!       …
 //!     04purge_standby\
 //!       …
@@ -31,14 +31,9 @@
 //!
 //! ## Icon resource IDs
 //!
-//! The `.ico` files are embedded as Win32 `ICON` resources with numeric IDs:
-//! - ID `1` — `app.ico` (default/main icon, also used for root menu + purge/status)
-//! - ID `2` — `lite.ico` (gentle / moderate entries)
-//! - ID `3` — `aggressive.ico` (aggressive entry)
-//!
-//! Registry `Icon` values reference them as `"<exe_path>,-<resource_id>"`.
-//! Adding a new icon: embed it in `build.rs` with the next sequential ID,
-//! then reference it in `ENTRIES`.
+//! The application icon (`app.ico`) is embedded as Win32 `ICON` resource ID `1`.
+//! All menu entries share this icon. Registry `Icon` values reference it as
+//! `"<exe_path>,-1"`.
 
 use anyhow::{Context, Result, bail};
 use colored::Colorize;
@@ -74,34 +69,34 @@ struct MenuEntry {
 /// Nuclear is intentionally excluded — it is too destructive for a one-click action.
 const ENTRIES: &[MenuEntry] = &[
     MenuEntry {
-        key: "01boost",
-        label: "Boost",
-        icon_resource_id: 2, // lite.ico
+        key: "01quick",
+        label: "Quick Clean",
+        icon_resource_id: 1,
         args: "clean --level gentle --notify",
     },
     MenuEntry {
-        key: "02moderate",
-        label: "Moderate Boost",
-        icon_resource_id: 2, // lite.ico
+        key: "02standard",
+        label: "Standard Clean",
+        icon_resource_id: 1,
         args: "clean --level moderate --notify",
     },
     MenuEntry {
-        key: "03aggressive",
-        label: "Aggressive Boost",
-        icon_resource_id: 3, // aggressive.ico
+        key: "03deep",
+        label: "Deep Clean",
+        icon_resource_id: 1,
         args: "clean --level aggressive --notify",
     },
     MenuEntry {
         key: "04purge_standby",
-        label: "Purge Standby",
-        icon_resource_id: 1, // app.ico
+        label: "Purge Standby List",
+        icon_resource_id: 1,
         args: "purge-standby --notify",
     },
     MenuEntry {
         key: "05status",
         label: "Memory Status",
-        icon_resource_id: 1, // app.ico
-        args: "status --notify",
+        icon_resource_id: 1,
+        args: "status",
     },
 ];
 
@@ -378,13 +373,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn entries_have_valid_icon_resource_ids() {
+    fn entries_all_use_app_icon() {
         for entry in ENTRIES {
-            assert!(
-                entry.icon_resource_id >= 1 && entry.icon_resource_id <= 3,
-                "entry '{}' has out-of-range icon_resource_id {}",
-                entry.key,
-                entry.icon_resource_id
+            assert_eq!(
+                entry.icon_resource_id, 1,
+                "entry '{}' should use the app icon (resource ID 1)",
+                entry.key
             );
         }
     }

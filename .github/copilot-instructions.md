@@ -74,8 +74,6 @@ src/
 build.rs           — embeds admin-elevation manifest, application icon, and version metadata
 assets/
   app.ico          — multi-size application icon (16–256 px) embedded as resource ID 1
-  lite.ico         — gentle/moderate context menu icon, embedded as resource ID 2
-  aggressive.ico   — aggressive context menu icon, embedded as resource ID 3
 ```
 
 - **Do not create new modules** without explicit human approval.
