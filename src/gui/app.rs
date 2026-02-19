@@ -143,6 +143,14 @@ pub struct MagicXApp {
     /// Background stats thread shutdown signal.
     stats_running: Arc<AtomicBool>,
 
+    /// Shared flag: `true` when the UI needs periodic repaints.
+    ///
+    /// Set every frame in [`update()`] based on window visibility and
+    /// monitoring state.  The background stats thread reads this to
+    /// decide whether to call [`egui::Context::request_repaint`].
+    /// When `false` the app goes truly idle (zero CPU / GPU).
+    needs_repaint: Arc<AtomicBool>,
+
     /// Channel for receiving cleaning results from worker threads.
     clean_rx: Receiver<CleanResultMsg>,
 
@@ -247,55 +255,14 @@ impl MagicXApp {
         // starts in the user's preferred mode without a one-frame flash.
         let settings = super::persistence::SettingsManager::load();
 
-        // Register custom visuals for both Dark and Light themes, then
-        // explicitly switch to the user's persisted preference.  Using
-        // `set_visuals_of` + `set_theme` (rather than the legacy
-        // `set_visuals`) prevents the OS dark/light preference from
-        // silently overriding the in-app selection.
-        theme::register_themes(&cc.egui_ctx);
-        theme::set_active_theme(&cc.egui_ctx, settings.dark_mode);
-
-        // Apply custom text styles and spacing to BOTH themes.
-        // `set_style` only modifies the *active* theme's style, so we
-        // temporarily activate each variant, clone-and-patch its style,
-        // then restore the user's preferred theme.
-        for variant in [egui::Theme::Dark, egui::Theme::Light] {
-            cc.egui_ctx.set_theme(variant);
-            let mut style = (*cc.egui_ctx.style()).clone();
-            style.spacing.item_spacing = egui::vec2(6.0, 4.0);
-            style.spacing.button_padding = egui::vec2(8.0, 4.0);
-            style.spacing.window_margin = egui::Margin::same(10);
-
-            style.text_styles.insert(
-                TextStyle::Heading,
-                FontId::new(21.0, FontFamily::Proportional),
-            );
-            style
-                .text_styles
-                .insert(TextStyle::Body, FontId::new(13.0, FontFamily::Proportional));
-            style.text_styles.insert(
-                TextStyle::Small,
-                FontId::new(10.0, FontFamily::Proportional),
-            );
-            style.text_styles.insert(
-                TextStyle::Button,
-                FontId::new(13.0, FontFamily::Proportional),
-            );
-            style.text_styles.insert(
-                TextStyle::Monospace,
-                FontId::new(12.0, FontFamily::Monospace),
-            );
-
-            cc.egui_ctx.set_style(style);
-        }
-
-        // Restore the user's preferred theme after patching both variants.
-        theme::set_active_theme(&cc.egui_ctx, settings.dark_mode);
+        // Register and configure both themes, then activate the saved one.
+        configure_themes(&cc.egui_ctx, settings.dark_mode);
 
         let (clean_tx, clean_rx) = mpsc::channel();
         let latest_snapshot = Arc::new(Mutex::new(None));
         let history = Arc::new(Mutex::new(VecDeque::with_capacity(HISTORY_CAPACITY)));
         let stats_running = Arc::new(AtomicBool::new(true));
+        let needs_repaint = Arc::new(AtomicBool::new(true));
         let top_processes = Arc::new(Mutex::new(Vec::new()));
 
         // Spawn background stats collection thread
@@ -304,12 +271,20 @@ impl MagicXApp {
             let snapshot_ref = Arc::clone(&latest_snapshot);
             let history_ref = Arc::clone(&history);
             let running_ref = Arc::clone(&stats_running);
+            let repaint_ref = Arc::clone(&needs_repaint);
             let ctx = cc.egui_ctx.clone();
 
             std::thread::Builder::new()
                 .name("gui-stats".into())
                 .spawn(move || {
-                    stats_thread(&snapshot_ref, &history_ref, &running_ref, start_time, &ctx);
+                    stats_thread(
+                        &snapshot_ref,
+                        &history_ref,
+                        &running_ref,
+                        &repaint_ref,
+                        start_time,
+                        &ctx,
+                    );
                 })
                 .expect("failed to spawn stats thread");
         }
@@ -347,6 +322,7 @@ impl MagicXApp {
             latest_snapshot,
             history,
             stats_running,
+            needs_repaint,
             clean_rx,
             clean_tx,
             cleaning_in_progress: false,
@@ -647,8 +623,14 @@ impl eframe::App for MagicXApp {
             theme::set_active_theme(ctx, self.settings.dark_mode);
         }
 
-        // Request repaint for live updates
-        ctx.request_repaint_after(Duration::from_millis(500));
+        // Tell the stats thread whether the UI needs periodic repaints.
+        // When hidden to tray with monitoring inactive, the app goes truly
+        // idle — zero CPU, zero GPU.  The tray-watcher thread will wake us
+        // when the user interacts with the system-tray icon.
+        self.needs_repaint.store(
+            !self.hidden_to_tray || self.monitor_active,
+            Ordering::Release,
+        );
 
         // ── Layout ───────────────────────────────────────────────────
         draw_sidebar(ctx, self);
@@ -679,6 +661,54 @@ impl eframe::App for MagicXApp {
     }
 }
 
+// ─── One-Time Theme Configuration ────────────────────────────────────────────
+
+/// Register custom visuals for both dark and light themes, apply shared text
+/// styles and spacing, then activate the user's preferred variant.
+///
+/// Called once from [`MagicXApp::new`]. The `set_visuals_of` + `set_theme`
+/// approach (rather than the legacy `set_visuals`) prevents the OS dark/light
+/// preference from silently overriding the in-app selection.
+fn configure_themes(ctx: &egui::Context, dark_mode: bool) {
+    theme::register_themes(ctx);
+    theme::set_active_theme(ctx, dark_mode);
+
+    // `set_style` only modifies the *active* theme's style, so we
+    // temporarily activate each variant, clone-and-patch it, then
+    // restore the user's saved preference.
+    for variant in [egui::Theme::Dark, egui::Theme::Light] {
+        ctx.set_theme(variant);
+        let mut style = (*ctx.style()).clone();
+        style.spacing.item_spacing = egui::vec2(6.0, 4.0);
+        style.spacing.button_padding = egui::vec2(8.0, 4.0);
+        style.spacing.window_margin = egui::Margin::same(10);
+
+        style.text_styles.insert(
+            TextStyle::Heading,
+            FontId::new(21.0, FontFamily::Proportional),
+        );
+        style
+            .text_styles
+            .insert(TextStyle::Body, FontId::new(13.0, FontFamily::Proportional));
+        style.text_styles.insert(
+            TextStyle::Small,
+            FontId::new(10.0, FontFamily::Proportional),
+        );
+        style.text_styles.insert(
+            TextStyle::Button,
+            FontId::new(13.0, FontFamily::Proportional),
+        );
+        style.text_styles.insert(
+            TextStyle::Monospace,
+            FontId::new(12.0, FontFamily::Monospace),
+        );
+
+        ctx.set_style(style);
+    }
+
+    theme::set_active_theme(ctx, dark_mode);
+}
+
 // ─── Background Stats Thread ─────────────────────────────────────────────────
 
 /// Background thread that periodically captures memory snapshots.
@@ -686,6 +716,7 @@ fn stats_thread(
     snapshot: &Arc<Mutex<Option<MemorySnapshot>>>,
     history: &Arc<Mutex<VecDeque<HistoryPoint>>>,
     running: &Arc<AtomicBool>,
+    needs_repaint: &Arc<AtomicBool>,
     start_time: Instant,
     ctx: &egui::Context,
 ) {
@@ -707,7 +738,12 @@ fn stats_thread(
                 lock.push_back(point);
             }
 
-            ctx.request_repaint();
+            // Only wake the UI when the window is visible or the
+            // monitor needs `update()` to run for auto-clean checks.
+            // This lets the app truly idle when hidden to tray.
+            if needs_repaint.load(Ordering::Acquire) {
+                ctx.request_repaint();
+            }
         }
 
         std::thread::sleep(Duration::from_millis(STATS_POLL_INTERVAL_MS));
