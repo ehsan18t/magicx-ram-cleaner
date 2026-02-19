@@ -285,11 +285,14 @@ fn draw_toolbar(ui: &mut egui::Ui, app: &mut MagicXApp) {
 
         // ── Right: search box ──────────────────────────────────────────────
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if !app.process_search.is_empty()
-                && ui
-                    .small_button(ph::X)
-                    .on_hover_text("Clear search")
-                    .clicked()
+            // Always render the clear button so the widget tree is stable
+            // across frames — conditional widgets cause egui to drop the
+            // TextEdit's focus after the first keystroke.
+            let has_text = !app.process_search.is_empty();
+            if ui
+                .add_enabled(has_text, egui::Button::new(ph::X).small())
+                .on_hover_text("Clear search")
+                .clicked()
             {
                 app.process_search.clear();
             }
