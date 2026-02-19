@@ -650,6 +650,20 @@ impl eframe::App for MagicXApp {
         // minimized or hidden to tray.
         if window_visible {
             self.update_visible_ui(ctx);
+        } else if self.hidden_to_tray {
+            // Workaround for eframe bug emilk/egui#7776:
+            // When the window is hidden via Visible(false), eframe's
+            // winit event loop spins with ControlFlow::Poll at full
+            // speed, never blocking.  An explicit sleep throttles the
+            // loop to ~5 Hz until the upstream fix (PR #7905) lands.
+            // request_repaint_after() tells eframe not to schedule
+            // the next frame any sooner.
+            //
+            // The tray-watcher thread calls ctx.request_repaint()
+            // on events, which overrides the delay and wakes us
+            // immediately when the user interacts with the tray icon.
+            ctx.request_repaint_after(Duration::from_secs(1));
+            std::thread::sleep(Duration::from_millis(200));
         }
 
         // ── Settings sync ────────────────────────────────────────────
