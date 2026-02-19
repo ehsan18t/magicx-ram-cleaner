@@ -205,7 +205,8 @@ fn build_light_visuals() -> egui::Visuals {
     v.extreme_bg_color = egui::Color32::WHITE;
     v.code_bg_color = egui::Color32::from_rgb(234, 237, 242);
 
-    v.selection.bg_fill = ACCENT.gamma_multiply(0.15);
+    // Light-blue tint for selections — visible on white/light backgrounds.
+    v.selection.bg_fill = egui::Color32::from_rgb(198, 232, 252);
     v.selection.stroke = egui::Stroke::new(1.0, ACCENT_DIM);
 
     let rounding = egui::CornerRadius::same(6);
@@ -228,8 +229,8 @@ fn build_light_visuals() -> egui::Visuals {
     v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, ACCENT_DIM);
     v.widgets.hovered.corner_radius = rounding;
 
-    // Active
-    v.widgets.active.bg_fill = ACCENT.gamma_multiply(0.15);
+    // Active / pressed — light accent tint, legible on light backgrounds.
+    v.widgets.active.bg_fill = egui::Color32::from_rgb(178, 224, 250);
     v.widgets.active.fg_stroke = egui::Stroke::new(1.0, TEXT_LIGHT);
     v.widgets.active.bg_stroke = egui::Stroke::new(1.0, ACCENT_DIM);
     v.widgets.active.corner_radius = rounding;

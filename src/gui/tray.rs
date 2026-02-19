@@ -111,9 +111,9 @@ impl TrayHandle {
     ///
     /// Returns an error string on image-decode failure, menu-build failure, or
     /// if the `tray_icon` back-end or the watcher thread cannot be created.
-    pub fn new(ctx: egui::Context, hwnd: isize) -> Result<Self, String> {
+    pub fn new(ctx: egui::Context, hwnd: isize, dark: bool) -> Result<Self, String> {
         let icon = load_icon()?;
-        let (ids, menu) = build_menu()?;
+        let (ids, menu) = build_menu(dark)?;
 
         let tray = TrayIconBuilder::new()
             .with_icon(icon)
@@ -288,20 +288,20 @@ fn load_icon() -> Result<tray_icon::Icon, String> {
 /// ────────────────────────────
 /// ⏻   Quit
 /// ```
-fn build_menu() -> Result<(MenuIds, Menu), String> {
+fn build_menu(dark: bool) -> Result<(MenuIds, Menu), String> {
     // Phosphor Regular codepoints (from egui_phosphor::regular).
-    let show_item = icon_menu_item("Open MagicX RAM Cleaner", '\u{E3FE}'); // ROCKET_LAUNCH
-    let quit_item = icon_menu_item("Quit", '\u{E3DA}'); // POWER
+    let show_item = icon_menu_item("Open MagicX RAM Cleaner", '\u{E3FE}', dark); // ROCKET_LAUNCH
+    let quit_item = icon_menu_item("Quit", '\u{E3DA}', dark); // POWER
 
-    let gentle_item = icon_menu_item("Gentle", '\u{E2DA}'); // LEAF
-    let moderate_item = icon_menu_item("Moderate", '\u{E2DE}'); // LIGHTNING
-    let aggressive_item = icon_menu_item("Aggressive", '\u{E242}'); // FIRE
-    let nuclear_item = icon_menu_item("Nuclear", '\u{E9DC}'); // RADIOACTIVE
+    let gentle_item = icon_menu_item("Gentle", '\u{E2DA}', dark); // LEAF
+    let moderate_item = icon_menu_item("Moderate", '\u{E2DE}', dark); // LIGHTNING
+    let aggressive_item = icon_menu_item("Aggressive", '\u{E242}', dark); // FIRE
+    let nuclear_item = icon_menu_item("Nuclear", '\u{E9DC}', dark); // RADIOACTIVE
 
-    let nav_dashboard = icon_menu_item("Dashboard", '\u{E628}'); // GAUGE
-    let nav_monitor = icon_menu_item("Monitor", '\u{E000}'); // ACTIVITY
-    let nav_processes = icon_menu_item("Processes", '\u{E610}'); // CPU
-    let nav_settings = icon_menu_item("Settings", '\u{E270}'); // GEAR
+    let nav_dashboard = icon_menu_item("Dashboard", '\u{E628}', dark); // GAUGE
+    let nav_monitor = icon_menu_item("Monitor", '\u{E000}', dark); // ACTIVITY
+    let nav_processes = icon_menu_item("Processes", '\u{E610}', dark); // CPU
+    let nav_settings = icon_menu_item("Settings", '\u{E270}', dark); // GEAR
 
     let ids = MenuIds {
         show: show_item.id().clone(),
@@ -318,7 +318,7 @@ fn build_menu() -> Result<(MenuIds, Menu), String> {
 
     let clean_submenu = Submenu::new("Clean RAM", true);
     // Give the submenu itself a broom icon.
-    if let Some(broom) = rasterize_glyph('\u{EC54}') {
+    if let Some(broom) = rasterize_glyph('\u{EC54}', dark) {
         // SAFETY: set_icon cannot fail on Windows; errors are silently ignored.
         clean_submenu.set_icon(Some(broom));
     }
@@ -357,8 +357,9 @@ const ICON_SIZE: u32 = 16;
 /// Create an [`IconMenuItem`] with a Phosphor icon glyph.
 ///
 /// Falls back to a text-only item if glyph rasterization fails.
-fn icon_menu_item(label: &str, glyph: char) -> IconMenuItem {
-    IconMenuItem::new(label, true, rasterize_glyph(glyph), None)
+/// `dark` controls the glyph colour: white for dark OS menus, dark for light.
+fn icon_menu_item(label: &str, glyph: char, dark: bool) -> IconMenuItem {
+    IconMenuItem::new(label, true, rasterize_glyph(glyph, dark), None)
 }
 
 /// Rasterize a single Phosphor Regular glyph into a 16×16 RGBA
@@ -367,7 +368,11 @@ fn icon_menu_item(label: &str, glyph: char) -> IconMenuItem {
 /// Uses `ab_glyph` (already a transitive dependency of `epaint`) to render
 /// the glyph from the embedded Phosphor font.  Returns `None` on any
 /// failure so callers degrade gracefully to text-only menu items.
-fn rasterize_glyph(codepoint: char) -> Option<Icon> {
+///
+/// When `dark` is `true` the glyph is rendered white (for dark OS menu
+/// backgrounds); when `false` it is rendered in a dark charcoal colour so
+/// it remains visible on light menu backgrounds.
+fn rasterize_glyph(codepoint: char, dark: bool) -> Option<Icon> {
     let font_bytes = egui_phosphor::Variant::Regular.font_bytes();
     let font = FontRef::try_from_slice(font_bytes).ok()?;
 
@@ -414,11 +419,17 @@ fn rasterize_glyph(codepoint: char) -> Option<Icon> {
         if px < canvas && py < canvas {
             let idx = ((py * canvas + px) * 4) as usize;
             let alpha = (coverage * 255.0) as u8;
-            // White glyph with variable alpha — looks good on both light and dark.
-            rgba[idx] = 255; // R
-            rgba[idx + 1] = 255; // G
-            rgba[idx + 2] = 255; // B
-            rgba[idx + 3] = alpha; // A
+            // Glyph colour adapts to the theme so icons remain visible
+            // on both dark and light OS context menu backgrounds.
+            let (r, g, b) = if dark {
+                (255_u8, 255_u8, 255_u8) // white on dark
+            } else {
+                (30_u8, 33_u8, 36_u8) // charcoal on light
+            };
+            rgba[idx] = r;
+            rgba[idx + 1] = g;
+            rgba[idx + 2] = b;
+            rgba[idx + 3] = alpha;
         }
     });
 

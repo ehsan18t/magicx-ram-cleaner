@@ -255,34 +255,42 @@ impl MagicXApp {
         theme::register_themes(&cc.egui_ctx);
         theme::set_active_theme(&cc.egui_ctx, settings.dark_mode);
 
-        // Configure text styles for crisp rendering
-        let mut style = (*cc.egui_ctx.style()).clone();
-        style.spacing.item_spacing = egui::vec2(6.0, 4.0);
-        style.spacing.button_padding = egui::vec2(8.0, 4.0);
-        style.spacing.window_margin = egui::Margin::same(10);
+        // Apply custom text styles and spacing to BOTH themes.
+        // `set_style` only modifies the *active* theme's style, so we
+        // temporarily activate each variant, clone-and-patch its style,
+        // then restore the user's preferred theme.
+        for variant in [egui::Theme::Dark, egui::Theme::Light] {
+            cc.egui_ctx.set_theme(variant);
+            let mut style = (*cc.egui_ctx.style()).clone();
+            style.spacing.item_spacing = egui::vec2(6.0, 4.0);
+            style.spacing.button_padding = egui::vec2(8.0, 4.0);
+            style.spacing.window_margin = egui::Margin::same(10);
 
-        // Tighter text styles for a compact look
-        style.text_styles.insert(
-            TextStyle::Heading,
-            FontId::new(21.0, FontFamily::Proportional),
-        );
-        style
-            .text_styles
-            .insert(TextStyle::Body, FontId::new(13.0, FontFamily::Proportional));
-        style.text_styles.insert(
-            TextStyle::Small,
-            FontId::new(10.0, FontFamily::Proportional),
-        );
-        style.text_styles.insert(
-            TextStyle::Button,
-            FontId::new(13.0, FontFamily::Proportional),
-        );
-        style.text_styles.insert(
-            TextStyle::Monospace,
-            FontId::new(12.0, FontFamily::Monospace),
-        );
+            style.text_styles.insert(
+                TextStyle::Heading,
+                FontId::new(21.0, FontFamily::Proportional),
+            );
+            style
+                .text_styles
+                .insert(TextStyle::Body, FontId::new(13.0, FontFamily::Proportional));
+            style.text_styles.insert(
+                TextStyle::Small,
+                FontId::new(10.0, FontFamily::Proportional),
+            );
+            style.text_styles.insert(
+                TextStyle::Button,
+                FontId::new(13.0, FontFamily::Proportional),
+            );
+            style.text_styles.insert(
+                TextStyle::Monospace,
+                FontId::new(12.0, FontFamily::Monospace),
+            );
 
-        cc.egui_ctx.set_style(style);
+            cc.egui_ctx.set_style(style);
+        }
+
+        // Restore the user's preferred theme after patching both variants.
+        theme::set_active_theme(&cc.egui_ctx, settings.dark_mode);
 
         let (clean_tx, clean_rx) = mpsc::channel();
         let latest_snapshot = Arc::new(Mutex::new(None));
@@ -320,7 +328,7 @@ impl MagicXApp {
         // request_repaint() (for visible windows) and post a synthetic WM_PAINT
         // (for hidden windows, where request_repaint alone is suppressed by OS).
         let tray_handle = if settings.minimize_to_tray {
-            tray::TrayHandle::new(cc.egui_ctx.clone(), hwnd).ok()
+            tray::TrayHandle::new(cc.egui_ctx.clone(), hwnd, settings.dark_mode).ok()
         } else {
             None
         };
@@ -521,10 +529,14 @@ impl MagicXApp {
         let tray_changed =
             self.settings.minimize_to_tray != self.settings_snapshot.minimize_to_tray;
         let autostart_changed = self.settings.auto_start != self.settings_snapshot.auto_start;
+        let theme_changed = self.settings.dark_mode != self.settings_snapshot.dark_mode;
 
-        if tray_changed {
+        // Rebuild the tray handle when the tray toggle OR the theme
+        // changes — menu icon colours must match the active theme.
+        if tray_changed || (theme_changed && self.tray_handle.is_some()) {
             if self.settings.minimize_to_tray {
-                self.tray_handle = tray::TrayHandle::new(ctx.clone(), self.hwnd).ok();
+                self.tray_handle =
+                    tray::TrayHandle::new(ctx.clone(), self.hwnd, self.settings.dark_mode).ok();
             } else {
                 self.tray_handle = None;
                 // Un-hide if the window was minimised while the setting was on.
