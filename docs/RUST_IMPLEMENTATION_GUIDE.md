@@ -95,10 +95,33 @@ use windows::Win32::System::Threading::OpenProcessToken;
 name = "magicx-ram-cleaner"
 version = "1.0.0"
 edition = "2024"
-description = "World-class Windows RAM cleaner CLI"
+authors = ["MagicX"]
+description = "The most powerful Windows RAM cleaner CLI — surpasses EmptyStandbyList with granular control over every memory subsystem"
 license = "MIT"
+readme = "README.md"
+keywords = ["ram", "memory", "cleaner", "windows", "standby-list"]
+categories = ["command-line-utilities", "os::windows-apis"]
 repository = "https://github.com/ehsan18t/magicx-ram-cleaner"
-rust-version = "1.93"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+# Windows API casts (u32↔i32, usize→u32) are inherent to the FFI boundary.
+# Precision loss in u64→f64 is acceptable for human-readable display formatting.
+cast_possible_wrap = "allow"
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+# Binary-only crate: modules are pub solely for criterion benchmark access.
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "deny"
+let_underscore_drop = "deny"
+non_ascii_idents = "deny"
 
 [profile.release]
 opt-level = 3        # Optimize for speed
@@ -108,11 +131,19 @@ strip = true         # Strip debug symbols
 panic = "abort"      # No unwinding
 
 [dependencies]
-clap = { version = "4", features = ["derive", "color"] }
+clap = { version = "4", features = ["derive", "color", "help", "usage", "suggestions"] }
 colored = "3"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# GUI framework (egui + eframe with glow renderer for smaller binary)
+eframe = { version = "0.33", default-features = false, features = ["glow", "default_fonts"] }
+egui_extras = "0.33"
+egui-phosphor = { version = "0.11", features = ["regular"] }
+tray-icon = "0.21"
+image = { version = "0.25", default-features = false, features = ["png", "ico"] }
+ab_glyph = "0.2"
 
 [dependencies.windows-sys]
 version = "0.61"
@@ -141,6 +172,9 @@ features = [
     # Console APIs (GetConsoleProcessList)
     "Win32_System_Console",
 
+    # Registry APIs (RegCreateKeyExW, RegSetValueExW, RegDeleteTreeW)
+    "Win32_System_Registry",
+
     # Shell notification APIs (Shell_NotifyIconW, NOTIFYICONDATAW)
     "Win32_UI_Shell",
 
@@ -150,6 +184,15 @@ features = [
     # Module handle for icon loading (GetModuleHandleW)
     "Win32_System_LibraryLoader",
 
+    # File I/O (CreateFileW for CONOUT$/CONIN$ handle redirection)
+    "Win32_Storage_FileSystem",
+
+    # Common dialog controls (GetOpenFileNameW, GetSaveFileNameW)
+    "Win32_UI_Controls_Dialogs",
+
+    # Desktop Window Manager (DwmSetWindowAttribute for dark title bar)
+    "Win32_Graphics_Dwm",
+
     # Toolhelp32 APIs (CreateToolhelp32Snapshot, Process32FirstW)
     "Win32_System_Diagnostics_ToolHelp",
 ]
@@ -157,6 +200,15 @@ features = [
 [build-dependencies]
 embed-manifest = "1"
 winresource = "0.1"
+ab_glyph = "0.2"
+egui-phosphor = { version = "0.11", features = ["regular"] }
+
+[dev-dependencies]
+criterion = { version = "0.8", features = ["html_reports"] }
+
+[[bench]]
+name = "benchmarks"
+harness = false
 ```
 
 ### Feature Map — What Each Feature Unlocks
@@ -176,6 +228,9 @@ winresource = "0.1"
 | `Win32_UI_Shell`                    | `Shell_NotifyIconW`, `NOTIFYICONDATAW`, `NIM_ADD`, `NIM_DELETE`, `NIF_*` (balloon notifications)                  |
 | `Win32_UI_WindowsAndMessaging`      | `LoadIconW`, `DestroyIcon` (icon loading for notifications)                                                       |
 | `Win32_System_LibraryLoader`        | `GetModuleHandleW` (module handle for icon resource loading)                                                      |
+| `Win32_System_Registry`             | `RegCreateKeyExW`, `RegSetValueExW`, `RegDeleteTreeW`, `RegCloseKey` (context menu & autostart registry ops)      |
+| `Win32_UI_Controls_Dialogs`         | `GetOpenFileNameW`, `GetSaveFileNameW`, `OPENFILENAMEW` (native file dialogs for backup/restore)                  |
+| `Win32_Graphics_Dwm`                | `DwmSetWindowAttribute`, `DWMWA_USE_IMMERSIVE_DARK_MODE` (dark title bar on Windows 10+)                          |
 
 ---
 
@@ -1602,7 +1657,8 @@ multi-module architecture with the following structure:
 
 ```
 src/
-  main.rs          — entry point: mod declarations, main(), run(), command dispatch
+  main.rs          — thin entry point: mod declarations, main(), run(), command dispatch
+  lib.rs           — library crate root: module re-exports for criterion benchmarks
   cli.rs           — clap Parser, Commands enum, help text constants, STYLES
   cleaner.rs       — cleaning operations & orchestration (smart_clean, CleanLevel)
   console.rs       — Windows console management (dynamic attach/alloc for SUBSYSTEM:WINDOWS, ANSI, notifications)
@@ -1611,14 +1667,16 @@ src/
   gui/             — egui graphical interface module
     mod.rs         — module entry point, run_gui() launcher
     app.rs         — core app state, eframe::App impl, sidebar, layout routing
+    persistence.rs — settings file I/O, Win32 file dialogs, autostart registry
     theme.rs       — colour palette, spacing constants, dark/light Visuals
-    widgets.rs     — reusable UI components (cards, stat labels, buttons)
+    tray.rs        — system tray icon with context menu and Phosphor glyph icons
+    widgets.rs     — reusable UI components (cards, stat labels, toggle switch)
     panels/        — one file per tab
-      dashboard.rs — memory overview chart + quick stats
-      clean.rs     — cleaning level buttons + result display
+      about.rs     — app info, developer profile, project details
+      dashboard.rs — memory overview + one-click cleaning buttons
       monitor.rs   — auto-clean configuration UI
-      processes.rs — sortable process memory table
-      settings.rs  — appearance, integration, defaults
+      processes.rs — sortable grouped process memory table
+      settings.rs  — appearance, integration, backup & restore
   monitor.rs       — continuous monitoring loop, Ctrl+C handler, auto-clean
   ntapi.rs         — NT kernel FFI (NtSetSystemInformation, NtQuerySystemInformation)
   privilege.rs     — Windows privilege elevation (Se*Privilege) + admin check
@@ -1633,7 +1691,7 @@ src/
 | `CleanResult`        | `cleaner` | Per-operation result: `freed_bytes`, `message`, `success`, `elapsed`  |
 | `SmartCleanResult`   | `cleaner` | Aggregate result: `level`, `results[]`, `before`/`after` snapshots    |
 | `SettleMode`         | `cleaner` | Enum: `Full` (tight threshold) / `Quick` (faster, relaxed threshold)  |
-| `MemoryListCommand`  | `cleaner` | Enum mapping NT kernel commands (with `display_info()` for dry-run)   |
+| `MemoryListCommand`  | `ntapi`   | Enum mapping NT kernel commands (with `display_info()` for dry-run)   |
 | `MemorySnapshot`     | `stats`   | Full memory state (physical + page file + kernel memory lists)        |
 | `QuickMemoryReading` | `stats`   | Lightweight snapshot (`available_bytes` + `load_percent` only)        |
 | `MemoryListInfo`     | `stats`   | Kernel page list breakdown (standby priorities, modified, free, zero) |

@@ -450,8 +450,8 @@ pub enum ContextMenuAction {
     ///
     /// Adds a "`MagicX` RAM Cleaner" cascading submenu to the Desktop
     /// and folder background right-click menus with quick access to
-    /// Boost, Moderate Boost, Aggressive Boost, Purge Standby, and
-    /// Memory Status.
+    /// Quick Clean, Standard Clean, Deep Clean, Purge Standby List,
+    /// and Memory Status.
     ///
     /// Existing entries are replaced cleanly (delete + recreate).
     /// Icons embedded in the executable are used for each entry.

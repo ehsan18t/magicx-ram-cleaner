@@ -129,7 +129,7 @@ cargo build --release
 | Optimal operation ordering      |        ❌         |               ✅                |
 | Second-pass cleaning            |        ❌         |               ✅                |
 | UAC auto-elevation (manifest)   |        ❌         |               ✅                |
-| Single-file, no dependencies    |        ✅         |        ✅ ~730 KB binary        |
+| Single-file, no dependencies    |        ✅         |     ✅ single portable exe      |
 
 ### Key Advantages
 
@@ -700,24 +700,24 @@ If you skip step 4, modified pages can't be freed by step 5. This is why MagicX 
 
 ## Comparison with Other Tools
 
-| Feature               | MagicX  | EmptyStandbyList | RAMMap | Mem Reduct |
-| --------------------- | :-----: | :--------------: | :----: | :--------: |
-| Standby purge         |    ✅    |        ✅         |   ✅    |     ✅      |
-| Low-priority only     |    ✅    |        ✅         |   ❌    |     ❌      |
-| Working set trim      |    ✅    |        ✅         |   ✅    |     ✅      |
-| Modified flush        |    ✅    |        ✅         |   ❌    |     ❌      |
-| File cache flush      |    ✅    |        ❌         |   ❌    |     ❌      |
-| Registry cache flush  |    ✅    |        ❌         |   ❌    |     ❌      |
-| Memory combining      |    ✅    |        ❌         |   ❌    |     ❌      |
-| Smart levels          |    ✅    |        ❌         |   ❌    |     ❌      |
-| Before/after stats    |    ✅    |        ❌         |   ❌    |  Partial   |
-| Memory list details   |    ✅    |        ❌         |   ✅    |     ❌      |
-| Auto-monitoring       |    ✅    |        ❌         |   ❌    |     ✅      |
-| JSON output           |    ✅    |        ❌         |   ❌    |     ❌      |
-| CLI (no GUI)          |    ✅    |        ✅         |   ❌    |     ❌      |
-| Portable (no install) |    ✅    |        ✅         |   ✅    |     ❌      |
-| Open source           |    ✅    |        ❌         |   ❌    |     ✅      |
-| Binary size           | ~730 KB |      18 KB       | 1.2 MB |   800 KB   |
+| Feature               | MagicX | EmptyStandbyList | RAMMap | Mem Reduct |
+| --------------------- | :----: | :--------------: | :----: | :--------: |
+| Standby purge         |   ✅    |        ✅         |   ✅    |     ✅      |
+| Low-priority only     |   ✅    |        ✅         |   ❌    |     ❌      |
+| Working set trim      |   ✅    |        ✅         |   ✅    |     ✅      |
+| Modified flush        |   ✅    |        ✅         |   ❌    |     ❌      |
+| File cache flush      |   ✅    |        ❌         |   ❌    |     ❌      |
+| Registry cache flush  |   ✅    |        ❌         |   ❌    |     ❌      |
+| Memory combining      |   ✅    |        ❌         |   ❌    |     ❌      |
+| Smart levels          |   ✅    |        ❌         |   ❌    |     ❌      |
+| Before/after stats    |   ✅    |        ❌         |   ❌    |  Partial   |
+| Memory list details   |   ✅    |        ❌         |   ✅    |     ❌      |
+| Auto-monitoring       |   ✅    |        ❌         |   ❌    |     ✅      |
+| JSON output           |   ✅    |        ❌         |   ❌    |     ❌      |
+| CLI support           |   ✅    |        ✅         |   ❌    |     ❌      |
+| GUI with dashboard    |   ✅    |        ❌         |   ✅    |     ✅      |
+| Portable (no install) |   ✅    |        ✅         |   ✅    |     ❌      |
+| Open source           |   ✅    |        ❌         |   ❌    |     ✅      |
 
 ---
 
@@ -766,7 +766,7 @@ MagicX also includes Desktop context menu integration:
 ```powershell
 magicx-ram-cleaner context-menu install
 ```
-This adds a "MagicX RAM Cleaner" submenu to your Desktop and folder right-click menus with quick access to Boost, Moderate Boost, Aggressive Boost, Purge Standby, and Memory Status — no terminal needed.
+This adds a "MagicX RAM Cleaner" submenu to your Desktop and folder right-click menus with quick access to Quick Clean, Standard Clean, Deep Clean, Purge Standby List, and Memory Status — no terminal needed.
 
 ---
 
@@ -820,6 +820,7 @@ cargo clippy
 ```
 src/
 ├── main.rs           # Thin entry point: mod declarations, main(), run(), dispatch
+├── lib.rs            # Library crate root: module re-exports for benchmarks
 ├── cli.rs            # CLI definitions: clap Parser, Commands enum, help text
 ├── cleaner.rs        # Core cleaning operations + smart clean engine
 ├── console.rs        # Windows console management (dynamic attach/alloc, ANSI, notifications)
@@ -827,15 +828,17 @@ src/
 ├── display.rs        # ALL terminal formatting: banner, status, clean output
 ├── gui/              # egui graphical interface module
 │   ├── mod.rs        # Module entry point, run_gui() launcher
-│   ├── app.rs        # Core app state, sidebar, layout routing
+│   ├── app.rs        # Core app state, eframe::App impl, sidebar, layout routing
+│   ├── persistence.rs # Settings file I/O, Win32 file dialogs, autostart registry
 │   ├── theme.rs      # Colour palette, spacing, dark/light themes
-│   ├── widgets.rs    # Reusable UI components (cards, stat labels)
+│   ├── tray.rs       # System tray icon with context menu and Phosphor glyph icons
+│   ├── widgets.rs    # Reusable UI components (cards, stat labels, toggle switch)
 │   └── panels/       # One file per tab
-│       ├── dashboard.rs  # Memory overview chart + quick stats
-│       ├── clean.rs      # Cleaning level buttons + result display
+│       ├── about.rs      # App info, developer profile, project details
+│       ├── dashboard.rs  # Memory overview + one-click cleaning buttons
 │       ├── monitor.rs    # Auto-clean configuration UI
-│       ├── processes.rs  # Sortable process memory table
-│       └── settings.rs   # Appearance, integration, defaults
+│       ├── processes.rs  # Sortable grouped process memory table
+│       └── settings.rs   # Appearance, integration, backup & restore
 ├── monitor.rs        # Continuous monitoring loop with auto-clean
 ├── ntapi.rs          # NT Native API FFI (NtSetSystemInformation)
 ├── privilege.rs      # Windows privilege management + admin elevation check

@@ -12,7 +12,7 @@
 | ---------- | ------------------------------------------------ |
 | Language   | Rust (edition **2024**)                          |
 | Platform   | Windows only (x86-64)                            |
-| Binary     | CLI tool — no GUI, no web, no library crate      |
+| Binary     | CLI + GUI tool — single portable exe             |
 | License    | MIT                                              |
 | Min Rust   | latest stable (currently 1.93+)                  |
 | Repository | `https://github.com/ehsan18t/magicx-ram-cleaner` |
@@ -51,6 +51,7 @@
 ```
 src/
   main.rs          — thin entry point: mod declarations, main(), run(), command dispatch
+  lib.rs           — library crate root: module re-exports for criterion benchmarks
   cli.rs           — clap Parser, Commands enum, help text constants, STYLES
   cleaner.rs       — cleaning operations & orchestration (smart_clean, CleanLevel)
   console.rs       — Windows console management (dynamic attach/alloc for SUBSYSTEM:WINDOWS, ANSI, notifications)
@@ -59,14 +60,16 @@ src/
   gui/             — egui graphical interface module
     mod.rs         — module entry point, run_gui() launcher
     app.rs         — core app state, eframe::App impl, sidebar, layout routing
+    persistence.rs — settings file I/O, Win32 file dialogs, autostart registry
     theme.rs       — colour palette, spacing constants, dark/light Visuals
-    widgets.rs     — reusable UI components (cards, stat labels, buttons)
+    tray.rs        — system tray icon with context menu and Phosphor glyph icons
+    widgets.rs     — reusable UI components (cards, stat labels, toggle switch)
     panels/        — one file per tab
-      dashboard.rs — memory overview chart + quick stats
-      clean.rs     — cleaning level buttons + result display
+      about.rs     — app info, developer profile, project details
+      dashboard.rs — memory overview + one-click cleaning buttons
       monitor.rs   — auto-clean configuration UI
-      processes.rs — sortable process memory table
-      settings.rs  — appearance, integration, defaults
+      processes.rs — sortable grouped process memory table
+      settings.rs  — appearance, integration, backup & restore
   monitor.rs       — continuous monitoring loop, Ctrl+C handler, auto-clean
   ntapi.rs         — NT kernel FFI (NtSetSystemInformation, NtQuerySystemInformation)
   privilege.rs     — Windows privilege elevation (Se*Privilege) + admin check
@@ -218,7 +221,7 @@ in `cli.rs`.
 
 CI runs on **pull requests to `main`** only (not on push). Two jobs:
 
-1. **quality-gate** — fmt, clippy, test, release build, cargo doc
+1. **quality-gate** — fmt, clippy, test, bench compile, debug build, cargo doc
 2. **audit** — `cargo deny check`
 
 All gates must pass before merge. See `.github/workflows/ci.yml`.
@@ -255,7 +258,7 @@ Always verify against current sources when the information is critical.
 - ❌ Use `std::process::exit()` — return `anyhow::Result` and let `main()` handle it.
 - ❌ Add cross-platform abstractions — this is Windows-only by design.
 - ❌ Introduce async/await — the tool is synchronous and simple.
-- ❌ Add a GUI or TUI framework — this is a CLI tool.
+- ❌ Add a new GUI framework — the project uses egui/eframe; do not replace it.
 - ❌ Use `unwrap()` or `expect()` outside of tests.
 - ❌ Add `#[allow(clippy::*)]` without a comment justifying it.
 - ❌ Commit without running all quality gates.

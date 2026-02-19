@@ -35,9 +35,9 @@
 //! ├──────────┬──────────────┬──────────────┬───────────────────┤
 //! │   CLI    │  Cleaner     │  Monitor     │  Display          │
 //! │ (cli.rs) │  Engine      │  Loop        │  Formatting       │
-//! ├──────────┤              │              │                   │
-//! │ Console  │              │              │                   │
-//! │ (ANSI)   │              │              │                   │
+//! ├──────────┤              ├──────────────┤                   │
+//! │ Console  │  Context     │  GUI (egui)  │  Stats            │
+//! │ (ANSI)   │  Menu        │  + Tray Icon │  (MemorySnapshot) │
 //! ├──────────┴──────────────┴──────────────┴───────────────────┤
 //! │              NT Native API Bindings (ntapi)                │
 //! │     NtSetSystemInformation / NtQuerySystemInformation      │

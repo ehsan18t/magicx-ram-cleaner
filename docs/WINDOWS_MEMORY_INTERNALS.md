@@ -849,18 +849,19 @@ Not officially documented by Microsoft, but the most important undocumented APIs
 
 Key `SYSTEM_INFORMATION_CLASS` values for memory:
 
-| Value | Name                                     | Use                                             |
-| ----- | ---------------------------------------- | ----------------------------------------------- |
-| 0x05  | `SystemProcessInformation`               | Process/thread info including working set sizes |
-| 0x15  | `SystemFileCacheInformation`             | File cache stats                                |
-| 0x2D  | `SystemPageFileInformation`              | Pagefile information                            |
-| 0x50  | `SystemMemoryListInformation`            | **Memory list query & commands**                |
-| 0x52  | `SystemFileCacheInformationEx`           | Extended file cache info                        |
-| 0x66  | `SystemSuperfetchInformation`            | SuperFetch/SysMain info                         |
-| 0x76  | `SystemMemoryUsageInformation`           | Memory usage info                               |
-| 0x82  | `SystemCombinePhysicalMemoryInformation` | Memory page combining/dedup                     |
-| 0xB4  | `SystemStoreInformation`                 | Memory compression store                        |
-| 0xC7  | `SystemMemoryPartitionInformation`       | Memory partitions (Win10+)                      |
+| Value | Name                                      | Use                                             |
+| ----- | ----------------------------------------- | ----------------------------------------------- |
+| 0x05  | `SystemProcessInformation`                | Process/thread info including working set sizes |
+| 0x15  | `SystemFileCacheInformation`              | File cache stats                                |
+| 0x2D  | `SystemPageFileInformation`               | Pagefile information                            |
+| 0x50  | `SystemMemoryListInformation`             | **Memory list query & commands**                |
+| 0x52  | `SystemFileCacheInformationEx`            | Extended file cache info                        |
+| 0x66  | `SystemSuperfetchInformation`             | SuperFetch/SysMain info                         |
+| 0x76  | `SystemMemoryUsageInformation`            | Memory usage info                               |
+| 0x82  | `SystemCombinePhysicalMemoryInformation`  | Memory page combining/dedup                     |
+| 0x9B  | `SystemRegistryReconciliationInformation` | Registry hive cache flush (155)                 |
+| 0xB4  | `SystemStoreInformation`                  | Memory compression store                        |
+| 0xC7  | `SystemMemoryPartitionInformation`        | Memory partitions (Win10+)                      |
 
 ### 9.2 NtQueryVirtualMemory (Undocumented Classes)
 

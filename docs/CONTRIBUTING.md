@@ -13,8 +13,9 @@ clippy::all + clippy::pedantic + clippy::nursery = deny
 ```
 
 ```rust
-// main.rs — crate-level enforcement
-#![deny(unused_must_use, dead_code, unused_variables, unsafe_code, ...)]
+// lib.rs — crate-level enforcement (library root used for benchmarks)
+#![deny(unsafe_code)]
+// Lints are configured in Cargo.toml [lints.clippy] and [lints.rust] sections.
 // unsafe_code is denied globally; modules that need FFI get #[allow(unsafe_code)]
 ```
 
