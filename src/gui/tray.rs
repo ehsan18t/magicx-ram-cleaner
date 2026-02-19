@@ -255,8 +255,10 @@ fn tray_watcher_thread(
         }
 
         // Sleep when idle to avoid spinning a full CPU core.
+        // 200 ms is responsive enough for tray menu interactions while
+        // keeping thread wakeups minimal (5 Hz instead of 20 Hz).
         if !had_event {
-            std::thread::sleep(Duration::from_millis(50));
+            std::thread::sleep(Duration::from_millis(200));
         }
     }
 }

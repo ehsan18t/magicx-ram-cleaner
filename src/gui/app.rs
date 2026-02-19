@@ -623,12 +623,15 @@ impl eframe::App for MagicXApp {
             theme::set_active_theme(ctx, self.settings.dark_mode);
         }
 
+        // Detect whether the window is OS-minimized (taskbar only).
+        let minimized = ctx.input(|i| i.viewport().minimized.unwrap_or(false));
+
         // Tell the stats thread whether the UI needs periodic repaints.
-        // When hidden to tray with monitoring inactive, the app goes truly
-        // idle — zero CPU, zero GPU.  The tray-watcher thread will wake us
-        // when the user interacts with the system-tray icon.
+        // When hidden to tray OR minimized (with monitoring inactive), the
+        // app goes truly idle — zero CPU, zero GPU.  The tray-watcher
+        // thread or a winit restore event will wake us back up.
         self.needs_repaint.store(
-            !self.hidden_to_tray || self.monitor_active,
+            !(self.hidden_to_tray || minimized) || self.monitor_active,
             Ordering::Release,
         );
 
@@ -721,7 +724,13 @@ fn stats_thread(
     ctx: &egui::Context,
 ) {
     while running.load(Ordering::Acquire) {
-        if let Ok(snap) = MemorySnapshot::capture() {
+        // Only capture when the UI is visible or the monitor needs
+        // update() to run for auto-clean threshold checks.  When the
+        // window is hidden/minimized with monitoring off, skip all
+        // work — no Win32 calls, no mutex locks, no repaints.
+        if needs_repaint.load(Ordering::Acquire)
+            && let Ok(snap) = MemorySnapshot::capture()
+        {
             let point = HistoryPoint {
                 elapsed_secs: start_time.elapsed().as_secs_f64(),
                 used_bytes: snap.used_physical,
@@ -738,12 +747,7 @@ fn stats_thread(
                 lock.push_back(point);
             }
 
-            // Only wake the UI when the window is visible or the
-            // monitor needs `update()` to run for auto-clean checks.
-            // This lets the app truly idle when hidden to tray.
-            if needs_repaint.load(Ordering::Acquire) {
-                ctx.request_repaint();
-            }
+            ctx.request_repaint();
         }
 
         std::thread::sleep(Duration::from_millis(STATS_POLL_INTERVAL_MS));
