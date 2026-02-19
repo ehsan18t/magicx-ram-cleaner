@@ -63,6 +63,7 @@ egui_extras = "0.33"
 egui-phosphor = { version = "0.11", features = ["regular"] }
 tray-icon = "0.21"
 image = { version = "0.25", default-features = false, features = ["png", "ico"] }
+ab_glyph = "0.2"
 
 [package.metadata.winresource]
 OriginalFilename = "magicx-ram-cleaner.exe"

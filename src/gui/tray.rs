@@ -24,10 +24,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
+use ab_glyph::{Font, FontRef, PxScale, ScaleFont, point};
 use eframe::egui;
 use tray_icon::{
     MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
-    menu::{Icon, IconMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu},
+    menu::{Icon, IconMenuItem, Menu, MenuEvent, MenuId, PredefinedMenuItem, Submenu},
 };
 
 use crate::cleaner::CleanLevel;
@@ -267,44 +268,40 @@ fn load_icon() -> Result<tray_icon::Icon, String> {
 
 /// Build the tray context menu and return [`MenuIds`] alongside the [`Menu`].
 ///
+/// Each item gets a Phosphor icon glyph rendered to a 16×16 bitmap so the
+/// menu looks polished on every Windows theme.
+///
 /// Layout:
 /// ```text
-/// 🖥  Open MagicX RAM Cleaner
+/// 🚀  Open MagicX RAM Cleaner
 /// ────────────────────────────
 /// 🧹  Clean RAM ▸
-///     🟢  Gentle
-///     🟢  Moderate
-///     🔴  Aggressive
-///     🔴  Nuclear
+///     🌿  Gentle
+///     ⚡  Moderate
+///     🔥  Aggressive
+///     ☢   Nuclear
 /// ────────────────────────────
-///     Dashboard
-///     Monitor
-///     Processes
-///     Settings
+/// 📊  Dashboard
+/// 📈  Monitor
+/// 🖥   Processes
+/// ⚙   Settings
 /// ────────────────────────────
-///     Quit
+/// ⏻   Quit
 /// ```
 fn build_menu() -> Result<(MenuIds, Menu), String> {
-    // Load embedded icons for menu items (16×16 from Windows PE resources).
-    let app_icon = load_menu_icon(include_bytes!("../../assets/app.ico"));
-    let lite_icon = load_menu_icon(include_bytes!("../../assets/lite.ico"));
-    let aggr_icon = load_menu_icon(include_bytes!("../../assets/aggressive.ico"));
+    // Phosphor Regular codepoints (from egui_phosphor::regular).
+    let show_item = icon_menu_item("Open MagicX RAM Cleaner", '\u{E3FE}'); // ROCKET_LAUNCH
+    let quit_item = icon_menu_item("Quit", '\u{E3DA}'); // POWER
 
-    // "Open" gets the main app icon.
-    let show_item = IconMenuItem::new("Open MagicX RAM Cleaner", true, app_icon, None);
-    let quit_item = MenuItem::new("Quit", true, None);
+    let gentle_item = icon_menu_item("Gentle", '\u{E2DA}'); // LEAF
+    let moderate_item = icon_menu_item("Moderate", '\u{E2DE}'); // LIGHTNING
+    let aggressive_item = icon_menu_item("Aggressive", '\u{E242}'); // FIRE
+    let nuclear_item = icon_menu_item("Nuclear", '\u{E9DC}'); // RADIOACTIVE
 
-    // Cleaning sub-items: gentle/moderate = lite, aggressive/nuclear = aggressive.
-    let gentle_item = IconMenuItem::new("Gentle", true, lite_icon.clone(), None);
-    let moderate_item = IconMenuItem::new("Moderate", true, lite_icon, None);
-    let aggressive_item = IconMenuItem::new("Aggressive", true, aggr_icon.clone(), None);
-    let nuclear_item = IconMenuItem::new("Nuclear", true, aggr_icon, None);
-
-    // Navigation items (plain text — no distinct icons available).
-    let nav_dashboard = MenuItem::new("Dashboard", true, None);
-    let nav_monitor = MenuItem::new("Monitor", true, None);
-    let nav_processes = MenuItem::new("Processes", true, None);
-    let nav_settings = MenuItem::new("Settings", true, None);
+    let nav_dashboard = icon_menu_item("Dashboard", '\u{E628}'); // GAUGE
+    let nav_monitor = icon_menu_item("Monitor", '\u{E000}'); // ACTIVITY
+    let nav_processes = icon_menu_item("Processes", '\u{E610}'); // CPU
+    let nav_settings = icon_menu_item("Settings", '\u{E270}'); // GEAR
 
     let ids = MenuIds {
         show: show_item.id().clone(),
@@ -320,6 +317,11 @@ fn build_menu() -> Result<(MenuIds, Menu), String> {
     };
 
     let clean_submenu = Submenu::new("Clean RAM", true);
+    // Give the submenu itself a broom icon.
+    if let Some(broom) = rasterize_glyph('\u{EC54}') {
+        // SAFETY: set_icon cannot fail on Windows; errors are silently ignored.
+        clean_submenu.set_icon(Some(broom));
+    }
     clean_submenu
         .append_items(&[
             &gentle_item,
@@ -347,16 +349,78 @@ fn build_menu() -> Result<(MenuIds, Menu), String> {
     Ok((ids, menu))
 }
 
-/// Decode an embedded ICO file into a [`tray_icon::menu::Icon`] for use in
-/// menu items.
+// ─── Phosphor Glyph Rendering ─────────────────────────────────────────────────
+
+/// Menu icon size in logical pixels.
+const ICON_SIZE: u32 = 16;
+
+/// Create an [`IconMenuItem`] with a Phosphor icon glyph.
 ///
-/// Returns `None` on decode failure so that menu items gracefully degrade
-/// to text-only when the icon cannot be loaded.
-fn load_menu_icon(bytes: &[u8]) -> Option<Icon> {
-    let img = image::load_from_memory(bytes).ok()?;
-    // Menu icons look best at 16×16; resize if the source is larger.
-    let thumb = img.resize_exact(16, 16, image::imageops::FilterType::Lanczos3);
-    let rgba = thumb.to_rgba8();
-    let (w, h) = rgba.dimensions();
-    Icon::from_rgba(rgba.into_raw(), w, h).ok()
+/// Falls back to a text-only item if glyph rasterization fails.
+fn icon_menu_item(label: &str, glyph: char) -> IconMenuItem {
+    IconMenuItem::new(label, true, rasterize_glyph(glyph), None)
+}
+
+/// Rasterize a single Phosphor Regular glyph into a 16×16 RGBA
+/// [`tray_icon::menu::Icon`].
+///
+/// Uses `ab_glyph` (already a transitive dependency of `epaint`) to render
+/// the glyph from the embedded Phosphor font.  Returns `None` on any
+/// failure so callers degrade gracefully to text-only menu items.
+fn rasterize_glyph(codepoint: char) -> Option<Icon> {
+    let font_bytes = egui_phosphor::Variant::Regular.font_bytes();
+    let font = FontRef::try_from_slice(font_bytes).ok()?;
+
+    let glyph_id = font.glyph_id(codepoint);
+    // Return None if the font doesn't contain this codepoint.
+    if glyph_id.0 == 0 {
+        return None;
+    }
+
+    let scale = PxScale::from(ICON_SIZE as f32);
+    let scaled = font.as_scaled(scale);
+    let positioned = glyph_id.with_scale_and_position(scale, point(0.0, scaled.ascent()));
+
+    let outlined = font.outline_glyph(positioned)?;
+    let bounds = outlined.px_bounds();
+
+    // Glyph pixel dimensions (may be smaller than ICON_SIZE).
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "px_bounds dimensions are small positive values for 16px glyphs"
+    )]
+    let (gw, gh) = (bounds.width() as u32, bounds.height() as u32);
+
+    if gw == 0 || gh == 0 {
+        return None;
+    }
+
+    // Centre the rasterized glyph inside a ICON_SIZE×ICON_SIZE canvas.
+    let canvas = ICON_SIZE;
+    let off_x = (canvas.saturating_sub(gw)) / 2;
+    let off_y = (canvas.saturating_sub(gh)) / 2;
+
+    let mut rgba = vec![0u8; (canvas * canvas * 4) as usize];
+
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "coverage is 0.0..=1.0; (py * canvas + px) * 4 fits in usize for 16px icons"
+    )]
+    outlined.draw(|x, y, coverage| {
+        let px = x + off_x;
+        let py = y + off_y;
+        if px < canvas && py < canvas {
+            let idx = ((py * canvas + px) * 4) as usize;
+            let alpha = (coverage * 255.0) as u8;
+            // White glyph with variable alpha — looks good on both light and dark.
+            rgba[idx] = 255; // R
+            rgba[idx + 1] = 255; // G
+            rgba[idx + 2] = 255; // B
+            rgba[idx + 3] = alpha; // A
+        }
+    });
+
+    Icon::from_rgba(rgba, canvas, canvas).ok()
 }
