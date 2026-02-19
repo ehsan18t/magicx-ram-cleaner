@@ -615,6 +615,22 @@ impl eframe::App for MagicXApp {
             self.last_applied_dark = self.settings.dark_mode;
         }
 
+        // Enforce the app's theme preference every frame.
+        // Eframe's system-theme detection can silently override our
+        // explicit `set_theme` call between frames when the OS theme
+        // differs from the in-app preference.  Re-applying here is
+        // cheap (one write to the options struct) and guarantees the
+        // sidebar, panels, and all widgets use the correct visuals
+        // regardless of the Windows system theme.
+        let desired = if self.settings.dark_mode {
+            egui::Theme::Dark
+        } else {
+            egui::Theme::Light
+        };
+        if ctx.theme() != desired {
+            theme::set_active_theme(ctx, self.settings.dark_mode);
+        }
+
         // Request repaint for live updates
         ctx.request_repaint_after(Duration::from_millis(500));
 
