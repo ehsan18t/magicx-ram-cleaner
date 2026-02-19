@@ -33,10 +33,8 @@ fn default_settings_path() -> PathBuf {
 
 // ─── File Dialog Helpers ──────────────────────────────────────────────────────
 
-/// Encode a `&str` as a null-terminated UTF-16 `Vec<u16>`.
-fn to_wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
-}
+/// Shorthand re-export of [`crate::stats::to_wide`] for this module.
+use crate::stats::to_wide;
 
 /// Open a native Win32 **Save File** dialog pre-filtered to `*.json`.
 ///
