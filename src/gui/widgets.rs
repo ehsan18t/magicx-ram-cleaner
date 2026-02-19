@@ -232,9 +232,9 @@ pub fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
         };
 
         let bg_color = egui::Color32::from_rgb(
-            lerp_color_u8(off_r, 56, anim),
-            lerp_color_u8(off_g, 189, anim),
-            lerp_color_u8(off_b, 248, anim),
+            super::theme::lerp_u8(off_r, 56, anim),
+            super::theme::lerp_u8(off_g, 189, anim),
+            super::theme::lerp_u8(off_b, 248, anim),
         );
 
         // Track background
@@ -254,18 +254,4 @@ pub fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     }
 
     response
-}
-
-/// Linearly interpolate a single colour channel for the toggle switch.
-fn lerp_color_u8(a: u8, b: u8, t: f32) -> u8 {
-    let t = t.clamp(0.0, 1.0);
-    let result = f32::from(a).mul_add(1.0 - t, f32::from(b) * t);
-    #[expect(
-        clippy::cast_sign_loss,
-        clippy::cast_possible_truncation,
-        reason = "lerp of two u8s is always in 0..=255"
-    )]
-    {
-        result.round() as u8
-    }
 }

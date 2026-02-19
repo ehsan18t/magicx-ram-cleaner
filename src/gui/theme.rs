@@ -328,7 +328,10 @@ pub const fn bg_color(dark: bool) -> egui::Color32 {
 }
 
 /// Linear interpolation between two `u8` values.
-fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
+///
+/// Shared across GUI modules for colour blending (toggle switches,
+/// circle-button fills, load-colour gradients, etc.).
+pub(crate) fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
     let t = t.clamp(0.0, 1.0);
     let result = f32::from(a).mul_add(1.0 - t, f32::from(b) * t);
     // The result of lerping two u8 values is always within 0..=255.

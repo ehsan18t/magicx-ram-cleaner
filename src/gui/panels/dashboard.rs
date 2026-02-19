@@ -330,12 +330,11 @@ fn paint_circle_btn(painter: &egui::Painter, rect: egui::Rect, info: &LevelInfo,
 ///
 /// Used to apply subtle level-colour fills to circle backgrounds on hover/press.
 fn blend_color(base: egui::Color32, tint: egui::Color32, amount: f32) -> egui::Color32 {
-    let a = amount.clamp(0.0, 1.0);
-    let inv = 1.0 - a;
+    use crate::gui::theme::lerp_u8;
     egui::Color32::from_rgb(
-        (f32::from(base.r()).mul_add(inv, f32::from(tint.r()) * a)) as u8,
-        (f32::from(base.g()).mul_add(inv, f32::from(tint.g()) * a)) as u8,
-        (f32::from(base.b()).mul_add(inv, f32::from(tint.b()) * a)) as u8,
+        lerp_u8(base.r(), tint.r(), amount),
+        lerp_u8(base.g(), tint.g(), amount),
+        lerp_u8(base.b(), tint.b(), amount),
     )
 }
 
