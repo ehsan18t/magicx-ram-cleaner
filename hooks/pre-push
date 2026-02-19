@@ -52,18 +52,8 @@ if ! cargo test --all-targets; then
 fi
 echo "  ✓ Tests OK"
 
-# Gate 4: Release build
-echo "→ [4/6] Building release..."
-if ! cargo build --release; then
-    echo ""
-    echo "✗ RELEASE BUILD FAILED"
-    echo "  Fix the build errors, then try pushing again."
-    exit 1
-fi
-echo "  ✓ Release build OK"
-
-# Gate 5: Documentation
-echo "→ [5/6] Building docs..."
+# Gate 4: Documentation
+echo "→ [4/6] Building docs..."
 if ! RUSTDOCFLAGS="-D warnings" cargo doc --no-deps; then
     echo ""
     echo "✗ DOCUMENTATION BUILD FAILED"
@@ -72,8 +62,8 @@ if ! RUSTDOCFLAGS="-D warnings" cargo doc --no-deps; then
 fi
 echo "  ✓ Docs OK"
 
-# Gate 6: Dependency audit (optional — only if cargo-deny is installed)
-echo "→ [6/6] Auditing dependencies..."
+# Gate 5: Dependency audit (optional — only if cargo-deny is installed)
+echo "→ [5/6] Auditing dependencies..."
 if command -v cargo-deny >/dev/null 2>&1; then
     if ! cargo deny check 2>/dev/null; then
         # Advisory DB fetch can fail due to stale cache; clear and retry
@@ -93,6 +83,16 @@ if command -v cargo-deny >/dev/null 2>&1; then
 else
     echo "  ⊘ cargo-deny not installed, skipping (install: cargo install cargo-deny)"
 fi
+
+# Gate 6: Release build
+echo "→ [6/6] Building release..."
+if ! cargo build --release; then
+    echo ""
+    echo "✗ RELEASE BUILD FAILED"
+    echo "  Fix the build errors, then try pushing again."
+    exit 1
+fi
+echo "  ✓ Release build OK"
 
 echo ""
 echo "✓ All quality gates passed. Pushing..."
