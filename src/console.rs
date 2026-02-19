@@ -728,6 +728,35 @@ pub fn reveal_window(hwnd: isize) {
     }
 }
 
+/// Immediately hide the window by calling `ShowWindow(SW_HIDE)` directly.
+///
+/// Unlike [`egui::ViewportCommand::Visible`] with `false`, which is an async
+/// request processed by winit on the next event-loop cycle, this call
+/// synchronously clears the `WS_VISIBLE` flag so the window disappears on
+/// the current frame.
+///
+/// This is used as a belt-and-braces companion to the egui viewport command
+/// in the close intercept.  When the window was previously restored by an
+/// external process (e.g. a second instance via `ShowWindow(SW_RESTORE)`),
+/// winit's internal visibility state may not yet reflect reality.  In that
+/// case the async `Visible(false)` command is silently ignored, leaving the
+/// window visible and producing a blank-flash / no-close symptom.  Calling
+/// this function guarantees the window is hidden regardless of winit's
+/// tracked state.
+///
+/// Does nothing when `hwnd` is `0`.
+pub fn hide_window(hwnd: isize) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SW_HIDE, ShowWindow};
+
+    if hwnd == 0 {
+        return;
+    }
+
+    // SAFETY: `hwnd` is our own main window, valid for the lifetime of the
+    // process.  `SW_HIDE` is a standard, non-destructive window-state change.
+    unsafe { ShowWindow(hwnd as *mut _, SW_HIDE) };
+}
+
 /// Load the application icon (resource ID 1) from the running executable.
 ///
 /// Falls back to a null handle if loading fails (the balloon will show
