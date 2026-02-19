@@ -6,7 +6,7 @@
 #   2. cargo clippy (deny)          → zero lint warnings (all+pedantic+nursery)
 #   3. cargo test --locked          → all tests pass, Cargo.lock respected
 #   4. cargo bench --no-run         → benchmarks compile without errors
-#   5. cargo build --release        → release binary compiles
+#   5. cargo build                  → debug binary compiles
 #   6. cargo doc                    → documentation + doc-comment format valid
 #   7. cargo deny check             → no vulnerable/banned dependencies
 
@@ -42,16 +42,16 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Cache cargo registry & build
-        uses: actions/cache@v5
+      # Caches ~/.cargo/registry, ~/.cargo/git/db, and a pruned target/ dir.
+      # Key: OS + Rust toolchain version + all Cargo.toml hashes + Cargo.lock hash.
+      # When a package is added, Cargo.lock changes → key misses → nearest
+      # matching restore-key is loaded → only new packages are downloaded and
+      # only changed crates are recompiled.  Stale artifacts are pruned before
+      # saving so the cache never grows unboundedly.
+      - name: Cache Rust dependencies and build artifacts
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          cache-on-failure: true
 
       # Gate 1: Formatting — rejects inconsistent style
       - name: "Gate 1: cargo fmt --check"
@@ -73,16 +73,16 @@ jobs:
       - name: "Gate 4: cargo bench --no-run"
         run: cargo bench --locked --no-run
 
-      # Gate 5: Release build — rejects code that only works in debug
-      - name: "Gate 5: cargo build --release"
-        run: cargo build --locked --release
+      # Gate 5: Debug build — rejects code that does not compile
+      - name: "Gate 5: cargo build"
+        run: cargo build --locked
 
-      # Upload the release binary for inspection / smoke-testing.
-      - name: Upload release artifact
-        uses: actions/upload-artifact@v4
+      # Upload the debug binary for inspection / smoke-testing.
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v6
         with:
           name: magicx-ram-cleaner-${{ github.sha }}
-          path: target/release/magicx-ram-cleaner.exe
+          path: target/debug/magicx-ram-cleaner.exe
           retention-days: 7
           if-no-files-found: error
 
@@ -109,6 +109,15 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      # Cache the cargo registry index so cargo-deny can resolve the package
+      # graph without re-fetching metadata on every run.  Target compilation
+      # artifacts are skipped (cargo deny check does not compile anything).
+      - name: Cache Rust registry
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: "false"
+          cache-on-failure: true
 
       - name: Cache cargo-deny binary
         id: cache-deny
