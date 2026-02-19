@@ -589,10 +589,19 @@ pub fn try_acquire_single_instance() -> Option<isize> {
         if hwnd != 0 {
             // SAFETY: hwnd is the existing instance's main window.
             // ShowWindow(SW_RESTORE) un-minimizes if iconic, and
-            // SetForegroundWindow brings it in front.
+            // SetForegroundWindow brings it in front.  PostMessageW
+            // wakes the event loop immediately so the first instance
+            // detects the visibility change without waiting for its
+            // next scheduled repaint.
             unsafe {
                 ShowWindow(hwnd as *mut _, SW_RESTORE);
                 SetForegroundWindow(hwnd as *mut _);
+                windows_sys::Win32::UI::WindowsAndMessaging::PostMessageW(
+                    hwnd as *mut _,
+                    windows_sys::Win32::UI::WindowsAndMessaging::WM_PAINT,
+                    0,
+                    0,
+                );
             }
         }
 
@@ -653,6 +662,28 @@ pub fn restore_window(hwnd: isize) {
         ShowWindow(hwnd as *mut _, SW_SHOW);
         SetForegroundWindow(hwnd as *mut _);
     }
+}
+
+/// Check whether the application window is currently visible (`WS_VISIBLE` set).
+///
+/// Returns `true` when the window has the `WS_VISIBLE` style flag, which is
+/// set by `ShowWindow(SW_SHOW | SW_RESTORE)` and cleared by
+/// `ShowWindow(SW_HIDE)` or `SetWindowPos` with `SWP_HIDEWINDOW`.
+///
+/// Used to detect when an external process (e.g. a second instance) restores
+/// a window that the app thinks is still hidden to the tray.
+///
+/// Returns `false` when `hwnd` is `0`.
+#[must_use]
+pub fn is_window_visible(hwnd: isize) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::IsWindowVisible;
+
+    if hwnd == 0 {
+        return false;
+    }
+
+    // SAFETY: IsWindowVisible is a read-only state check on a valid owned window.
+    unsafe { IsWindowVisible(hwnd as *mut _) != 0 }
 }
 
 /// Check whether the application window is currently minimized (iconic).

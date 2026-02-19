@@ -612,6 +612,15 @@ impl eframe::App for MagicXApp {
         // before the Quit action could be processed.
         self.poll_tray_events(ctx);
 
+        // ── External restore detection ───────────────────────────────
+        // When the app is hidden to tray, a second instance (or other
+        // external caller) may restore the window via ShowWindow.
+        // Detect the WS_VISIBLE flag and reconcile our internal state
+        // so the UI renders and the close button works normally.
+        if self.hidden_to_tray && crate::console::is_window_visible(self.hwnd) {
+            self.hidden_to_tray = false;
+        }
+
         // ── Close intercept ─────────────────────────────────────────
         // When minimize-to-tray is active and the user has not explicitly
         // selected "Quit" from the tray menu, hide the window instead of
