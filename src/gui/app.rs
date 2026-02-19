@@ -612,26 +612,29 @@ impl eframe::App for MagicXApp {
         // before the Quit action could be processed.
         self.poll_tray_events(ctx);
 
+        // ── Close intercept ─────────────────────────────────────────
+        // When minimize-to-tray is active and the user has not explicitly
+        // selected "Quit" from the tray menu, hide the window instead of
+        // closing it.
+        let close_requested = ctx.input(|i| i.viewport().close_requested());
+        if close_requested && self.settings.minimize_to_tray && !self.quit_requested {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            self.hidden_to_tray = true;
+        }
+
         // ── External restore detection ───────────────────────────────
         // When the app is hidden to tray, a second instance (or other
         // external caller) may restore the window via ShowWindow.
         // Detect the WS_VISIBLE flag and reconcile our internal state
         // so the UI renders and the close button works normally.
-        if self.hidden_to_tray && crate::console::is_window_visible(self.hwnd) {
+        //
+        // Skip this check on close-request frames: the Visible(false)
+        // viewport command above is asynchronous — WS_VISIBLE may
+        // still be set when we check, which would immediately undo
+        // the hide and leave the close button inoperative.
+        if self.hidden_to_tray && !close_requested && crate::console::is_window_visible(self.hwnd) {
             self.hidden_to_tray = false;
-        }
-
-        // ── Close intercept ─────────────────────────────────────────
-        // When minimize-to-tray is active and the user has not explicitly
-        // selected "Quit" from the tray menu, hide the window instead of
-        // closing it.
-        if ctx.input(|i| i.viewport().close_requested())
-            && self.settings.minimize_to_tray
-            && !self.quit_requested
-        {
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-            self.hidden_to_tray = true;
         }
 
         // Poll background results
@@ -690,8 +693,15 @@ impl eframe::App for MagicXApp {
             // The tray-watcher thread calls ctx.request_repaint()
             // on events, which overrides the delay and wakes us
             // immediately when the user interacts with the tray icon.
+            // The 200 ms sleep throttle is deferred to avoid adding
+            // latency to close / tray-action transitions.  When a
+            // close was just requested on this frame the window is
+            // transitioning to hidden — skip the sleep so eframe
+            // can process the Visible(false) command immediately.
             ctx.request_repaint_after(Duration::from_secs(1));
-            std::thread::sleep(Duration::from_millis(200));
+            if !close_requested {
+                std::thread::sleep(Duration::from_millis(200));
+            }
         } else if self.monitor_active {
             // Window is minimized but auto-clean is enabled.
             // Schedule a low-frequency wake-up so the threshold check
