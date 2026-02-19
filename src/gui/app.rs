@@ -328,7 +328,7 @@ impl MagicXApp {
         // request_repaint() (for visible windows) and post a synthetic WM_PAINT
         // (for hidden windows, where request_repaint alone is suppressed by OS).
         let tray_handle = if settings.minimize_to_tray {
-            tray::TrayHandle::new(cc.egui_ctx.clone(), hwnd, settings.dark_mode).ok()
+            tray::TrayHandle::new(cc.egui_ctx.clone(), hwnd).ok()
         } else {
             None
         };
@@ -529,14 +529,14 @@ impl MagicXApp {
         let tray_changed =
             self.settings.minimize_to_tray != self.settings_snapshot.minimize_to_tray;
         let autostart_changed = self.settings.auto_start != self.settings_snapshot.auto_start;
-        let theme_changed = self.settings.dark_mode != self.settings_snapshot.dark_mode;
 
-        // Rebuild the tray handle when the tray toggle OR the theme
-        // changes — menu icon colours must match the active theme.
-        if tray_changed || (theme_changed && self.tray_handle.is_some()) {
+        // Rebuild the tray handle when the tray toggle changes.
+        // Tray icon glyph colours follow the OS theme (detected inside
+        // `TrayHandle::new`), not the in-app preference, because the
+        // native context menu background is always drawn by Windows.
+        if tray_changed {
             if self.settings.minimize_to_tray {
-                self.tray_handle =
-                    tray::TrayHandle::new(ctx.clone(), self.hwnd, self.settings.dark_mode).ok();
+                self.tray_handle = tray::TrayHandle::new(ctx.clone(), self.hwnd).ok();
             } else {
                 self.tray_handle = None;
                 // Un-hide if the window was minimised while the setting was on.

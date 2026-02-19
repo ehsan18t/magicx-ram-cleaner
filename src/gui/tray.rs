@@ -111,9 +111,13 @@ impl TrayHandle {
     ///
     /// Returns an error string on image-decode failure, menu-build failure, or
     /// if the `tray_icon` back-end or the watcher thread cannot be created.
-    pub fn new(ctx: egui::Context, hwnd: isize, dark: bool) -> Result<Self, String> {
+    pub fn new(ctx: egui::Context, hwnd: isize) -> Result<Self, String> {
         let icon = load_icon()?;
-        let (ids, menu) = build_menu(dark)?;
+        // The tray context menu background is drawn by Windows using the
+        // **OS** theme, so glyph colours must match the OS theme — not
+        // the in-app theme preference.
+        let os_dark = crate::console::is_system_dark_mode();
+        let (ids, menu) = build_menu(os_dark)?;
 
         let tray = TrayIconBuilder::new()
             .with_icon(icon)

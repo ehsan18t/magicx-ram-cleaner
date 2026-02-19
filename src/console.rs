@@ -181,6 +181,80 @@ pub fn enable_ansi_colors() {
     }
 }
 
+// ─── System Theme Detection ──────────────────────────────────────────────────
+
+/// Detect whether the Windows OS is currently using a dark theme.
+///
+/// Reads `AppsUseLightTheme` from
+/// `HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize`.
+/// When the value is `0` the OS is dark; when `1` (or absent) the OS is light.
+///
+/// This is the **OS-level** theme, not the in-app preference. Used primarily
+/// for system-tray icon glyph colours — the tray context menu background is
+/// drawn by Windows using this theme, so icon colours must match it.
+///
+/// Returns `true` (dark) when the registry value is `0`, `false` otherwise.
+/// Falls back to `false` (light) on any registry error.
+#[must_use]
+pub fn is_system_dark_mode() -> bool {
+    use windows_sys::Win32::System::Registry::{
+        HKEY_CURRENT_USER, KEY_READ, RRF_RT_REG_DWORD, RegGetValueW, RegOpenKeyExW,
+    };
+
+    const SUBKEY: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
+    const VALUE_NAME: &str = "AppsUseLightTheme";
+
+    let subkey_wide: Vec<u16> = SUBKEY.encode_utf16().chain(Some(0u16)).collect();
+    let value_wide: Vec<u16> = VALUE_NAME.encode_utf16().chain(Some(0u16)).collect();
+
+    let mut hkey: windows_sys::Win32::System::Registry::HKEY = std::ptr::null_mut();
+
+    // SAFETY: `RegOpenKeyExW` is a standard Win32 registry call.
+    // `hkey` receives a valid handle on success. The wide-string slices are
+    // null-terminated and live for the full call duration.
+    let rc = unsafe {
+        RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            subkey_wide.as_ptr(),
+            0,
+            KEY_READ,
+            &raw mut hkey,
+        )
+    };
+    if rc != 0 {
+        return false; // Cannot read registry — assume light
+    }
+
+    let mut data: u32 = 1; // default = light theme
+    let mut data_size: u32 = std::mem::size_of::<u32>() as u32;
+
+    // SAFETY: `RegGetValueW` reads a REG_DWORD value into `data`.
+    // `data_size` is correctly set to 4 bytes and is updated by the call.
+    let rc = unsafe {
+        RegGetValueW(
+            hkey,
+            std::ptr::null(),
+            value_wide.as_ptr(),
+            RRF_RT_REG_DWORD,
+            std::ptr::null_mut(),
+            std::ptr::from_mut(&mut data).cast(),
+            &raw mut data_size,
+        )
+    };
+
+    // SAFETY: `RegCloseKey` with a valid handle opened above.
+    unsafe {
+        windows_sys::Win32::System::Registry::RegCloseKey(hkey);
+    }
+
+    if rc != 0 {
+        return false; // Read failed — assume light
+    }
+
+    // AppsUseLightTheme: 0 = dark, 1 = light
+    data == 0
+}
+
 // ─── Balloon notification ────────────────────────────────────────────────────
 
 /// Notification icon unique ID (arbitrary, scoped to this process).
