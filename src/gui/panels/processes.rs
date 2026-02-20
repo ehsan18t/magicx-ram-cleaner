@@ -363,21 +363,53 @@ fn draw_sort_header(
 
 /// Sort grouped processes by the specified column.
 ///
-/// Uses a **deterministic tiebreaker** (case-insensitive name) so that rows
-/// with identical primary values keep a stable order across refreshes.
-/// Without this, `sort_unstable_by` reshuffles equal elements every 5 s,
-/// producing a visually glitchy flickering effect in the table.
+/// Uses **contextual multi-level tiebreakers** so that rows with identical
+/// primary values keep a stable, meaningful order across refreshes.
+/// Without tiebreakers, `sort_unstable_by` reshuffles equal elements every
+/// 5 s, producing a visually glitchy flickering effect in the table.
+///
+/// Tiebreaker chains (each level is only evaluated when the previous is equal):
+///
+/// | Primary     | 2nd          | 3rd       | 4th (final) |
+/// |-------------|--------------|-----------|-------------|
+/// | Name        | *(unique)*   |           |             |
+/// | Count       | Memory       | Peak      | Name        |
+/// | Memory      | Peak         | Count     | Name        |
+/// | Peak        | Memory       | Count     | Name        |
+///
+/// The final name comparison uses exact-case `cmp` (not `to_lowercase`)
+/// because it only needs to be deterministic, not user-friendly — the
+/// primary name sort (col 0) already handles case-insensitivity.
 fn sort_processes(groups: &mut [GroupedProcess], col: usize, ascending: bool) {
     groups.sort_unstable_by(|a, b| {
-        let primary = match col {
+        let ord = match col {
+            // Name — unique after grouping, no tiebreaker needed.
             0 => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-            1 => a.instance_count.cmp(&b.instance_count),
-            3 => a.peak_working_set.cmp(&b.peak_working_set),
-            // Default: private working set (col 2) — matches Task Manager
-            _ => a.private_working_set.cmp(&b.private_working_set),
+
+            // Count → Memory → Peak → Name
+            1 => a
+                .instance_count
+                .cmp(&b.instance_count)
+                .then_with(|| a.private_working_set.cmp(&b.private_working_set))
+                .then_with(|| a.peak_working_set.cmp(&b.peak_working_set))
+                .then_with(|| a.name.cmp(&b.name)),
+
+            // Peak → Memory → Count → Name
+            3 => a
+                .peak_working_set
+                .cmp(&b.peak_working_set)
+                .then_with(|| a.private_working_set.cmp(&b.private_working_set))
+                .then_with(|| a.instance_count.cmp(&b.instance_count))
+                .then_with(|| a.name.cmp(&b.name)),
+
+            // Memory (default, col 2) → Peak → Count → Name
+            _ => a
+                .private_working_set
+                .cmp(&b.private_working_set)
+                .then_with(|| a.peak_working_set.cmp(&b.peak_working_set))
+                .then_with(|| a.instance_count.cmp(&b.instance_count))
+                .then_with(|| a.name.cmp(&b.name)),
         };
-        // Tiebreaker: sort by name so equal-valued rows never shuffle.
-        let ord = primary.then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         if ascending { ord } else { ord.reverse() }
     });
 }
