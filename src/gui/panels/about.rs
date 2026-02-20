@@ -401,7 +401,7 @@ fn draw_contrib_banner(ui: &mut egui::Ui, dark: bool) {
         .inner_margin(egui::Margin::same(14))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.label(
                     egui::RichText::new(ph::HEART)
                         .size(20.0)
