@@ -362,15 +362,22 @@ fn draw_sort_header(
 }
 
 /// Sort grouped processes by the specified column.
+///
+/// Uses a **deterministic tiebreaker** (case-insensitive name) so that rows
+/// with identical primary values keep a stable order across refreshes.
+/// Without this, `sort_unstable_by` reshuffles equal elements every 5 s,
+/// producing a visually glitchy flickering effect in the table.
 fn sort_processes(groups: &mut [GroupedProcess], col: usize, ascending: bool) {
     groups.sort_unstable_by(|a, b| {
-        let ord = match col {
+        let primary = match col {
             0 => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
             1 => a.instance_count.cmp(&b.instance_count),
             3 => a.peak_working_set.cmp(&b.peak_working_set),
             // Default: private working set (col 2) — matches Task Manager
             _ => a.private_working_set.cmp(&b.private_working_set),
         };
+        // Tiebreaker: sort by name so equal-valued rows never shuffle.
+        let ord = primary.then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         if ascending { ord } else { ord.reverse() }
     });
 }
