@@ -33,6 +33,11 @@ const DEV_WEBSITE: &str = "https://ehsankhan.me";
 /// Side length of the square app monogram badge in the hero section.
 const HERO_BADGE_SIZE: f32 = 60.0;
 
+/// Approximate height of the hero right-side content block
+/// (title row + tagline + button/chip row + inter-line spacing).
+/// Used to vertically centre the monogram badge within the hero card.
+const HERO_CONTENT_HEIGHT: f32 = 86.0;
+
 /// Diameter of the developer avatar circle — compact sidebar profile.
 const AVATAR_SIZE: f32 = 56.0;
 
@@ -114,27 +119,32 @@ fn draw_hero(ui: &mut egui::Ui, dark: bool) {
 /// tagline, platform metadata chips, and the `View on GitHub` CTA button.
 fn draw_hero_content(ui: &mut egui::Ui, dark: bool) {
     ui.horizontal(|ui| {
-        // Monogram badge
-        let br = egui::CornerRadius::same(16_u8);
-        let (badge_rect, _) = ui.allocate_exact_size(
-            egui::vec2(HERO_BADGE_SIZE, HERO_BADGE_SIZE),
-            egui::Sense::hover(),
-        );
-        ui.painter()
-            .rect_filled(badge_rect, br, theme::ACCENT.gamma_multiply(0.18));
-        ui.painter().rect_stroke(
-            badge_rect,
-            br,
-            egui::Stroke::new(1.5, theme::ACCENT.gamma_multiply(0.55)),
-            egui::StrokeKind::Outside,
-        );
-        ui.painter().text(
-            badge_rect.center(),
-            egui::Align2::CENTER_CENTER,
-            "MGX",
-            egui::FontId::proportional(16.0),
-            theme::ACCENT,
-        );
+        // Monogram badge — vertically centred in the row
+        ui.vertical(|ui| {
+            let pad = (HERO_CONTENT_HEIGHT - HERO_BADGE_SIZE) / 2.0;
+            ui.add_space(pad.max(0.0));
+
+            let br = egui::CornerRadius::same(16_u8);
+            let (badge_rect, _) = ui.allocate_exact_size(
+                egui::vec2(HERO_BADGE_SIZE, HERO_BADGE_SIZE),
+                egui::Sense::hover(),
+            );
+            ui.painter()
+                .rect_filled(badge_rect, br, theme::ACCENT.gamma_multiply(0.18));
+            ui.painter().rect_stroke(
+                badge_rect,
+                br,
+                egui::Stroke::new(1.5, theme::ACCENT.gamma_multiply(0.55)),
+                egui::StrokeKind::Outside,
+            );
+            ui.painter().text(
+                badge_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "MGX",
+                egui::FontId::proportional(16.0),
+                theme::ACCENT,
+            );
+        });
         ui.add_space(16.0);
         ui.vertical(|ui| {
             ui.add_space(4.0);
