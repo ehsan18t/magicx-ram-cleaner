@@ -390,6 +390,10 @@ fn draw_project(ui: &mut egui::Ui, dark: bool) {
 
 /// Contribution call-to-action: accent-tinted banner with a heart icon,
 /// heading, and a brief open-source blurb.
+///
+/// The heart icon is drawn via `allocate_exact_size` + `painter.text()` so
+/// it is truly vertically centred within the text block regardless of how
+/// many lines the description wraps to.
 fn draw_contrib_banner(ui: &mut egui::Ui, dark: bool) {
     let bg = theme::ACCENT.gamma_multiply(if dark { 0.08 } else { 0.06 });
     let border = theme::ACCENT.gamma_multiply(0.20);
@@ -401,13 +405,22 @@ fn draw_contrib_banner(ui: &mut egui::Ui, dark: bool) {
         .inner_margin(egui::Margin::same(14))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                ui.label(
-                    egui::RichText::new(ph::HEART)
-                        .size(20.0)
-                        .color(theme::ACCENT),
-                );
-                ui.add_space(10.0);
+
+            // Measure the text block height first so the icon rect can match it.
+            // We render into a temporary vertical Ui that is laid out but not yet
+            // painted — instead we compute the text region width, then draw both
+            // icon and text in a single horizontal pass.
+            //
+            // Approach: draw the text block on the right with a known left
+            // margin for the icon, then overlay the icon centred on the text
+            // block's actual height.
+            let icon_col_w = 30.0; // 20 px glyph + breathing room
+            let gap = 10.0;
+            let text_x_offset = icon_col_w + gap;
+
+            // Draw the text block, offset to the right to leave room for the icon.
+            let text_resp = ui.horizontal(|ui| {
+                ui.add_space(text_x_offset);
                 ui.vertical(|ui| {
                     ui.label(
                         egui::RichText::new("Open Source")
@@ -424,8 +437,19 @@ fn draw_contrib_banner(ui: &mut egui::Ui, dark: bool) {
                         .size(11.0)
                         .color(theme::muted_color(dark)),
                     );
-                });
+                })
             });
+
+            // Paint the heart icon centred on the text block's actual height.
+            let text_rect = text_resp.response.rect;
+            let icon_center = egui::pos2(text_rect.left() + icon_col_w / 2.0, text_rect.center().y);
+            ui.painter().text(
+                icon_center,
+                egui::Align2::CENTER_CENTER,
+                ph::HEART,
+                egui::FontId::proportional(20.0),
+                theme::ACCENT,
+            );
         });
 }
 
