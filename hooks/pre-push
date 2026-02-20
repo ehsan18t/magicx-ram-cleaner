@@ -10,7 +10,7 @@
 #   1. cargo fmt --check   — formatting
 #   2. cargo clippy        — lint violations (deny level from Cargo.toml)
 #   3. cargo test          — all tests pass
-#   4. cargo build --release — release build compiles
+#   4. cargo build         — debug build compiles
 #   5. cargo doc           — documentation builds
 #   6. cargo deny check    — dependency audit (if cargo-deny is installed)
 

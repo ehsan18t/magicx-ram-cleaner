@@ -59,6 +59,6 @@ Write-Host "  Pre-push (full CI-equivalent checks before each push):" -Foregroun
 Write-Host "    1. cargo fmt --check    (formatting)"
 Write-Host "    2. cargo clippy -D warn (lints)"
 Write-Host "    3. cargo test           (tests)"
-Write-Host "    4. cargo build --release(release build)"
+Write-Host "    4. cargo build          (debug build)"
 Write-Host "    5. cargo doc            (documentation)"
 Write-Host "    6. cargo deny check     (dependency audit)"
