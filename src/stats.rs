@@ -15,7 +15,7 @@ use windows_sys::Win32::System::ProcessStatus::{
 };
 use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 use windows_sys::Win32::System::Threading::{
-    OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
+    OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 
 // ─── RAII Handle Guard ─────────────────────────────────────────────────────────
@@ -512,15 +512,41 @@ pub fn enumerate_processes(mut callback: impl FnMut(u32, &str)) -> Result<()> {
 /// `PrivateWorkingSetSize` — the metric Task Manager shows as "Memory".
 /// Falls back to `PROCESS_MEMORY_COUNTERS` on older builds, using the full
 /// working set as a proxy for the private portion.
+///
+/// Uses a tiered `OpenProcess` strategy to maximise process visibility:
+///
+/// 1. `PROCESS_QUERY_INFORMATION` — sufficient for `K32GetProcessMemoryInfo`
+///    including the EX2 struct with `PrivateWorkingSetSize`.
+/// 2. `PROCESS_QUERY_LIMITED_INFORMATION` — weaker right that succeeds for
+///    Chromium/Electron sandboxed child processes (VS Code, Chrome, Edge
+///    renderer/utility processes) and Protected Process Light (PPL) processes
+///    whose DACLs deny full query access.
+///
+/// `PROCESS_VM_READ` is intentionally **not** requested — it is not required
+/// by `K32GetProcessMemoryInfo` and causes `OpenProcess` to fail for
+/// sandboxed processes, leading to missing entries and inaccurate RAM totals.
 fn query_single_process(pid: u32, exe_name: &str) -> Option<ProcessMemoryInfo> {
-    // SAFETY: OpenProcess with PROCESS_QUERY_INFORMATION | PROCESS_VM_READ is the
-    // documented way to open a process for memory info queries.
-    let proc_handle = HandleGuard::new(unsafe {
-        OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, pid)
-    });
-    if proc_handle.raw().is_null() {
-        return None;
-    }
+    // Tier 1: PROCESS_QUERY_INFORMATION — works for most processes and gives
+    // full access to the EX2 counters struct.
+    // SAFETY: OpenProcess with PROCESS_QUERY_INFORMATION is the documented
+    // minimum for K32GetProcessMemoryInfo.
+    let proc_handle = HandleGuard::new(unsafe { OpenProcess(PROCESS_QUERY_INFORMATION, 0, pid) });
+
+    // Tier 2: fall back to PROCESS_QUERY_LIMITED_INFORMATION for sandboxed /
+    // PPL processes (e.g. Chromium renderer children) whose DACLs deny
+    // PROCESS_QUERY_INFORMATION but allow the limited variant.
+    let proc_handle = if proc_handle.raw().is_null() {
+        // SAFETY: PROCESS_QUERY_LIMITED_INFORMATION is a weaker access right
+        // accepted by K32GetProcessMemoryInfo on Windows Vista+.
+        let fallback =
+            HandleGuard::new(unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) });
+        if fallback.raw().is_null() {
+            return None;
+        }
+        fallback
+    } else {
+        proc_handle
+    };
 
     // Try the extended EX2 struct first — it includes PrivateWorkingSetSize.
     // SAFETY: PROCESS_MEMORY_COUNTERS_EX2 is zeroed, cb is set to sizeof(EX2),
