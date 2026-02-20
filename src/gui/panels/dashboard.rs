@@ -140,15 +140,15 @@ const LEVELS: [LevelInfo; 4] = [
     LevelInfo {
         level: CleanLevel::Aggressive,
         name: "Aggressive",
-        short: "Cache + modified pages",
-        detail: "Flushes the system file cache and forces modified pages to disk before clearing them. Effective for reclaiming large cache builds.",
+        short: "Full clean — cache, registry, working sets, standby",
+        detail: "File cache flush → registry flush → empty working sets → flush modified → purge all standby. Frees maximum RAM but may cause a brief I/O spike as apps re-fault pages.",
         color: theme::LEVEL_AGGRESSIVE,
     },
     LevelInfo {
         level: CleanLevel::Nuclear,
         name: "Nuclear",
-        short: "Full deep clean",
-        detail: "Performs all cleaning operations: working sets, standby list, modified list, and system file cache. Maximum recovery; use sparingly.",
+        short: "Everything + combining + 2nd pass",
+        detail: "All of Aggressive plus memory page combining (dedup) and a second flush+purge pass to catch pages modified during combining. Use when you need every last byte freed.",
         color: theme::LEVEL_NUCLEAR,
     },
 ];

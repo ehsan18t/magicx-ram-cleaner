@@ -54,17 +54,18 @@ src/
   lib.rs           — library crate root: module re-exports for criterion benchmarks
   cli.rs           — clap Parser, Commands enum, help text constants, STYLES
   cleaner.rs       — cleaning operations & orchestration (smart_clean, CleanLevel)
-  console.rs       — Windows console management (dynamic attach/alloc for SUBSYSTEM:WINDOWS, ANSI, notifications)
+  console.rs       — Windows console management (dynamic attach/alloc for SUBSYSTEM:WINDOWS, ANSI, notifications, dark-mode detection, title-bar theming)
   context_menu.rs  — Windows Desktop context menu integration (registry install/uninstall)
   display.rs       — ALL terminal formatting: banner, status, clean output, box drawing
   gui/             — egui graphical interface module
-    mod.rs         — module entry point, run_gui() launcher
+    mod.rs         — module entry point, run_gui() launcher, single-instance guard
     app.rs         — core app state, eframe::App impl, sidebar, layout routing
     persistence.rs — settings file I/O, Win32 file dialogs, autostart registry
     theme.rs       — colour palette, spacing constants, dark/light Visuals
     tray.rs        — system tray icon with context menu and Phosphor glyph icons
     widgets.rs     — reusable UI components (cards, stat labels, toggle switch)
     panels/        — one file per tab
+      mod.rs       — panel module re-exports
       about.rs     — app info, developer profile, project details
       dashboard.rs — memory overview + one-click cleaning buttons
       monitor.rs   — auto-clean configuration UI
@@ -77,6 +78,7 @@ src/
 build.rs           — embeds admin-elevation manifest, application icon, Phosphor context-menu sub-icons (IDs 2–6), and version metadata
 assets/
   app.ico          — multi-size application icon (16–256 px) embedded as resource ID 1
+  app.png          — PNG version of the app icon used as the egui window icon
 ```
 
 - **Do not create new modules** without explicit human approval.
@@ -186,11 +188,11 @@ chore: updates
 .\scripts\install-hooks.ps1
 ```
 
-| Hook         | Gates                                                                |
-| ------------ | -------------------------------------------------------------------- |
-| `pre-commit` | `cargo fmt --check`, `cargo clippy`, `cargo test`                    |
-| `pre-push`   | Full 6-gate CI mirror (fmt, clippy, test, release build, docs, deny) |
-| `commit-msg` | Conventional Commits format validation                               |
+| Hook         | Gates                                                                       |
+| ------------ | --------------------------------------------------------------------------- |
+| `pre-commit` | `cargo fmt --check`, `cargo clippy`, `cargo test`                           |
+| `pre-push`   | 6-gate quality gate (fmt, clippy, test, docs, deny if installed, debug build) |
+| `commit-msg` | Conventional Commits format validation                                      |
 
 ---
 
@@ -219,9 +221,9 @@ in `cli.rs`.
 
 ## 10 · CI Pipeline
 
-CI runs on **pull requests to `main`** only (not on push). Two jobs:
+CI runs on **pull requests to `main`** only (not on push). Two jobs, **7 gates total**:
 
-1. **quality-gate** — fmt, clippy, test, bench compile, debug build, cargo doc
+1. **quality-gate** — fmt, clippy, test, bench compile (`--no-run`), debug build, cargo doc
 2. **audit** — `cargo deny check`
 
 All gates must pass before merge. See `.github/workflows/ci.yml`.

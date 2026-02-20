@@ -1005,6 +1005,7 @@ A comprehensive RAM cleaner should implement these operations:
 | **Purge low-priority standby** | `NtSetSystemInformation(0x50, cmd=5)` | `SeProfileSingleProcessPrivilege` | Medium         |
 | **Purge ALL standby**          | `NtSetSystemInformation(0x50, cmd=4)` | `SeProfileSingleProcessPrivilege` | **HIGH**       |
 | **Flush file system cache**    | `SetSystemFileCacheSize(-1, -1, 0)`   | `SeIncreaseQuotaPrivilege`        | High           |
+| **Flush registry cache**       | `NtSetSystemInformation(0x9B)`        | `SeProfileSingleProcessPrivilege` | Low            |
 | **Combine duplicate pages**    | `NtSetSystemInformation(0x82)`        | `SeProfileSingleProcessPrivilege` | Low            |
 | **Trim single process**        | `EmptyWorkingSet(hProcess)`           | `PROCESS_SET_QUOTA`               | Per-process    |
 

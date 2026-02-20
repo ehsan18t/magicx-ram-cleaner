@@ -1656,22 +1656,29 @@ The codebase has evolved from the simplified prototype in Section 11 into a
 multi-module architecture with the following structure:
 
 ```
+build.rs           — embeds admin-elevation manifest, application icon, Phosphor context-menu
+                     sub-icons (IDs 2–6), and version metadata via winresource
+assets/
+  app.ico          — multi-size application icon (16–256 px) embedded as resource ID 1
+  app.png          — PNG version of the app icon used as the egui window icon
 src/
   main.rs          — thin entry point: mod declarations, main(), run(), command dispatch
   lib.rs           — library crate root: module re-exports for criterion benchmarks
   cli.rs           — clap Parser, Commands enum, help text constants, STYLES
   cleaner.rs       — cleaning operations & orchestration (smart_clean, CleanLevel)
-  console.rs       — Windows console management (dynamic attach/alloc for SUBSYSTEM:WINDOWS, ANSI, notifications)
+  console.rs       — Windows console management (dynamic attach/alloc for SUBSYSTEM:WINDOWS,
+                     ANSI, notifications, dark-mode detection, title-bar theming)
   context_menu.rs  — Windows Desktop context menu integration (registry install/uninstall)
   display.rs       — ALL terminal formatting: banner, status, clean output, box drawing
   gui/             — egui graphical interface module
-    mod.rs         — module entry point, run_gui() launcher
+    mod.rs         — module entry point, run_gui() launcher, single-instance guard
     app.rs         — core app state, eframe::App impl, sidebar, layout routing
     persistence.rs — settings file I/O, Win32 file dialogs, autostart registry
     theme.rs       — colour palette, spacing constants, dark/light Visuals
     tray.rs        — system tray icon with context menu and Phosphor glyph icons
     widgets.rs     — reusable UI components (cards, stat labels, toggle switch)
     panels/        — one file per tab
+      mod.rs       — panel module re-exports
       about.rs     — app info, developer profile, project details
       dashboard.rs — memory overview + one-click cleaning buttons
       monitor.rs   — auto-clean configuration UI
@@ -1685,57 +1692,73 @@ src/
 
 ### Key Types
 
-| Type                 | Module    | Purpose                                                               |
-| -------------------- | --------- | --------------------------------------------------------------------- |
-| `CleanLevel`         | `cleaner` | Enum: `Gentle`, `Moderate`, `Aggressive`, `Nuclear`                   |
-| `CleanResult`        | `cleaner` | Per-operation result: `freed_bytes`, `message`, `success`, `elapsed`  |
-| `SmartCleanResult`   | `cleaner` | Aggregate result: `level`, `results[]`, `before`/`after` snapshots    |
-| `SettleMode`         | `cleaner` | Enum: `Full` (tight threshold) / `Quick` (faster, relaxed threshold)  |
-| `MemoryListCommand`  | `ntapi`   | Enum mapping NT kernel commands (with `display_info()` for dry-run)   |
-| `MemorySnapshot`     | `stats`   | Full memory state (physical + page file + kernel memory lists)        |
-| `QuickMemoryReading` | `stats`   | Lightweight snapshot (`available_bytes` + `load_percent` only)        |
-| `MemoryListInfo`     | `stats`   | Kernel page list breakdown (standby priorities, modified, free, zero) |
-| `ProcessMemoryInfo`  | `stats`   | Per-process memory info (PID, name, working set, private bytes)       |
+| Type                 | Module    | Purpose                                                                          |
+| -------------------- | --------- | -------------------------------------------------------------------------------- |
+| `CleanLevel`         | `cleaner` | Enum: `Gentle`, `Moderate`, `Aggressive`, `Nuclear`                              |
+| `CleanResult`        | `cleaner` | Per-operation result: `freed_bytes`, `message`, `success`, `elapsed_secs`        |
+| `SmartCleanResult`   | `cleaner` | Aggregate: `results[]`, `overall_before`/`overall_after`, `total_freed`, `total_elapsed_secs` |
+| `SettleMode`         | `cleaner` | Enum: `Full` (3 stable reads, 20 polls max) / `Quick` (1 stable read, 8 polls)  |
+| `MemoryListCommand`  | `ntapi`   | Enum mapping NT kernel commands (with `display_info()` for dry-run labels)       |
+| `MemorySnapshot`     | `stats`   | Full memory state (physical + page file + kernel pools + system counters)         |
+| `QuickMemoryReading` | `stats`   | Lightweight snapshot (`total_physical` + `available_physical` only)               |
+| `MemoryListInfo`     | `stats`   | Kernel page list breakdown (standby priorities, modified, free, zeroed, bad)      |
+| `ProcessMemoryInfo`  | `stats`   | Per-process memory info (PID, name, working set, peak, private working set)      |
+| `FileCacheSnapshot`  | `stats`   | File system cache working set (current, peak, min/max limits)                    |
 
 ### CLI Features
 
 | Feature               | Flag / Option             | Description                                                                   |
 | --------------------- | ------------------------- | ----------------------------------------------------------------------------- |
-| GUI mode              | *(no arguments)*          | Launch the graphical interface with dashboard, charts, and settings           |
-| Smart clean           | `clean [-l LEVEL]`        | Context-aware cleaning at 4 levels with settle detection between operations   |
-| Dry-run mode          | `clean --dry-run`         | Preview what operations would run without executing them                      |
-| JSON report           | `clean --report FILE`     | Write `SmartCleanResult` as pretty-printed JSON to a file                     |
-| Status display        | `status [--detailed]`     | Show memory usage with optional kernel page list breakdown                    |
-| JSON status           | `status --json`           | Machine-readable JSON output of `MemorySnapshot`                              |
-| Top processes         | `status --top N`          | Show top N processes ranked by working set (physical RAM) usage               |
-| Per-process trimming  | `empty-workingsets -p`    | Trim working sets process-by-process instead of kernel-wide                   |
-| Exclusion filters     | `--exclude NAME`          | Case-insensitive process name exclusion (implies `--per-process`)             |
-| Continuous monitoring | `monitor -t THRESHOLD`    | Auto-clean when RAM usage exceeds threshold percentage                        |
+| GUI mode              | *(no arguments)*          | Launch the graphical interface with dashboard, charts, and settings            |
+| Smart clean           | `clean [-l LEVEL]`        | Context-aware cleaning at 4 levels with settle detection between operations    |
+| Dry-run mode          | `clean --dry-run`         | Preview what operations would run without executing them                       |
+| JSON report           | `clean --report FILE`     | Write `SmartCleanResult` as pretty-printed JSON to a file                      |
+| Process exclusion     | `clean --exclude NAME`    | Case-insensitive process name exclusion (implies per-process working set trim) |
+| Status display        | `status [--detailed]`     | Show memory usage with optional kernel page list breakdown                     |
+| JSON status           | `status --json`           | Machine-readable JSON output of `MemorySnapshot`                               |
+| Top processes         | `status --top N`          | Show top N processes ranked by private working set (physical RAM) usage        |
+| Per-process trimming  | `empty-workingsets -p`    | Trim working sets process-by-process instead of kernel-wide                    |
+| Exclusion filters     | `--exclude NAME`          | Case-insensitive process name exclusion (implies `--per-process`)              |
+| Continuous monitoring | `monitor -t THRESHOLD`    | Auto-clean when RAM usage exceeds threshold percentage                         |
 | Monitor cooldown      | `monitor --cooldown SECS` | Minimum seconds between auto-cleans (default: 2× interval)                    |
-| Quiet mode            | `-q` / `--quiet`          | Suppress banner and non-essential output (global flag)                        |
-| No colour             | `--no-color`              | Disable coloured terminal output (also respects `NO_COLOR` env var)           |
-| Notify mode           | `--notify`                | Skip console attachment, run silently, show balloon notification with results |
-| Context menu install  | `context-menu install`    | Add Desktop right-click submenu for quick cleaning access                     |
-| Context menu remove   | `context-menu uninstall`  | Remove Desktop right-click submenu                                            |
+| Quiet mode            | `-q` / `--quiet`          | Suppress banner and non-essential output (global flag)                         |
+| No colour             | `--no-color`              | Disable coloured terminal output (also respects `NO_COLOR` env var)            |
+| Notify mode           | `--notify`                | Skip console attachment, run silently, show balloon notification with results  |
+| Context menu install  | `context-menu install`    | Add Desktop right-click submenu for quick cleaning access                      |
+| Context menu remove   | `context-menu uninstall`  | Remove Desktop right-click submenu                                             |
 
 ### Settle Detection
 
 After each kernel memory operation, `wait_for_settle()` polls `QuickMemoryReading`
-at 50 ms intervals to detect when the available memory has stabilised. This prevents
-measuring freed memory before the kernel has finished reclaiming pages. Two modes:
+at 100 ms intervals to detect when the available memory has stabilised. This prevents
+measuring freed memory before the kernel has finished reclaiming pages.
 
-- **`SettleMode::Full`** — tight jitter threshold (0.1% of total RAM), used after
-  aggressive/nuclear operations
-- **`SettleMode::Quick`** — relaxed threshold (0.3% of total RAM) and shorter timeout,
-  used after gentle operations
+Both modes use the same jitter threshold formula: **0.01% of total physical RAM** with
+a **4 MB floor** (e.g. ~1.6 MB on 16 GB, ~13 MB on 128 GB). The modes differ in how
+many consecutive stable readings are required and how long they poll:
+
+- **`SettleMode::Full`** — 3 consecutive stable reads, up to 20 polls (2 s max).
+  Used for the **final** operation in a chain and for standalone commands.
+- **`SettleMode::Quick`** — 1 stable read, up to 8 polls (0.8 s max).
+  Used for intermediate operations in `smart_clean` where only per-op deltas are needed.
+
+Once settled, a full `MemorySnapshot::capture()` is taken for the after-measurement.
 
 ### DRY Cleaning Pattern
 
 All kernel memory operations share a common `execute_kernel_memory_op()` helper that:
-1. Captures a `QuickMemoryReading` before and after the kernel call
-2. Calls `wait_for_settle()` with the appropriate `SettleMode`
-3. Computes `freed_bytes` and elapsed time
-4. Returns a structured `CleanResult`
+1. Captures a full `MemorySnapshot` before the kernel call
+2. Calls `ntapi::execute_memory_command()` to issue the NT kernel operation
+3. Calls `wait_for_settle()` with the appropriate `SettleMode` (which captures the after snapshot)
+4. Computes `freed_bytes` (delta of `available_physical`) and wall-clock elapsed time
+5. Returns a structured `CleanResult` with before/after snapshots, timing, and status
 
-This eliminates code duplication across `flush_modified_list`, `purge_standby_list`,
-`empty_working_sets_kernel`, etc.
+Display strings (operation name, success message, verbose label) come from
+`MemoryListCommand::display_info()`, so callers only pass the command variant.
+
+This eliminates code duplication across `flush_modified_list`, `purge_standby_all`,
+`purge_standby_low_priority`, and `empty_working_sets_kernel`.
+
+Non-kernel operations (`flush_file_cache`, `flush_registry_cache`, `combine_memory`)
+follow the same capture → execute → settle → result pattern but with their own
+Win32/NT API calls instead of `execute_memory_command()`.

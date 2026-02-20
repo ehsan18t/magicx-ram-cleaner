@@ -169,12 +169,13 @@ magicx-ram-cleaner clean [OPTIONS]
 ```
 
 **Options:**
-| Flag                  | Description                                                                      |
-| --------------------- | -------------------------------------------------------------------------------- |
-| `-l, --level <LEVEL>` | Cleaning aggressiveness: `gentle`, `moderate`, `aggressive` (default), `nuclear` |
-| `-v, --verbose`       | Show detailed progress of each operation                                         |
-| `--report <FILE>`     | Write cleaning results to a JSON report file                                     |
-| `--dry-run`           | Preview what operations would run without executing them                         |
+| Flag                    | Description                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------------- |
+| `-l, --level <LEVEL>`   | Cleaning aggressiveness: `gentle`, `moderate`, `aggressive` (default), `nuclear`                        |
+| `-v, --verbose`         | Show detailed progress of each operation                                                                |
+| `--report <FILE>`       | Write cleaning results to a JSON report file                                                            |
+| `--dry-run`             | Preview what operations would run without executing them                                                |
+| `--exclude <NAME>`      | Exclude processes by name during working set trimming (case-insensitive, `.exe` optional, repeatable). Implies per-process trimming instead of kernel-level |
 **Examples:**
 ```powershell
 # Default aggressive clean — best for most situations
@@ -194,6 +195,9 @@ magicx-ram-cleaner clean -l nuclear --report clean-report.json
 
 # Preview what a nuclear clean would do (no execution)
 magicx-ram-cleaner clean -l nuclear --dry-run
+
+# Protect specific processes from working set trimming
+magicx-ram-cleaner clean --exclude chrome --exclude firefox
 
 # Short form
 magicx-ram-cleaner clean -l gentle
@@ -446,19 +450,19 @@ magicx-ram-cleaner context-menu <install|uninstall>
 | `uninstall` | Remove context menu entries (deletes registry keys)         |
 
 **Context menu entries installed:**
-| Entry              | Action                              | Icon    |
-| ------------------ | ----------------------------------- | ------- |
-| Quick Clean        | `clean --level gentle --notify`     | app.ico |
-| Standard Clean     | `clean --level moderate --notify`   | app.ico |
-| Deep Clean         | `clean --level aggressive --notify` | app.ico |
-| Purge Standby List | `purge-standby --notify`            | app.ico |
-| Memory Status      | `status`                            | app.ico |
+| Entry              | Action                              | Icon (resource ID)         |
+| ------------------ | ----------------------------------- | -------------------------- |
+| Quick Clean        | `clean --level gentle --notify`     | Phosphor LEAF glyph (2)   |
+| Standard Clean     | `clean --level moderate --notify`   | Phosphor LIGHTNING glyph (3) |
+| Deep Clean         | `clean --level aggressive --notify` | Phosphor FIRE glyph (4)   |
+| Purge Standby List | `purge-standby --notify`            | Phosphor BROOM glyph (5)  |
+| Memory Status      | `status --notify`                   | Phosphor GAUGE glyph (6)  |
+
+The root cascading menu uses the main application icon (`app.ico`, resource ID 1). Each sub-entry uses a Phosphor glyph icon rendered at build time and embedded with resource IDs 2–6.
 
 > **Note:** Nuclear is intentionally excluded from the context menu — it is too destructive for one-click access.
 
-Cleaning entries use `--notify` mode: no terminal window appears (the binary uses `SUBSYSTEM:WINDOWS` and skips console attachment entirely), the operation runs silently, and a brief balloon notification shows the result (e.g. freed RAM, success/failure). The notification auto-dismisses after 2 seconds and is not saved in the Windows Action Center.
-
-Memory Status opens a console window with full status output (no `--notify`) so the information is always visible regardless of whether the GUI is running.
+All entries use `--notify` mode: no terminal window appears (the binary uses `SUBSYSTEM:WINDOWS` and skips console attachment entirely), the operation runs silently, and a brief Windows balloon notification shows the result (e.g. freed RAM, memory usage summary, success/failure). The notification auto-dismisses after ~2 seconds and is not saved in the Windows Action Center.
 
 **Examples:**
 ```powershell
