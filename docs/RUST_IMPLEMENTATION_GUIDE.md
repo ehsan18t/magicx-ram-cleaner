@@ -95,10 +95,33 @@ use windows::Win32::System::Threading::OpenProcessToken;
 name = "magicx-ram-cleaner"
 version = "1.0.0"
 edition = "2024"
-description = "World-class Windows RAM cleaner CLI"
+authors = ["MagicX"]
+description = "The most powerful Windows RAM cleaner CLI — surpasses EmptyStandbyList with granular control over every memory subsystem"
 license = "MIT"
+readme = "README.md"
+keywords = ["ram", "memory", "cleaner", "windows", "standby-list"]
+categories = ["command-line-utilities", "os::windows-apis"]
 repository = "https://github.com/ehsan18t/magicx-ram-cleaner"
-rust-version = "1.93"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+# Windows API casts (u32↔i32, usize→u32) are inherent to the FFI boundary.
+# Precision loss in u64→f64 is acceptable for human-readable display formatting.
+cast_possible_wrap = "allow"
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+# Binary-only crate: modules are pub solely for criterion benchmark access.
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "deny"
+let_underscore_drop = "deny"
+non_ascii_idents = "deny"
 
 [profile.release]
 opt-level = 3        # Optimize for speed
@@ -108,11 +131,19 @@ strip = true         # Strip debug symbols
 panic = "abort"      # No unwinding
 
 [dependencies]
-clap = { version = "4", features = ["derive", "color"] }
+clap = { version = "4", features = ["derive", "color", "help", "usage", "suggestions"] }
 colored = "3"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# GUI framework (egui + eframe with glow renderer for smaller binary)
+eframe = { version = "0.33", default-features = false, features = ["glow", "default_fonts"] }
+egui_extras = "0.33"
+egui-phosphor = { version = "0.11", features = ["regular"] }
+tray-icon = "0.21"
+image = { version = "0.25", default-features = false, features = ["png", "ico"] }
+ab_glyph = "0.2"
 
 [dependencies.windows-sys]
 version = "0.61"
@@ -141,6 +172,9 @@ features = [
     # Console APIs (GetConsoleProcessList)
     "Win32_System_Console",
 
+    # Registry APIs (RegCreateKeyExW, RegSetValueExW, RegDeleteTreeW)
+    "Win32_System_Registry",
+
     # Shell notification APIs (Shell_NotifyIconW, NOTIFYICONDATAW)
     "Win32_UI_Shell",
 
@@ -150,6 +184,15 @@ features = [
     # Module handle for icon loading (GetModuleHandleW)
     "Win32_System_LibraryLoader",
 
+    # File I/O (CreateFileW for CONOUT$/CONIN$ handle redirection)
+    "Win32_Storage_FileSystem",
+
+    # Common dialog controls (GetOpenFileNameW, GetSaveFileNameW)
+    "Win32_UI_Controls_Dialogs",
+
+    # Desktop Window Manager (DwmSetWindowAttribute for dark title bar)
+    "Win32_Graphics_Dwm",
+
     # Toolhelp32 APIs (CreateToolhelp32Snapshot, Process32FirstW)
     "Win32_System_Diagnostics_ToolHelp",
 ]
@@ -157,25 +200,37 @@ features = [
 [build-dependencies]
 embed-manifest = "1"
 winresource = "0.1"
+ab_glyph = "0.2"
+egui-phosphor = { version = "0.11", features = ["regular"] }
+
+[dev-dependencies]
+criterion = { version = "0.8", features = ["html_reports"] }
+
+[[bench]]
+name = "benchmarks"
+harness = false
 ```
 
 ### Feature Map — What Each Feature Unlocks
 
-| Feature                             | Functions / Types It Provides                                                                                  |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `Win32_Foundation`                  | `HANDLE`, `BOOL`, `LUID`, `LUID_AND_ATTRIBUTES`, `CloseHandle`, `GetLastError`, `TRUE`/`FALSE`, `NTSTATUS`     |
-| `Win32_System_Memory`               | `SetSystemFileCacheSize`, `GetSystemFileCacheSize`                                                             |
-| `Win32_System_Threading`            | `GetCurrentProcess`, `OpenProcess`, `PROCESS_SET_QUOTA`, `PROCESS_QUERY_INFORMATION`                           |
-| `Win32_Security`                    | `TOKEN_ADJUST_PRIVILEGES`, `TOKEN_QUERY`, `AdjustTokenPrivileges`, `LookupPrivilegeValueW`, `OpenProcessToken` |
-| `Win32_Security_Authorization`      | `TOKEN_PRIVILEGES`, `SE_PRIVILEGE_ENABLED`                                                                     |
-| `Win32_System_ProcessStatus`        | `K32EnumProcesses`, `K32EmptyWorkingSet`, `K32GetPerformanceInfo`, `PERFORMANCE_INFORMATION`                   |
-| `Win32_System_SystemInformation`    | `GlobalMemoryStatusEx`, `MEMORYSTATUSEX`, `GetSystemInfo`                                                      |
+| Feature                             | Functions / Types It Provides                                                                                     |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `Win32_Foundation`                  | `HANDLE`, `BOOL`, `LUID`, `LUID_AND_ATTRIBUTES`, `CloseHandle`, `GetLastError`, `TRUE`/`FALSE`, `NTSTATUS`        |
+| `Win32_System_Memory`               | `SetSystemFileCacheSize`, `GetSystemFileCacheSize`                                                                |
+| `Win32_System_Threading`            | `GetCurrentProcess`, `OpenProcess`, `PROCESS_SET_QUOTA`, `PROCESS_QUERY_INFORMATION`                              |
+| `Win32_Security`                    | `TOKEN_ADJUST_PRIVILEGES`, `TOKEN_QUERY`, `AdjustTokenPrivileges`, `LookupPrivilegeValueW`, `OpenProcessToken`    |
+| `Win32_Security_Authorization`      | `TOKEN_PRIVILEGES`, `SE_PRIVILEGE_ENABLED`                                                                        |
+| `Win32_System_ProcessStatus`        | `K32EnumProcesses`, `K32EmptyWorkingSet`, `K32GetPerformanceInfo`, `PERFORMANCE_INFORMATION`                      |
+| `Win32_System_SystemInformation`    | `GlobalMemoryStatusEx`, `MEMORYSTATUSEX`, `GetSystemInfo`                                                         |
 | `Win32_System_Console`              | `AttachConsole`/`AllocConsole` (dynamic console for `SUBSYSTEM:WINDOWS`), `SetStdHandle`, `GetConsoleProcessList` |
-| `Win32_Storage_FileSystem`          | `CreateFileW` (open `CONOUT$`/`CONIN$` for std handle redirection after `AttachConsole`)                        |
-| `Win32_System_Diagnostics_ToolHelp` | `CreateToolhelp32Snapshot`, `Process32FirstW`, `Process32NextW`, `PROCESSENTRY32W` (per-process enumeration)   |
-| `Win32_UI_Shell`                    | `Shell_NotifyIconW`, `NOTIFYICONDATAW`, `NIM_ADD`, `NIM_DELETE`, `NIF_*` (balloon notifications)              |
-| `Win32_UI_WindowsAndMessaging`      | `LoadIconW`, `DestroyIcon` (icon loading for notifications)                                                    |
-| `Win32_System_LibraryLoader`        | `GetModuleHandleW` (module handle for icon resource loading)                                                   |
+| `Win32_Storage_FileSystem`          | `CreateFileW` (open `CONOUT$`/`CONIN$` for std handle redirection after `AttachConsole`)                          |
+| `Win32_System_Diagnostics_ToolHelp` | `CreateToolhelp32Snapshot`, `Process32FirstW`, `Process32NextW`, `PROCESSENTRY32W` (per-process enumeration)      |
+| `Win32_UI_Shell`                    | `Shell_NotifyIconW`, `NOTIFYICONDATAW`, `NIM_ADD`, `NIM_DELETE`, `NIF_*` (balloon notifications)                  |
+| `Win32_UI_WindowsAndMessaging`      | `LoadIconW`, `DestroyIcon` (icon loading for notifications)                                                       |
+| `Win32_System_LibraryLoader`        | `GetModuleHandleW` (module handle for icon resource loading)                                                      |
+| `Win32_System_Registry`             | `RegCreateKeyExW`, `RegSetValueExW`, `RegDeleteTreeW`, `RegCloseKey` (context menu & autostart registry ops)      |
+| `Win32_UI_Controls_Dialogs`         | `GetOpenFileNameW`, `GetSaveFileNameW`, `OPENFILENAMEW` (native file dialogs for backup/restore)                  |
+| `Win32_Graphics_Dwm`                | `DwmSetWindowAttribute`, `DWMWA_USE_IMMERSIVE_DARK_MODE` (dark title bar on Windows 10+)                          |
 
 ---
 
@@ -878,13 +933,16 @@ fn full_clean(aggressive: bool) -> Result<CleanResult, anyhow::Error> {
 
 ```rust
 enum CleanLevel {
-    /// Gentle: flush modified + combine only. No user impact.
+    /// Gentle: Purge ALL standby pages (priorities 0-7).
+    /// No process impact — standby pages are already outside working sets.
     Gentle,
-    /// Moderate: flush cache + low-priority standby. Minor cache loss.
+    /// Moderate: Flush modified pages to disk, then purge ALL standby.
+    /// No working-set eviction — running apps are unaffected.
     Moderate,
-    /// Aggressive: empty working sets + purge ALL standby. Maximum free RAM.
+    /// Aggressive: File cache + registry flush + empty working sets +
+    /// flush modified + purge ALL standby. Maximum recovery.
     Aggressive,
-    /// Nuclear: aggressive chain (4 ops) then full sequence again. Absolute maximum recovery.
+    /// Nuclear: Everything aggressive does + memory combining + 2nd pass.
     Nuclear,
 }
 
@@ -894,36 +952,31 @@ fn clean_at_level(level: CleanLevel) -> Result<(), anyhow::Error> {
 
     match level {
         CleanLevel::Gentle => {
-            flush_modified_list().ok();
-            combine_memory_pages().ok();
+            purge_standby_list().ok();  // all priorities 0-7
         }
         CleanLevel::Moderate => {
-            flush_file_cache().ok();
-            flush_modified_list().ok();
-            purge_low_priority_standby().ok();
-            combine_memory_pages().ok();
+            flush_modified_list().ok(); // dirty pages → standby
+            purge_standby_list().ok();  // then clear all standby
         }
         CleanLevel::Aggressive => {
             flush_file_cache().ok();
+            flush_registry_cache().ok();
             empty_all_working_sets().ok();
             flush_modified_list().ok();
-            purge_low_priority_standby().ok();
             purge_standby_list().ok();
-            combine_memory_pages().ok();
         }
         CleanLevel::Nuclear => {
-            // Phase 1: aggressive chain (4 operations)
+            // Phase 1: same as aggressive
             flush_file_cache().ok();
+            flush_registry_cache().ok();
             empty_all_working_sets().ok();
             flush_modified_list().ok();
             purge_standby_list().ok();
-            // Phase 2: full sequence again for maximum recovery
-            flush_file_cache().ok();
-            empty_all_working_sets().ok();
-            flush_modified_list().ok();
-            purge_low_priority_standby().ok();
-            purge_standby_list().ok();
+            // Phase 2: memory combining (dedup via COW)
             combine_memory_pages().ok();
+            // Phase 3: second pass catches pages modified during combine
+            flush_modified_list().ok();
+            purge_standby_list().ok();
         }
     }
     Ok(())
@@ -1603,13 +1656,34 @@ The codebase has evolved from the simplified prototype in Section 11 into a
 multi-module architecture with the following structure:
 
 ```
+build.rs           — embeds admin-elevation manifest, application icon, Phosphor context-menu
+                     sub-icons (IDs 2–6), and version metadata via winresource
+assets/
+  app.ico          — multi-size application icon (16–256 px) embedded as resource ID 1
+  app.png          — PNG version of the app icon used as the egui window icon
 src/
-  main.rs          — entry point: mod declarations, main(), run(), command dispatch
+  main.rs          — thin entry point: mod declarations, main(), run(), command dispatch
+  lib.rs           — library crate root: module re-exports for criterion benchmarks
   cli.rs           — clap Parser, Commands enum, help text constants, STYLES
   cleaner.rs       — cleaning operations & orchestration (smart_clean, CleanLevel)
-  console.rs       — Windows console management (dynamic attach/alloc for SUBSYSTEM:WINDOWS, ANSI, notifications)
+  console.rs       — Windows console management (dynamic attach/alloc for SUBSYSTEM:WINDOWS,
+                     ANSI, notifications, dark-mode detection, title-bar theming)
   context_menu.rs  — Windows Desktop context menu integration (registry install/uninstall)
   display.rs       — ALL terminal formatting: banner, status, clean output, box drawing
+  gui/             — egui graphical interface module
+    mod.rs         — module entry point, run_gui() launcher, single-instance guard
+    app.rs         — core app state, eframe::App impl, sidebar, layout routing
+    persistence.rs — settings file I/O, Win32 file dialogs, autostart registry
+    theme.rs       — colour palette, spacing constants, dark/light Visuals
+    tray.rs        — system tray icon with context menu and Phosphor glyph icons
+    widgets.rs     — reusable UI components (cards, stat labels, toggle switch)
+    panels/        — one file per tab
+      mod.rs       — panel module re-exports
+      about.rs     — app info, developer profile, project details
+      dashboard.rs — memory overview + one-click cleaning buttons
+      monitor.rs   — auto-clean configuration UI
+      processes.rs — sortable grouped process memory table
+      settings.rs  — appearance, integration, backup & restore
   monitor.rs       — continuous monitoring loop, Ctrl+C handler, auto-clean
   ntapi.rs         — NT kernel FFI (NtSetSystemInformation, NtQuerySystemInformation)
   privilege.rs     — Windows privilege elevation (Se*Privilege) + admin check
@@ -1618,56 +1692,73 @@ src/
 
 ### Key Types
 
-| Type                 | Module    | Purpose                                                               |
-| -------------------- | --------- | --------------------------------------------------------------------- |
-| `CleanLevel`         | `cleaner` | Enum: `Gentle`, `Moderate`, `Aggressive`, `Nuclear`                   |
-| `CleanResult`        | `cleaner` | Per-operation result: `freed_bytes`, `message`, `success`, `elapsed`  |
-| `SmartCleanResult`   | `cleaner` | Aggregate result: `level`, `results[]`, `before`/`after` snapshots    |
-| `SettleMode`         | `cleaner` | Enum: `Full` (tight threshold) / `Quick` (faster, relaxed threshold)  |
-| `MemoryListCommand`  | `cleaner` | Enum mapping NT kernel commands (with `display_info()` for dry-run)   |
-| `MemorySnapshot`     | `stats`   | Full memory state (physical + page file + kernel memory lists)        |
-| `QuickMemoryReading` | `stats`   | Lightweight snapshot (`available_bytes` + `load_percent` only)        |
-| `MemoryListInfo`     | `stats`   | Kernel page list breakdown (standby priorities, modified, free, zero) |
-| `ProcessMemoryInfo`  | `stats`   | Per-process memory info (PID, name, working set, private bytes)       |
+| Type                 | Module    | Purpose                                                                          |
+| -------------------- | --------- | -------------------------------------------------------------------------------- |
+| `CleanLevel`         | `cleaner` | Enum: `Gentle`, `Moderate`, `Aggressive`, `Nuclear`                              |
+| `CleanResult`        | `cleaner` | Per-operation result: `freed_bytes`, `message`, `success`, `elapsed_secs`        |
+| `SmartCleanResult`   | `cleaner` | Aggregate: `results[]`, `overall_before`/`overall_after`, `total_freed`, `total_elapsed_secs` |
+| `SettleMode`         | `cleaner` | Enum: `Full` (3 stable reads, 20 polls max) / `Quick` (1 stable read, 8 polls)  |
+| `MemoryListCommand`  | `ntapi`   | Enum mapping NT kernel commands (with `display_info()` for dry-run labels)       |
+| `MemorySnapshot`     | `stats`   | Full memory state (physical + page file + kernel pools + system counters)         |
+| `QuickMemoryReading` | `stats`   | Lightweight snapshot (`total_physical` + `available_physical` only)               |
+| `MemoryListInfo`     | `stats`   | Kernel page list breakdown (standby priorities, modified, free, zeroed, bad)      |
+| `ProcessMemoryInfo`  | `stats`   | Per-process memory info (PID, name, working set, peak, private working set)      |
+| `FileCacheSnapshot`  | `stats`   | File system cache working set (current, peak, min/max limits)                    |
 
 ### CLI Features
 
-| Feature               | Flag / Option             | Description                                                                 |
-| --------------------- | ------------------------- | --------------------------------------------------------------------------- |
-| Smart clean           | `clean [-l LEVEL]`        | Context-aware cleaning at 4 levels with settle detection between operations |
-| Dry-run mode          | `clean --dry-run`         | Preview what operations would run without executing them                    |
-| JSON report           | `clean --report FILE`     | Write `SmartCleanResult` as pretty-printed JSON to a file                   |
-| Status display        | `status [--detailed]`     | Show memory usage with optional kernel page list breakdown                  |
-| JSON status           | `status --json`           | Machine-readable JSON output of `MemorySnapshot`                            |
-| Top processes         | `status --top N`          | Show top N processes ranked by working set (physical RAM) usage             |
-| Per-process trimming  | `empty-workingsets -p`    | Trim working sets process-by-process instead of kernel-wide                 |
-| Exclusion filters     | `--exclude NAME`          | Case-insensitive process name exclusion (implies `--per-process`)           |
-| Continuous monitoring | `monitor -t THRESHOLD`    | Auto-clean when RAM usage exceeds threshold percentage                      |
-| Monitor cooldown      | `monitor --cooldown SECS` | Minimum seconds between auto-cleans (default: 2× interval)                  |
-| Quiet mode            | `-q` / `--quiet`          | Suppress banner and non-essential output (global flag)                      |
-| No colour             | `--no-color`              | Disable coloured terminal output (also respects `NO_COLOR` env var)         |
-| Notify mode           | `--notify`                | Skip console attachment, run silently, show balloon notification with results |
-| Context menu install  | `context-menu install`    | Add Desktop right-click submenu for quick cleaning access                   |
-| Context menu remove   | `context-menu uninstall`  | Remove Desktop right-click submenu                                          |
+| Feature               | Flag / Option             | Description                                                                   |
+| --------------------- | ------------------------- | ----------------------------------------------------------------------------- |
+| GUI mode              | *(no arguments)*          | Launch the graphical interface with dashboard, charts, and settings            |
+| Smart clean           | `clean [-l LEVEL]`        | Context-aware cleaning at 4 levels with settle detection between operations    |
+| Dry-run mode          | `clean --dry-run`         | Preview what operations would run without executing them                       |
+| JSON report           | `clean --report FILE`     | Write `SmartCleanResult` as pretty-printed JSON to a file                      |
+| Process exclusion     | `clean --exclude NAME`    | Case-insensitive process name exclusion (implies per-process working set trim) |
+| Status display        | `status [--detailed]`     | Show memory usage with optional kernel page list breakdown                     |
+| JSON status           | `status --json`           | Machine-readable JSON output of `MemorySnapshot`                               |
+| Top processes         | `status --top N`          | Show top N processes ranked by private working set (physical RAM) usage        |
+| Per-process trimming  | `empty-workingsets -p`    | Trim working sets process-by-process instead of kernel-wide                    |
+| Exclusion filters     | `--exclude NAME`          | Case-insensitive process name exclusion (implies `--per-process`)              |
+| Continuous monitoring | `monitor -t THRESHOLD`    | Auto-clean when RAM usage exceeds threshold percentage                         |
+| Monitor cooldown      | `monitor --cooldown SECS` | Minimum seconds between auto-cleans (default: 2× interval)                    |
+| Quiet mode            | `-q` / `--quiet`          | Suppress banner and non-essential output (global flag)                         |
+| No colour             | `--no-color`              | Disable coloured terminal output (also respects `NO_COLOR` env var)            |
+| Notify mode           | `--notify`                | Skip console attachment, run silently, show balloon notification with results  |
+| Context menu install  | `context-menu install`    | Add Desktop right-click submenu for quick cleaning access                      |
+| Context menu remove   | `context-menu uninstall`  | Remove Desktop right-click submenu                                             |
 
 ### Settle Detection
 
 After each kernel memory operation, `wait_for_settle()` polls `QuickMemoryReading`
-at 50 ms intervals to detect when the available memory has stabilised. This prevents
-measuring freed memory before the kernel has finished reclaiming pages. Two modes:
+at 100 ms intervals to detect when the available memory has stabilised. This prevents
+measuring freed memory before the kernel has finished reclaiming pages.
 
-- **`SettleMode::Full`** — tight jitter threshold (0.1% of total RAM), used after
-  aggressive/nuclear operations
-- **`SettleMode::Quick`** — relaxed threshold (0.3% of total RAM) and shorter timeout,
-  used after gentle operations
+Both modes use the same jitter threshold formula: **0.01% of total physical RAM** with
+a **4 MB floor** (e.g. ~1.6 MB on 16 GB, ~13 MB on 128 GB). The modes differ in how
+many consecutive stable readings are required and how long they poll:
+
+- **`SettleMode::Full`** — 3 consecutive stable reads, up to 20 polls (2 s max).
+  Used for the **final** operation in a chain and for standalone commands.
+- **`SettleMode::Quick`** — 1 stable read, up to 8 polls (0.8 s max).
+  Used for intermediate operations in `smart_clean` where only per-op deltas are needed.
+
+Once settled, a full `MemorySnapshot::capture()` is taken for the after-measurement.
 
 ### DRY Cleaning Pattern
 
 All kernel memory operations share a common `execute_kernel_memory_op()` helper that:
-1. Captures a `QuickMemoryReading` before and after the kernel call
-2. Calls `wait_for_settle()` with the appropriate `SettleMode`
-3. Computes `freed_bytes` and elapsed time
-4. Returns a structured `CleanResult`
+1. Captures a full `MemorySnapshot` before the kernel call
+2. Calls `ntapi::execute_memory_command()` to issue the NT kernel operation
+3. Calls `wait_for_settle()` with the appropriate `SettleMode` (which captures the after snapshot)
+4. Computes `freed_bytes` (delta of `available_physical`) and wall-clock elapsed time
+5. Returns a structured `CleanResult` with before/after snapshots, timing, and status
 
-This eliminates code duplication across `flush_modified_list`, `purge_standby_list`,
-`empty_working_sets_kernel`, etc.
+Display strings (operation name, success message, verbose label) come from
+`MemoryListCommand::display_info()`, so callers only pass the command variant.
+
+This eliminates code duplication across `flush_modified_list`, `purge_standby_all`,
+`purge_standby_low_priority`, and `empty_working_sets_kernel`.
+
+Non-kernel operations (`flush_file_cache`, `flush_registry_cache`, `combine_memory`)
+follow the same capture → execute → settle → result pattern but with their own
+Win32/NT API calls instead of `execute_memory_command()`.

@@ -15,13 +15,13 @@
 //!   SubCommands = ""
 //!   Icon        = "C:\...\magicx-ram-cleaner.exe,-1"
 //!   Shell\
-//!     01boost\
-//!       MUIVerb   = "Boost"
+//!     01quick\
+//!       MUIVerb   = "Quick Clean"
 //!       Icon      = "C:\...\magicx-ram-cleaner.exe,-2"
 //!       command\  (default) = '"C:\...\exe" clean --level gentle --notify'
-//!     02moderate\
+//!     02standard\
 //!       …
-//!     03aggressive\
+//!     03deep\
 //!       …
 //!     04purge_standby\
 //!       …
@@ -31,14 +31,10 @@
 //!
 //! ## Icon resource IDs
 //!
-//! The `.ico` files are embedded as Win32 `ICON` resources with numeric IDs:
-//! - ID `1` — `app.ico` (default/main icon, also used for root menu + purge/status)
-//! - ID `2` — `lite.ico` (gentle / moderate entries)
-//! - ID `3` — `aggressive.ico` (aggressive entry)
-//!
-//! Registry `Icon` values reference them as `"<exe_path>,-<resource_id>"`.
-//! Adding a new icon: embed it in `build.rs` with the next sequential ID,
-//! then reference it in `ENTRIES`.
+//! All icons are embedded as Win32 `ICON` resources in the executable at build
+//! time (see `build.rs`). The root cascading menu uses `app.ico` (resource
+//! ID 1). Each sub-entry references a Phosphor glyph icon rendered during
+//! compilation and embedded with resource IDs 2–6.
 
 use anyhow::{Context, Result, bail};
 use colored::Colorize;
@@ -62,9 +58,7 @@ struct MenuEntry {
     key: &'static str,
     /// Label shown in the context menu.
     label: &'static str,
-    /// Win32 resource ID for the icon embedded in the exe.
-    ///
-    /// Referenced in the registry as `"<exe_path>,-<id>"` (negative = resource ID).
+    /// Win32 icon resource ID embedded in the executable (see `build.rs`).
     icon_resource_id: u32,
     /// CLI arguments appended after the exe path in the `command` key.
     args: &'static str,
@@ -74,33 +68,33 @@ struct MenuEntry {
 /// Nuclear is intentionally excluded — it is too destructive for a one-click action.
 const ENTRIES: &[MenuEntry] = &[
     MenuEntry {
-        key: "01boost",
-        label: "Boost",
-        icon_resource_id: 2, // lite.ico
+        key: "01quick",
+        label: "Quick Clean",
+        icon_resource_id: 2, // Phosphor LEAF
         args: "clean --level gentle --notify",
     },
     MenuEntry {
-        key: "02moderate",
-        label: "Moderate Boost",
-        icon_resource_id: 2, // lite.ico
+        key: "02standard",
+        label: "Standard Clean",
+        icon_resource_id: 3, // Phosphor LIGHTNING
         args: "clean --level moderate --notify",
     },
     MenuEntry {
-        key: "03aggressive",
-        label: "Aggressive Boost",
-        icon_resource_id: 3, // aggressive.ico
+        key: "03deep",
+        label: "Deep Clean",
+        icon_resource_id: 4, // Phosphor FIRE
         args: "clean --level aggressive --notify",
     },
     MenuEntry {
         key: "04purge_standby",
-        label: "Purge Standby",
-        icon_resource_id: 1, // app.ico
+        label: "Purge Standby List",
+        icon_resource_id: 5, // Phosphor BROOM
         args: "purge-standby --notify",
     },
     MenuEntry {
         key: "05status",
         label: "Memory Status",
-        icon_resource_id: 1, // app.ico
+        icon_resource_id: 6, // Phosphor GAUGE
         args: "status --notify",
     },
 ];
@@ -303,12 +297,11 @@ fn install_at(exe_path: &str, root_path: &str) -> Result<()> {
         // Use MUIVerb for the display label (consistent with the root key).
         set_string(entry_key.raw(), "MUIVerb", entry.label)
             .with_context(|| format!("failed to set MUIVerb for '{}'", entry.key))?;
-        set_string(
-            entry_key.raw(),
-            "Icon",
-            &format!("{exe_path},-{}", entry.icon_resource_id),
-        )
-        .with_context(|| format!("failed to set icon for '{}'", entry.key))?;
+
+        // Reference the Phosphor glyph icon embedded in the exe at build time.
+        let icon_value = format!("{exe_path},-{}", entry.icon_resource_id);
+        set_string(entry_key.raw(), "Icon", &icon_value)
+            .with_context(|| format!("failed to set icon for '{}'", entry.key))?;
 
         let cmd_key = create_key(HKEY_CLASSES_ROOT, &cmd_path)
             .with_context(|| format!("failed to create command key for '{}'", entry.key))?;
@@ -378,15 +371,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn entries_have_valid_icon_resource_ids() {
+    fn entries_have_valid_resource_ids() {
         for entry in ENTRIES {
             assert!(
-                entry.icon_resource_id >= 1 && entry.icon_resource_id <= 3,
-                "entry '{}' has out-of-range icon_resource_id {}",
-                entry.key,
-                entry.icon_resource_id
+                entry.icon_resource_id >= 2,
+                "entry '{}' resource ID must be >= 2 (ID 1 is app.ico)",
+                entry.key
             );
         }
+    }
+
+    #[test]
+    fn entries_resource_ids_are_unique() {
+        let mut ids: Vec<u32> = ENTRIES.iter().map(|e| e.icon_resource_id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(
+            ids.len(),
+            ENTRIES.len(),
+            "entry icon_resource_id values must be unique"
+        );
     }
 
     #[test]

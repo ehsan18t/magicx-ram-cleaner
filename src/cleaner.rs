@@ -6,7 +6,7 @@
 
 use anyhow::Result;
 use colored::Colorize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use windows_sys::Win32::System::Memory::SetSystemFileCacheSize;
 use windows_sys::Win32::System::ProcessStatus::K32EmptyWorkingSet;
 use windows_sys::Win32::System::Threading::{
@@ -283,13 +283,17 @@ impl CleanResult {
 }
 
 /// Cleaning aggressiveness level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum, Serialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum, Serialize, Deserialize,
+)]
 pub enum CleanLevel {
-    /// Gentle: Only purge low-priority standby pages.
-    /// Safe for everyday use — preserves important cached data.
+    /// Gentle: Purge ALL standby pages (priorities 0–7).
+    /// Standby pages are already outside every process's working set;
+    /// purging them is completely safe and frees the disk-page cache.
     Gentle,
-    /// Moderate: Empty working sets + purge low-priority standby.
-    /// Good balance between freeing RAM and keeping frequently-used data cached.
+    /// Moderate: Flush modified pages to disk, then purge ALL standby.
+    /// No process working sets are touched — safe for running apps.
+    /// More thorough than Gentle because it also drains the modified list.
     Moderate,
     /// Aggressive: File cache trim + empty working sets + flush modified + purge ALL standby.
     /// Frees maximum RAM but may cause brief I/O spike as apps re-fault pages.
@@ -786,8 +790,9 @@ fn execute_nuclear_chain(verbose: bool, exclude_names: &[String]) -> Result<Vec<
 /// Return the ordered list of operation names that would run for a given level.
 ///
 /// This is used by `--dry-run` to preview the cleaning plan without executing
-/// any kernel operations. When `has_excludes` is `true`, the working-set
-/// operation label reflects per-process mode instead of kernel-level.
+/// any kernel operations. `has_excludes` only affects the working-set label
+/// for `Aggressive` and `Nuclear` (the only levels that empty working sets).
+/// `Gentle` and `Moderate` do not touch process working sets.
 #[must_use]
 pub fn dry_run_plan(level: CleanLevel, has_excludes: bool) -> Vec<&'static str> {
     let ws_label = if has_excludes {
@@ -797,8 +802,8 @@ pub fn dry_run_plan(level: CleanLevel, has_excludes: bool) -> Vec<&'static str> 
     };
 
     match level {
-        CleanLevel::Gentle => vec!["Purge Low-Priority Standby"],
-        CleanLevel::Moderate => vec![ws_label, "Purge Low-Priority Standby"],
+        CleanLevel::Gentle => vec!["Purge ALL Standby"],
+        CleanLevel::Moderate => vec!["Flush Modified List", "Purge ALL Standby"],
         CleanLevel::Aggressive => vec![
             "Flush File Cache",
             "Flush Registry Cache",
@@ -826,8 +831,8 @@ pub fn dry_run_plan(level: CleanLevel, has_excludes: bool) -> Vec<&'static str> 
 ///
 /// | Level | Operations |
 /// |---|---|
-/// | **Gentle** | Purge low-priority standby only |
-/// | **Moderate** | Empty working sets (kernel) → Purge low-priority standby |
+/// | **Gentle** | Purge ALL standby (all priorities) |
+/// | **Moderate** | Flush modified list → Purge ALL standby |
 /// | **Aggressive** | File cache flush → Registry flush → Empty working sets → Flush modified → Purge ALL standby |
 /// | **Nuclear** | All of aggressive + memory combining + second pass |
 ///
@@ -855,18 +860,27 @@ pub fn smart_clean(
 
     let results = match level {
         CleanLevel::Gentle => {
-            // Single operation — always Full
+            // Single operation — purge ALL standby pages (priorities 0-7).
+            // Standby pages are already outside every process's working set;
+            // purging them is safe at any time.
             vec![execute_kernel_memory_op(
-                MemoryListCommand::PurgeLowPriorityStandbyList,
+                MemoryListCommand::PurgeStandbyList,
                 verbose,
                 SettleMode::Full,
             )?]
         }
         CleanLevel::Moderate => {
+            // Flush modified pages to disk first so they become standby,
+            // then purge all standby. No working-set eviction — running
+            // processes are unaffected; only triggers an I/O spike.
             vec![
-                empty_working_sets_op(verbose, exclude_names, SettleMode::Quick)?,
                 execute_kernel_memory_op(
-                    MemoryListCommand::PurgeLowPriorityStandbyList,
+                    MemoryListCommand::FlushModifiedList,
+                    verbose,
+                    SettleMode::Quick,
+                )?,
+                execute_kernel_memory_op(
+                    MemoryListCommand::PurgeStandbyList,
                     verbose,
                     SettleMode::Full, // last op
                 )?,
@@ -1031,11 +1045,12 @@ mod tests {
     }
 
     #[test]
-    fn dry_run_plan_without_excludes_shows_kernel() {
+    fn dry_run_plan_moderate_ops() {
         let plan = dry_run_plan(CleanLevel::Moderate, false);
+        assert_eq!(plan, vec!["Flush Modified List", "Purge ALL Standby"]);
         assert!(
-            plan.contains(&"Empty Working Sets (Kernel)"),
-            "plan without excludes should show kernel-level working set op"
+            !plan.iter().any(|op| op.contains("Working Set")),
+            "moderate should not touch process working sets"
         );
     }
 

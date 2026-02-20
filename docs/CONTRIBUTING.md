@@ -13,8 +13,9 @@ clippy::all + clippy::pedantic + clippy::nursery = deny
 ```
 
 ```rust
-// main.rs — crate-level enforcement
-#![deny(unused_must_use, dead_code, unused_variables, unsafe_code, ...)]
+// lib.rs — crate-level enforcement (library root used for benchmarks)
+#![deny(unsafe_code)]
+// Lints are configured in Cargo.toml [lints.clippy] and [lints.rust] sections.
 // unsafe_code is denied globally; modules that need FFI get #[allow(unsafe_code)]
 ```
 
@@ -45,13 +46,18 @@ Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`,
 
 ### Layer 3: CI Pipeline (GitHub Actions)
 
-Every pull request to `main` runs 6 gates:
+Every pull request to `main` runs 7 gates across two jobs:
+
+**quality-gate** job:
 1. **Formatting** — `cargo fmt --check`
 2. **Clippy** — deny-level lints with `RUSTFLAGS="-D warnings"`
-3. **Tests** — `cargo test --all-targets`
-4. **Release build** — confirms release profile compiles
-5. **Documentation** — `cargo doc` with `-D warnings`
-6. **Dependency audit** — `cargo deny check`
+3. **Tests** — `cargo test --locked --all-targets`
+4. **Bench compile** — `cargo bench --locked --no-run` (benchmarks must compile)
+5. **Debug build** — `cargo build --locked` (binary compiles)
+6. **Documentation** — `cargo doc` with `-D warnings` and strict rustdoc lints
+
+**audit** job:
+7. **Dependency audit** — `cargo deny check`
 
 ### Layer 4: Dependency auditing (`deny.toml`)
 

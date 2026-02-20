@@ -333,7 +333,11 @@ pub fn print_single_result(result: &CleanResult) {
     );
 }
 
-/// Print a ranked table of the top processes by working set (physical RAM) usage.
+/// Print a ranked table of the top processes by private working set (physical RAM) usage.
+///
+/// The "Memory" column shows private working set — the portion of physical RAM
+/// that belongs exclusively to the process, matching Task Manager's default
+/// "Memory" column. "Working Set" includes shared pages (DLLs, mapped files).
 pub fn print_top_processes(processes: &[ProcessMemoryInfo]) {
     if processes.is_empty() {
         return;
@@ -342,20 +346,22 @@ pub fn print_top_processes(processes: &[ProcessMemoryInfo]) {
     println!();
     println!("{}", "─── Top Processes by Memory ────────────".dimmed());
     println!(
-        "  {:<6} {:<30} {:>12} {:>12}",
+        "  {:<6} {:<30} {:>12} {:>12} {:>12}",
         "PID".cyan().bold(),
         "Process".cyan().bold(),
+        "Memory".cyan().bold(),
         "Working Set".cyan().bold(),
-        "Peak".cyan().bold()
+        "Peak WS".cyan().bold()
     );
-    println!("  {}", "─".repeat(62).dimmed());
+    println!("  {}", "─".repeat(74).dimmed());
 
     for p in processes {
         println!(
-            "  {:<6} {:<30} {:>12} {:>12}",
+            "  {:<6} {:<30} {:>12} {:>12} {:>12}",
             p.pid,
             truncate_name(&p.name, 30),
-            format_bytes(p.working_set).white().bold(),
+            format_bytes(p.private_working_set).white().bold(),
+            format_bytes(p.working_set).dimmed(),
             format_bytes(p.peak_working_set).dimmed()
         );
     }

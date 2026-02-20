@@ -12,7 +12,7 @@
 | ---------- | ------------------------------------------------ |
 | Language   | Rust (edition **2024**)                          |
 | Platform   | Windows only (x86-64)                            |
-| Binary     | CLI tool — no GUI, no web, no library crate      |
+| Binary     | CLI + GUI tool — single portable exe             |
 | License    | MIT                                              |
 | Min Rust   | latest stable (currently 1.93+)                  |
 | Repository | `https://github.com/ehsan18t/magicx-ram-cleaner` |
@@ -51,20 +51,34 @@
 ```
 src/
   main.rs          — thin entry point: mod declarations, main(), run(), command dispatch
+  lib.rs           — library crate root: module re-exports for criterion benchmarks
   cli.rs           — clap Parser, Commands enum, help text constants, STYLES
   cleaner.rs       — cleaning operations & orchestration (smart_clean, CleanLevel)
-  console.rs       — Windows console management (dynamic attach/alloc for SUBSYSTEM:WINDOWS, ANSI, notifications)
+  console.rs       — Windows console management (dynamic attach/alloc for SUBSYSTEM:WINDOWS, ANSI, notifications, dark-mode detection, title-bar theming)
   context_menu.rs  — Windows Desktop context menu integration (registry install/uninstall)
   display.rs       — ALL terminal formatting: banner, status, clean output, box drawing
+  gui/             — egui graphical interface module
+    mod.rs         — module entry point, run_gui() launcher, single-instance guard
+    app.rs         — core app state, eframe::App impl, sidebar, layout routing
+    persistence.rs — settings file I/O, Win32 file dialogs, autostart registry
+    theme.rs       — colour palette, spacing constants, dark/light Visuals
+    tray.rs        — system tray icon with context menu and Phosphor glyph icons
+    widgets.rs     — reusable UI components (cards, stat labels, toggle switch)
+    panels/        — one file per tab
+      mod.rs       — panel module re-exports
+      about.rs     — app info, developer profile, project details
+      dashboard.rs — memory overview + one-click cleaning buttons
+      monitor.rs   — auto-clean configuration UI
+      processes.rs — sortable grouped process memory table
+      settings.rs  — appearance, integration, backup & restore
   monitor.rs       — continuous monitoring loop, Ctrl+C handler, auto-clean
   ntapi.rs         — NT kernel FFI (NtSetSystemInformation, NtQuerySystemInformation)
   privilege.rs     — Windows privilege elevation (Se*Privilege) + admin check
   stats.rs         — memory statistics, Win32 API calls, MemorySnapshot
-build.rs           — embeds admin-elevation manifest, application icon, and version metadata
+build.rs           — embeds admin-elevation manifest, application icon, Phosphor context-menu sub-icons (IDs 2–6), and version metadata
 assets/
   app.ico          — multi-size application icon (16–256 px) embedded as resource ID 1
-  lite.ico         — gentle/moderate context menu icon, embedded as resource ID 2
-  aggressive.ico   — aggressive context menu icon, embedded as resource ID 3
+  app.png          — PNG version of the app icon used as the egui window icon
 ```
 
 - **Do not create new modules** without explicit human approval.
@@ -137,7 +151,7 @@ Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`,
 
 Rules:
 
-- Description starts lowercase, 5–72 characters.
+- Description starts lowercase, 5–200 characters.
 - No trailing period.
 - Scope is optional, lowercase, alphanumeric + hyphens.
 
@@ -174,11 +188,11 @@ chore: updates
 .\scripts\install-hooks.ps1
 ```
 
-| Hook         | Gates                                                                |
-| ------------ | -------------------------------------------------------------------- |
-| `pre-commit` | `cargo fmt --check`, `cargo clippy`, `cargo test`                    |
-| `pre-push`   | Full 6-gate CI mirror (fmt, clippy, test, release build, docs, deny) |
-| `commit-msg` | Conventional Commits format validation                               |
+| Hook         | Gates                                                                       |
+| ------------ | --------------------------------------------------------------------------- |
+| `pre-commit` | `cargo fmt --check`, `cargo clippy`, `cargo test`                           |
+| `pre-push`   | 6-gate quality gate (fmt, clippy, test, docs, deny if installed, debug build) |
+| `commit-msg` | Conventional Commits format validation                                      |
 
 ---
 
@@ -207,9 +221,9 @@ in `cli.rs`.
 
 ## 10 · CI Pipeline
 
-CI runs on **pull requests to `main`** only (not on push). Two jobs:
+CI runs on **pull requests to `main`** only (not on push). Two jobs, **7 gates total**:
 
-1. **quality-gate** — fmt, clippy, test, release build, cargo doc
+1. **quality-gate** — fmt, clippy, test, bench compile (`--no-run`), debug build, cargo doc
 2. **audit** — `cargo deny check`
 
 All gates must pass before merge. See `.github/workflows/ci.yml`.
@@ -246,7 +260,7 @@ Always verify against current sources when the information is critical.
 - ❌ Use `std::process::exit()` — return `anyhow::Result` and let `main()` handle it.
 - ❌ Add cross-platform abstractions — this is Windows-only by design.
 - ❌ Introduce async/await — the tool is synchronous and simple.
-- ❌ Add a GUI or TUI framework — this is a CLI tool.
+- ❌ Add a new GUI framework — the project uses egui/eframe; do not replace it.
 - ❌ Use `unwrap()` or `expect()` outside of tests.
 - ❌ Add `#[allow(clippy::*)]` without a comment justifying it.
 - ❌ Commit without running all quality gates.

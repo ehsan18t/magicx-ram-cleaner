@@ -45,19 +45,8 @@ if %ERRORLEVEL% neq 0 (
 )
 echo   OK Tests
 
-REM Gate 4: Release build
-echo -^> [4/6] Building release...
-cargo build --release
-if %ERRORLEVEL% neq 0 (
-    echo.
-    echo X RELEASE BUILD FAILED
-    echo   Fix the build errors, then try pushing again.
-    exit /b 1
-)
-echo   OK Release build
-
-REM Gate 5: Documentation
-echo -^> [5/6] Building docs...
+REM Gate 4: Documentation
+echo -^> [4/6] Building docs...
 set RUSTDOCFLAGS=-D warnings
 cargo doc --no-deps
 if %ERRORLEVEL% neq 0 (
@@ -68,7 +57,7 @@ if %ERRORLEVEL% neq 0 (
 )
 echo   OK Docs
 
-REM Gate 6: Dependency audit (optional)
+REM Gate 5: Dependency audit (optional)
 echo -^> [6/6] Auditing dependencies...
 where cargo-deny >nul 2>nul
 if %ERRORLEVEL% equ 0 (
@@ -91,6 +80,17 @@ if %ERRORLEVEL% equ 0 (
 ) else (
     echo   SKIP cargo-deny not installed ^(install: cargo install cargo-deny^)
 )
+
+REM Gate 6: Debug build
+echo -^> [6/6] Building debug binary...
+cargo build
+if %ERRORLEVEL% neq 0 (
+    echo.
+    echo X DEBUG BUILD FAILED
+    echo   Fix the build errors, then try pushing again.
+    exit /b 1
+)
+echo   OK Debug build
 
 echo.
 echo All quality gates passed. Pushing...

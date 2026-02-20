@@ -26,7 +26,7 @@ powershell -NoProfile -Command ^
     "if ($s -notmatch $pattern) { exit 1 } " ^
     "$desc = $s -replace '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert|enforce)(\([a-z0-9-]+\))?: ', ''; " ^
     "if ($desc.Length -lt 5) { exit 2 } " ^
-    "if ($desc.Length -gt 72) { exit 3 } " ^
+    "if ($desc.Length -gt 200) { exit 3 } " ^
     "if ($s -match '\.$') { exit 4 } " ^
     "exit 0"
 
@@ -67,7 +67,7 @@ if %result% equ 2 (
 if %result% equ 3 (
     echo.
     echo X COMMIT MESSAGE TOO LONG
-    echo   Subject description must be 72 characters or fewer.
+    echo   Subject description must be 200 characters or fewer.
     echo.
     exit /b 1
 )

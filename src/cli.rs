@@ -32,6 +32,8 @@ EmptyStandbyList with granular control over every memory subsystem.
 \
 \x1b[1;36mFEATURES:\x1b[0m
   \
+\x1b[1;32m★\x1b[0m Built-in GUI — double-click the exe or run without arguments
+  \
 \x1b[1;32m★\x1b[0m Smart cleaning with 4 aggressiveness levels (gentle → nuclear)
   \
 \x1b[1;32m★\x1b[0m Individual control over each memory operation
@@ -53,9 +55,9 @@ EmptyStandbyList with granular control over every memory subsystem.
 \
 \x1b[1;36mCLEANING LEVELS:\x1b[0m
   \
-\x1b[32mgentle\x1b[0m      Safe — purge low-priority standby only \x1b[90m(good for gaming)\x1b[0m
+\x1b[32mgentle\x1b[0m      Safe — purge ALL standby pages \x1b[90m(no process impact)
   \
-\x1b[33mmoderate\x1b[0m    Balanced — working sets + low-priority standby
+\x1b[33mmoderate\x1b[0m    Balanced — flush modified pages + purge ALL standby
   \
 \x1b[1;33maggressive\x1b[0m  Full clean: cache + working sets + modified + standby \x1b[1;33m[DEFAULT]\x1b[0m
   \
@@ -63,6 +65,8 @@ EmptyStandbyList with granular control over every memory subsystem.
 
 \
 \x1b[1;36mQUICK START:\x1b[0m
+  \
+\x1b[32mmagicx-ram-cleaner\x1b[0m                             \x1b[90m# Launch GUI (no arguments)\x1b[0m
   \
 \x1b[32mmagicx-ram-cleaner clean\x1b[0m                    \x1b[90m# Smart clean (aggressive)\x1b[0m
   \
@@ -152,6 +156,12 @@ pub const AFTER_HELP_LONG: &str = "\
 \x1b[32mmagicx-ram-cleaner context-menu install\x1b[0m              \x1b[90m# Add to right-click menu\x1b[0m
     \
 \x1b[32mmagicx-ram-cleaner context-menu uninstall\x1b[0m             \x1b[90m# Remove from right-click menu\x1b[0m
+
+  \
+\x1b[36mGUI Mode:\x1b[0m
+    \
+\x1b[32mmagicx-ram-cleaner\x1b[0m                                     \x1b[90m# Launch the graphical interface\x1b[0m
+    \x1b[90mDouble-click the exe to open the GUI with dashboard, charts, and settings.\x1b[0m
 
 \
 \x1b[1;36mKEY CONCEPTS:\x1b[0m
@@ -243,8 +253,8 @@ pub enum Commands {
     /// selected aggressiveness level. Shows before/after stats.
     ///
     /// Levels:
-    ///   gentle     — Purge low-priority standby only (safe for gaming)
-    ///   moderate   — Empty working sets + purge low-priority standby
+    ///   gentle     — Purge ALL standby pages (safe, no process impact)
+    ///   moderate   — Flush modified pages to disk + purge ALL standby
     ///   aggressive — Full clean: cache + working sets + modified + standby (DEFAULT)
     ///   nuclear    — Everything + memory combining + second pass
     #[command(verbatim_doc_comment)]
@@ -440,8 +450,8 @@ pub enum ContextMenuAction {
     ///
     /// Adds a "`MagicX` RAM Cleaner" cascading submenu to the Desktop
     /// and folder background right-click menus with quick access to
-    /// Boost, Moderate Boost, Aggressive Boost, Purge Standby, and
-    /// Memory Status.
+    /// Quick Clean, Standard Clean, Deep Clean, Purge Standby List,
+    /// and Memory Status.
     ///
     /// Existing entries are replaced cleanly (delete + recreate).
     /// Icons embedded in the executable are used for each entry.

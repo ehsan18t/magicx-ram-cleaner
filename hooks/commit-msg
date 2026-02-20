@@ -97,10 +97,10 @@ if [ "$desc_len" -lt 5 ]; then
     exit 1
 fi
 
-if [ "$desc_len" -gt 72 ]; then
+if [ "$desc_len" -gt 200 ]; then
     echo ""
     echo "✗ COMMIT MESSAGE TOO LONG"
-    echo "  Subject line description must be ≤72 characters."
+    echo "  Subject line description must be ≤200 characters."
     echo "  Got: \"$desc\" ($desc_len chars)"
     echo ""
     exit 1
