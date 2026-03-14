@@ -279,26 +279,25 @@ impl MemoryListInfo {
 
         // If the kernel needs more than 30 entries (unlikely but defensive),
         // fall back to a heap allocation with the exact size requested.
-        let mut heap_buf: Option<Vec<usize>> = None;
-        if status == STATUS_INFO_LENGTH_MISMATCH && return_length > 0 {
+        let heap_buf: Option<Vec<usize>> = if status == STATUS_INFO_LENGTH_MISMATCH
+            && return_length > 0
+        {
             let needed_entries = (return_length as usize).div_ceil(std::mem::size_of::<usize>());
-            let buf = vec![0usize; needed_entries];
-            heap_buf = Some(buf);
-            // SAFETY: heap_buf was just allocated with exactly `needed_entries`
+            let mut buf = vec![0usize; needed_entries];
+            // SAFETY: buf was just allocated with exactly `needed_entries`
             // elements. return_length matches the kernel's required size.
             status = unsafe {
                 crate::ntapi::nt_query_system_information(
                     SYSTEM_MEMORY_LIST_INFORMATION,
-                    heap_buf
-                        .as_mut()
-                        .expect("just assigned")
-                        .as_mut_ptr()
-                        .cast(),
+                    buf.as_mut_ptr().cast(),
                     return_length,
                     &raw mut return_length,
                 )
             };
-        }
+            Some(buf)
+        } else {
+            None
+        };
 
         // Use the heap buffer if it was allocated, otherwise the stack buffer
         let buf: &[usize] = heap_buf.as_deref().unwrap_or(&stack_buf);
