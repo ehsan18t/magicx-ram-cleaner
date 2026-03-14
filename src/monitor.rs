@@ -172,7 +172,7 @@ pub fn run_monitor(
         }
     }
 
-    println!("\n{} Monitor stopped.", "◉".red());
+    println!("\n{} Monitor stopped.", "◉".red().bold());
     Ok(())
 }
 
