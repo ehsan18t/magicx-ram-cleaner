@@ -303,7 +303,7 @@ impl MagicXApp {
             let capture_ref = Arc::clone(&needs_capture);
             let ctx = cc.egui_ctx.clone();
 
-            std::thread::Builder::new()
+            if let Err(e) = std::thread::Builder::new()
                 .name("gui-stats".into())
                 .spawn(move || {
                     stats_thread(
@@ -316,7 +316,9 @@ impl MagicXApp {
                         &ctx,
                     );
                 })
-                .expect("failed to spawn stats thread");
+            {
+                eprintln!("failed to spawn stats thread: {e}");
+            }
         }
 
         // Capture dark_mode before settings is moved into Self.
@@ -393,13 +395,15 @@ impl MagicXApp {
         self.last_clean_result = None;
 
         let tx = self.clean_tx.clone();
-        std::thread::Builder::new()
+        if let Err(e) = std::thread::Builder::new()
             .name("gui-clean".into())
             .spawn(move || {
                 let result = cleaner::smart_clean(level, false, &[]).map_err(|e| format!("{e:#}"));
                 drop(tx.send(CleanResultMsg { result, level }));
             })
-            .expect("failed to spawn clean thread");
+        {
+            eprintln!("failed to spawn clean thread: {e}");
+        }
     }
 
     /// Poll for completed cleaning results.
@@ -435,7 +439,7 @@ impl MagicXApp {
         if self.last_process_refresh.elapsed() >= Duration::from_secs(PROCESS_REFRESH_SECS) {
             self.last_process_refresh = Instant::now();
             let procs_ref = Arc::clone(&self.top_processes);
-            std::thread::Builder::new()
+            if let Err(e) = std::thread::Builder::new()
                 .name("gui-procs".into())
                 .spawn(move || {
                     if let Ok(procs) = stats::query_all_processes()
@@ -444,7 +448,9 @@ impl MagicXApp {
                         *lock = procs;
                     }
                 })
-                .expect("failed to spawn process thread");
+            {
+                eprintln!("failed to spawn process thread: {e}");
+            }
         }
     }
 
