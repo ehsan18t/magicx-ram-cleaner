@@ -193,7 +193,9 @@ fn print_commit_and_pagefile(snapshot: &MemorySnapshot, page_size: u64) {
     println!("{}", "─── Commit Charge ──────────────────────".dimmed());
     println!(
         "  Current:        {}  ({} pages)",
-        format_bytes(snapshot.commit_total_pages * page_size).white(),
+        format_bytes(snapshot.commit_total_pages * page_size)
+            .white()
+            .bold(),
         snapshot.commit_total_pages
     );
     println!(
@@ -215,7 +217,7 @@ fn print_commit_and_pagefile(snapshot: &MemorySnapshot, page_size: u64) {
     println!("{}", "─── Page File ──────────────────────────".dimmed());
     println!(
         "  Total:          {}",
-        format_bytes(snapshot.total_page_file)
+        format_bytes(snapshot.total_page_file).white()
     );
     println!(
         "  Available:      {}",
@@ -238,19 +240,31 @@ fn print_kernel_and_system(snapshot: &MemorySnapshot, page_size: u64) {
     println!("{}", "─── Kernel Memory Pools ────────────────".dimmed());
     println!(
         "  Paged Pool:     {}",
-        format_bytes(snapshot.kernel_paged_pages * page_size)
+        format_bytes(snapshot.kernel_paged_pages * page_size).white()
     );
     println!(
         "  Non-Paged Pool: {}",
-        format_bytes(snapshot.kernel_nonpaged_pages * page_size)
+        format_bytes(snapshot.kernel_nonpaged_pages * page_size).white()
     );
 
     println!();
     println!("{}", "─── System Counters ────────────────────".dimmed());
-    println!("  Processes:      {}", snapshot.process_count);
-    println!("  Threads:        {}", snapshot.thread_count);
-    println!("  Handles:        {}", snapshot.handle_count);
-    println!("  Page Size:      {} bytes", snapshot.page_size);
+    println!(
+        "  Processes:      {}",
+        snapshot.process_count.to_string().dimmed()
+    );
+    println!(
+        "  Threads:        {}",
+        snapshot.thread_count.to_string().dimmed()
+    );
+    println!(
+        "  Handles:        {}",
+        snapshot.handle_count.to_string().dimmed()
+    );
+    println!(
+        "  Page Size:      {} bytes",
+        snapshot.page_size.to_string().dimmed()
+    );
 }
 
 /// Print a compact one-line memory summary (for monitoring mode).
@@ -312,7 +326,7 @@ pub fn print_banner() {
 pub fn print_clean_start(level: CleanLevel) {
     println!(
         "\n{} Starting {} clean...\n",
-        "⚡".yellow(),
+        "⚡".yellow().bold(),
         level.to_string().bold()
     );
 }
