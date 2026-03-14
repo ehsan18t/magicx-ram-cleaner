@@ -9,6 +9,8 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
+use anyhow::Context;
+
 use eframe::egui;
 use egui::{FontFamily, FontId, TextStyle};
 use egui_phosphor::regular as ph;
@@ -272,7 +274,11 @@ pub struct MagicXApp {
 
 impl MagicXApp {
     /// Create the app, spawn background threads, and apply the initial theme.
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the background stats thread cannot be spawned.
+    pub fn new(cc: &eframe::CreationContext<'_>) -> anyhow::Result<Self> {
         // Register Phosphor icon font so all icon glyphs render correctly.
         let mut fonts = egui::FontDefinitions::default();
         egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
@@ -303,22 +309,22 @@ impl MagicXApp {
             let capture_ref = Arc::clone(&needs_capture);
             let ctx = cc.egui_ctx.clone();
 
-            if let Err(e) = std::thread::Builder::new()
-                .name("gui-stats".into())
-                .spawn(move || {
-                    stats_thread(
-                        &snapshot_ref,
-                        &history_ref,
-                        &running_ref,
-                        &repaint_ref,
-                        &capture_ref,
-                        start_time,
-                        &ctx,
-                    );
-                })
-            {
-                eprintln!("failed to spawn stats thread: {e}");
-            }
+            drop(
+                std::thread::Builder::new()
+                    .name("gui-stats".into())
+                    .spawn(move || {
+                        stats_thread(
+                            &snapshot_ref,
+                            &history_ref,
+                            &running_ref,
+                            &repaint_ref,
+                            &capture_ref,
+                            start_time,
+                            &ctx,
+                        );
+                    })
+                    .context("failed to spawn stats thread")?,
+            );
         }
 
         // Capture dark_mode before settings is moved into Self.
@@ -349,7 +355,7 @@ impl MagicXApp {
         let _sync_autostart =
             super::persistence::SettingsManager::set_autostart(settings.auto_start);
 
-        Self {
+        Ok(Self {
             active_panel: Panel::Dashboard,
             latest_snapshot,
             history,
@@ -383,7 +389,7 @@ impl MagicXApp {
             quit_requested: false,
             context_menu_installed: crate::context_menu::is_installed(),
             hwnd,
-        }
+        })
     }
 
     /// Start a cleaning operation on a background thread.
@@ -402,7 +408,11 @@ impl MagicXApp {
                 drop(tx.send(CleanResultMsg { result, level }));
             })
         {
-            eprintln!("failed to spawn clean thread: {e}");
+            self.cleaning_in_progress = false;
+            drop(self.clean_tx.send(CleanResultMsg {
+                result: Err(format!("failed to spawn clean thread: {e}")),
+                level,
+            }));
         }
     }
 
@@ -439,18 +449,17 @@ impl MagicXApp {
         if self.last_process_refresh.elapsed() >= Duration::from_secs(PROCESS_REFRESH_SECS) {
             self.last_process_refresh = Instant::now();
             let procs_ref = Arc::clone(&self.top_processes);
-            if let Err(e) = std::thread::Builder::new()
-                .name("gui-procs".into())
-                .spawn(move || {
-                    if let Ok(procs) = stats::query_all_processes()
-                        && let Ok(mut lock) = procs_ref.lock()
-                    {
-                        *lock = procs;
-                    }
-                })
-            {
-                eprintln!("failed to spawn process thread: {e}");
-            }
+            drop(
+                std::thread::Builder::new()
+                    .name("gui-procs".into())
+                    .spawn(move || {
+                        if let Ok(procs) = stats::query_all_processes()
+                            && let Ok(mut lock) = procs_ref.lock()
+                        {
+                            *lock = procs;
+                        }
+                    }),
+            );
         }
     }
 

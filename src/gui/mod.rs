@@ -104,7 +104,7 @@ pub fn run_gui() -> Result<()> {
     eframe::run_native(
         "MagicX RAM Cleaner",
         native_options,
-        Box::new(|cc| Ok(Box::new(app::MagicXApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(app::MagicXApp::new(cc)?))),
     )
     .map_err(|e| anyhow::anyhow!("eframe error: {e}"))
 }
