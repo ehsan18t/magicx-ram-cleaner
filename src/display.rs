@@ -468,10 +468,10 @@ pub fn print_clean_summary(
         format_bytes(after.available_physical).green()
     );
     println!(
-        "  {} Load:      {}% → {}%",
+        "  {} Load:      {} → {}",
         "▸".cyan(),
-        before.memory_load_percent.to_string().red(),
-        after.memory_load_percent.to_string().green()
+        coloured_load(before.memory_load_percent),
+        coloured_load(after.memory_load_percent)
     );
 
     match total_freed.cmp(&0) {
