@@ -48,8 +48,11 @@ const ICON_BTN_SIZE: f32 = 42.0;
 /// Used to vertically centre the bio within the social-grid row height.
 const BIO_CONTENT_HEIGHT: f32 = 64.0;
 
-/// GitHub brand background color -- very dark charcoal.
-const COLOR_GITHUB: egui::Color32 = egui::Color32::from_rgb(36, 41, 47);
+/// GitHub brand background color — lighter charcoal for sufficient contrast
+/// against the dark theme surface (`rgb(25, 31, 40)`). The official GitHub
+/// dark gray `rgb(36, 41, 47)` is nearly invisible on our dark cards; this
+/// brighter variant keeps the brand feel while remaining clearly visible.
+const COLOR_GITHUB: egui::Color32 = egui::Color32::from_rgb(87, 96, 106);
 
 /// `LinkedIn` brand background color.
 const COLOR_LINKEDIN: egui::Color32 = egui::Color32::from_rgb(0, 119, 181);
