@@ -485,41 +485,35 @@ fn version_chip(ui: &mut egui::Ui, dark: bool) {
 
 /// Render a compact platform or metadata chip with an icon prefix.
 fn meta_chip(ui: &mut egui::Ui, icon: &str, label: &str, dark: bool) {
-    let text = format!("{icon}  {label}");
+    let text_color = theme::muted_color(dark);
     let galley = ui.painter().layout_no_wrap(
-        text,
+        format!("{icon}  {label}"),
         egui::FontId::proportional(11.0),
-        egui::Color32::PLACEHOLDER,
+        text_color,
     );
     let padding = egui::vec2(8.0, 4.0);
     let chip_size = galley.size() + padding * 2.0;
     let (rect, _) = ui.allocate_exact_size(chip_size, egui::Sense::hover());
     let bg = theme::border_color(dark).gamma_multiply(if dark { 0.70 } else { 0.60 });
-    let text_color = theme::muted_color(dark);
     ui.painter()
         .rect_filled(rect, egui::CornerRadius::same(6), bg);
-    ui.painter().text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        format!("{icon}  {label}"),
-        egui::FontId::proportional(11.0),
-        text_color,
-    );
+    let text_pos = rect.min + (rect.size() - galley.size()) / 2.0;
+    ui.painter().galley(text_pos, galley, text_color);
 }
 
 /// Render a fully-rounded tag pill for developer bio labels.
 fn tag_pill(ui: &mut egui::Ui, label: &str, dark: bool) {
+    let text_color = theme::ACCENT.gamma_multiply(0.90);
     let galley = ui.painter().layout_no_wrap(
         label.to_owned(),
         egui::FontId::proportional(11.0),
-        egui::Color32::PLACEHOLDER,
+        text_color,
     );
     let padding = egui::vec2(10.0, 4.0);
     let size = galley.size() + padding * 2.0;
     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
     let bg = theme::ACCENT.gamma_multiply(if dark { 0.12 } else { 0.10 });
     let border = theme::ACCENT.gamma_multiply(0.28);
-    let text_color = theme::ACCENT.gamma_multiply(0.90);
     ui.painter()
         .rect_filled(rect, egui::CornerRadius::same(100), bg);
     ui.painter().rect_stroke(
@@ -528,13 +522,8 @@ fn tag_pill(ui: &mut egui::Ui, label: &str, dark: bool) {
         egui::Stroke::new(0.5, border),
         egui::StrokeKind::Outside,
     );
-    ui.painter().text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        label,
-        egui::FontId::proportional(11.0),
-        text_color,
-    );
+    let text_pos = rect.min + (rect.size() - galley.size()) / 2.0;
+    ui.painter().galley(text_pos, galley, text_color);
 }
 
 /// Render a labelled info row: icon circle, label, then a value rendered by
@@ -624,13 +613,8 @@ fn view_on_github_btn(ui: &mut egui::Ui, dark: bool) {
         egui::Stroke::new(1.0, border),
         egui::StrokeKind::Outside,
     );
-    ui.painter().text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        format!("{icon}  View on GitHub"),
-        egui::FontId::proportional(12.0),
-        text_color,
-    );
+    let text_pos = rect.min + (rect.size() - galley.size()) / 2.0;
+    ui.painter().galley(text_pos, galley, text_color);
 
     if response.clicked() {
         ui.ctx().open_url(egui::OpenUrl::new_tab(REPO_URL));
