@@ -338,12 +338,12 @@ pub fn print_single_result(result: &CleanResult) {
         );
     }
     println!(
-        "  Available: {} -> {}",
+        "  Available: {} → {}",
         format_bytes(result.available_before).yellow(),
         format_bytes(result.available_after).green()
     );
     println!(
-        "  Load: {} -> {}   (took {:.2}s)\n",
+        "  Load: {} → {}  (took {:.2}s)\n",
         coloured_load(result.load_before),
         coloured_load(result.load_after),
         result.elapsed_secs
