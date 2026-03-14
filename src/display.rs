@@ -37,7 +37,7 @@ pub fn print_status(
     );
     println!(
         "{}",
-        "║             MagicX RAM Cleaner — System Status             ║"
+        "║              MagicX RAM Cleaner — System Status              ║"
             .cyan()
             .bold()
     );
@@ -328,8 +328,10 @@ pub fn print_single_result(result: &CleanResult) {
         format_bytes(result.available_after).green()
     );
     println!(
-        "  Load: {}% -> {}%   (took {:.2}s)\n",
-        result.load_before, result.load_after, result.elapsed_secs
+        "  Load: {} -> {}   (took {:.2}s)\n",
+        coloured_load(result.load_before),
+        coloured_load(result.load_after),
+        result.elapsed_secs
     );
 }
 
@@ -345,24 +347,24 @@ pub fn print_top_processes(processes: &[ProcessMemoryInfo]) {
 
     println!();
     println!("{}", "─── Top Processes by Memory ────────────".dimmed());
-    println!(
+    let header = format!(
         "  {:<6} {:<30} {:>12} {:>12} {:>12}",
-        "PID".cyan().bold(),
-        "Process".cyan().bold(),
-        "Memory".cyan().bold(),
-        "Working Set".cyan().bold(),
-        "Peak WS".cyan().bold()
+        "PID", "Process", "Memory", "Working Set", "Peak WS"
     );
-    println!("  {}", "─".repeat(74).dimmed());
+    println!("{}", header.cyan().bold());
+    println!("  {}", "─".repeat(76).dimmed());
 
     for p in processes {
+        let mem = format!("{:>12}", format_bytes(p.private_working_set));
+        let ws = format!("{:>12}", format_bytes(p.working_set));
+        let peak = format!("{:>12}", format_bytes(p.peak_working_set));
         println!(
-            "  {:<6} {:<30} {:>12} {:>12} {:>12}",
+            "  {:<6} {:<30} {} {} {}",
             p.pid,
             truncate_name(&p.name, 30),
-            format_bytes(p.private_working_set).white().bold(),
-            format_bytes(p.working_set).dimmed(),
-            format_bytes(p.peak_working_set).dimmed()
+            mem.white().bold(),
+            ws.dimmed(),
+            peak.dimmed(),
         );
     }
     println!();
@@ -423,19 +425,26 @@ pub fn print_clean_summary(
             "✗".red().bold().to_string()
         };
         let freed_str = match r.freed_bytes.cmp(&0) {
-            std::cmp::Ordering::Greater => format!("+{}", format_bytes(r.freed_bytes as u64))
-                .green()
-                .to_string(),
-            std::cmp::Ordering::Less => format!("-{}", format_bytes(r.freed_bytes.unsigned_abs()))
-                .yellow()
-                .to_string(),
-            std::cmp::Ordering::Equal => "0 B".dimmed().to_string(),
+            std::cmp::Ordering::Greater => {
+                format!("{:>12}", format!("+{}", format_bytes(r.freed_bytes as u64)))
+                    .green()
+                    .to_string()
+            }
+            std::cmp::Ordering::Less => format!(
+                "{:>12}",
+                format!("-{}", format_bytes(r.freed_bytes.unsigned_abs()))
+            )
+            .yellow()
+            .to_string(),
+            std::cmp::Ordering::Equal => format!("{:>12}", "0 B").dimmed().to_string(),
         };
 
-        let elapsed_str = format!("{:.2}s", r.elapsed_secs).dimmed().to_string();
+        let elapsed_str = format!("{:>6}", format!("{:.2}s", r.elapsed_secs))
+            .dimmed()
+            .to_string();
 
         println!(
-            "  {} {:<35} {:>12}  {:>6}  {}",
+            "  {} {:<35} {}  {}  {}",
             status,
             r.operation,
             freed_str,

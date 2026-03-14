@@ -378,11 +378,11 @@ fn draw_backup(ui: &mut egui::Ui, app: &mut MagicXApp) {
             let import_btn = egui::Button::new(
                 egui::RichText::new(format!("{} Import", ph::DOWNLOAD_SIMPLE))
                     .size(12.0)
-                    .color(theme::text_color(dark)),
+                    .color(theme::ACCENT),
             )
             .min_size(egui::vec2(110.0, 30.0))
             .corner_radius(egui::CornerRadius::same(6))
-            .fill(theme::surface_color(dark));
+            .fill(theme::ACCENT.gamma_multiply(0.12));
 
             if ui
                 .add(import_btn)
@@ -413,11 +413,7 @@ fn draw_backup(ui: &mut egui::Ui, app: &mut MagicXApp) {
         // ── Feedback banner ──────────────────────────────────────────
         if let Some((ref msg, is_err, _)) = app.settings_status {
             ui.add_space(8.0);
-            let color = if is_err {
-                egui::Color32::from_rgb(220, 80, 80)
-            } else {
-                egui::Color32::from_rgb(80, 190, 110)
-            };
+            let color = if is_err { theme::RED } else { theme::GREEN };
             ui.label(egui::RichText::new(msg.as_str()).size(11.0).color(color));
         }
     });

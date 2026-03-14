@@ -61,7 +61,7 @@ EmptyStandbyList with granular control over every memory subsystem.
   \
 \x1b[1;33maggressive\x1b[0m  Full clean: cache + working sets + modified + standby \x1b[1;33m[DEFAULT]\x1b[0m
   \
-\x1b[35mnuclear\x1b[0m     Maximum — everything + memory combining + 2nd pass
+\x1b[1;31mnuclear\x1b[0m     Maximum — everything + memory combining + 2nd pass
 
 \
 \x1b[1;36mQUICK START:\x1b[0m

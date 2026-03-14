@@ -167,11 +167,17 @@ fn draw_log_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
                 .stick_to_bottom(true)
                 .show(ui, |ui| {
                     for msg in &app.monitor_log {
-                        ui.label(
-                            egui::RichText::new(msg)
-                                .size(10.5)
-                                .color(theme::muted_color(dark)),
-                        );
+                        let is_error = msg.contains("failed")
+                            || msg.contains("Failed")
+                            || msg.contains("error")
+                            || msg.contains("Error")
+                            || msg.contains("aborted");
+                        let color = if is_error {
+                            theme::RED
+                        } else {
+                            theme::muted_color(dark)
+                        };
+                        ui.label(egui::RichText::new(msg).size(10.5).color(color));
                     }
                 });
         }
