@@ -20,6 +20,18 @@ fn coloured_load(percent: u32) -> ColoredString {
     }
 }
 
+/// Colour a commit charge percentage: red (>90%), yellow (>70%), green (≤70%).
+fn coloured_commit(percent: f64) -> ColoredString {
+    let text = format!("{percent:.1}%");
+    if percent > 90.0 {
+        text.red().bold()
+    } else if percent > 70.0 {
+        text.yellow()
+    } else {
+        text.green()
+    }
+}
+
 /// Print a comprehensive memory status report.
 pub fn print_status(
     snapshot: &MemorySnapshot,
@@ -194,7 +206,10 @@ fn print_commit_and_pagefile(snapshot: &MemorySnapshot, page_size: u64) {
         format_bytes(snapshot.commit_peak_pages * page_size).yellow(),
         snapshot.commit_peak_pages
     );
-    println!("  Usage:          {:.1}%", snapshot.commit_percent());
+    println!(
+        "  Usage:          {}",
+        coloured_commit(snapshot.commit_percent())
+    );
 
     println!();
     println!("{}", "─── Page File ──────────────────────────".dimmed());
@@ -244,12 +259,12 @@ pub fn print_compact_status(snapshot: &MemorySnapshot) {
 
     let now = local_now();
     println!(
-        "[{}] Load: {} | Used: {} | Avail: {} | Commit: {:.0}%",
+        "[{}] Load: {} | Used: {} | Avail: {} | Commit: {}",
         now.dimmed(),
         load_str,
         format_bytes(snapshot.used_physical).red(),
         format_bytes(snapshot.available_physical).green(),
-        snapshot.commit_percent(),
+        coloured_commit(snapshot.commit_percent()),
     );
 }
 
