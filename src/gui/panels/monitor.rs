@@ -71,7 +71,7 @@ fn draw_config_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
                     .size(12.0)
                     .color(theme::text_color(dark)),
             );
-            let mut threshold_f32 = f32::from(app.settings.monitor_threshold as u16);
+            let mut threshold_f32 = app.settings.monitor_threshold as f32;
             let slider = egui::Slider::new(&mut threshold_f32, 50.0..=99.0)
                 .suffix("%")
                 .step_by(1.0);
