@@ -463,6 +463,15 @@ fn draw_operation_list(ui: &mut egui::Ui, results: &[crate::cleaner::CleanResult
                         .color(theme::GREEN)
                         .size(10.5),
                 );
+            } else if r.freed_bytes < 0 {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "-{}",
+                        stats::format_bytes(r.freed_bytes.unsigned_abs())
+                    ))
+                    .color(theme::YELLOW)
+                    .size(10.5),
+                );
             }
 
             ui.label(
