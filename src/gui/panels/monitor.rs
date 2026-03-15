@@ -121,7 +121,7 @@ fn draw_config_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
                     .color(theme::text_color(dark)),
             );
             egui::ComboBox::from_id_salt("monitor_level")
-                .selected_text(format!("{}", app.settings.default_clean_level))
+                .selected_text(app.settings.default_clean_level.title_case_name())
                 .show_ui(ui, |ui| {
                     for level in [
                         CleanLevel::Gentle,
@@ -132,7 +132,7 @@ fn draw_config_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
                         ui.selectable_value(
                             &mut app.settings.default_clean_level,
                             level,
-                            format!("{level}"),
+                            level.title_case_name(),
                         );
                     }
                 });

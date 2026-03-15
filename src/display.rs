@@ -327,7 +327,7 @@ pub fn print_clean_start(level: CleanLevel) {
     println!(
         "\n{} Starting {} clean...\n",
         "⚡".yellow().bold(),
-        level.to_string().bold()
+        level.title_case_name().bold()
     );
 }
 
@@ -423,7 +423,7 @@ pub fn print_dry_run(level: CleanLevel, operations: &[&str]) {
     println!(
         "\n{} Dry run — {} level ({} operations):\n",
         "🔍".dimmed(),
-        level.to_string().bold(),
+        level.title_case_name().bold(),
         operations.len()
     );
     for (i, op) in operations.iter().enumerate() {

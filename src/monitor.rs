@@ -130,7 +130,7 @@ pub fn run_monitor(
         "  Interval: {}s | Auto-clean: {} | Level: {} | Cooldown: {}s",
         interval_secs,
         threshold.map_or_else(|| "disabled".into(), |t| format!("{t}%")),
-        auto_level,
+        auto_level.title_case_name(),
         cooldown_val,
     );
     println!("  Press Ctrl+C to stop.\n");

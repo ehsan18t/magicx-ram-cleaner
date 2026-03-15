@@ -492,7 +492,8 @@ impl MagicXApp {
             if load >= self.settings.monitor_threshold {
                 let msg = format!(
                     "Memory load {load}% >= threshold {}% \u{2014} auto-cleaning ({})...",
-                    self.settings.monitor_threshold, self.settings.default_clean_level,
+                    self.settings.monitor_threshold,
+                    self.settings.default_clean_level.title_case_name(),
                 );
                 self.monitor_log.push(msg);
                 self.last_auto_clean = Some(Instant::now());
@@ -687,7 +688,7 @@ impl eframe::App for MagicXApp {
                     "Monitoring started \u{2014} threshold {}%, cooldown {}s, level {}",
                     self.settings.monitor_threshold,
                     self.settings.monitor_cooldown_secs,
-                    self.settings.default_clean_level,
+                    self.settings.default_clean_level.title_case_name(),
                 ));
                 // Immediately eligible for a status heartbeat.
                 self.last_monitor_status_log = None;

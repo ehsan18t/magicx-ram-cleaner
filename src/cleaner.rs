@@ -165,9 +165,9 @@ impl MemoryListCommand {
                 "Purging low-priority standby pages...",
             ),
             Self::PurgeStandbyList => (
-                "Purge ALL Standby",
+                "Purge All Standby",
                 "All standby pages purged",
-                "Purging ALL standby pages...",
+                "Purging all standby pages...",
             ),
         }
     }
@@ -310,6 +310,24 @@ impl std::fmt::Display for CleanLevel {
             Self::Moderate => write!(f, "moderate"),
             Self::Aggressive => write!(f, "aggressive"),
             Self::Nuclear => write!(f, "nuclear"),
+        }
+    }
+}
+
+impl CleanLevel {
+    /// Returns the Title Case display name for use in GUI labels, status
+    /// messages, and terminal output where the level is shown as a proper name.
+    ///
+    /// Use this instead of [`Display`](std::fmt::Display) (which returns
+    /// lowercase for CLI argument compatibility) whenever the context requires
+    /// a capitalised label: result cards, combo boxes, log messages, etc.
+    #[must_use]
+    pub const fn title_case_name(self) -> &'static str {
+        match self {
+            Self::Gentle => "Gentle",
+            Self::Moderate => "Moderate",
+            Self::Aggressive => "Aggressive",
+            Self::Nuclear => "Nuclear",
         }
     }
 }
@@ -802,24 +820,24 @@ pub fn dry_run_plan(level: CleanLevel, has_excludes: bool) -> Vec<&'static str> 
     };
 
     match level {
-        CleanLevel::Gentle => vec!["Purge ALL Standby"],
-        CleanLevel::Moderate => vec!["Flush Modified List", "Purge ALL Standby"],
+        CleanLevel::Gentle => vec!["Purge All Standby"],
+        CleanLevel::Moderate => vec!["Flush Modified List", "Purge All Standby"],
         CleanLevel::Aggressive => vec![
             "Flush File Cache",
             "Flush Registry Cache",
             ws_label,
             "Flush Modified List",
-            "Purge ALL Standby",
+            "Purge All Standby",
         ],
         CleanLevel::Nuclear => vec![
             "Flush File Cache",
             "Flush Registry Cache",
             ws_label,
             "Flush Modified List",
-            "Purge ALL Standby",
+            "Purge All Standby",
             "Memory Combining",
             "Flush Modified List (2nd pass)",
-            "Purge ALL Standby (2nd pass)",
+            "Purge All Standby (2nd pass)",
         ],
     }
 }
@@ -1047,7 +1065,7 @@ mod tests {
     #[test]
     fn dry_run_plan_moderate_ops() {
         let plan = dry_run_plan(CleanLevel::Moderate, false);
-        assert_eq!(plan, vec!["Flush Modified List", "Purge ALL Standby"]);
+        assert_eq!(plan, vec!["Flush Modified List", "Purge All Standby"]);
         assert!(
             !plan.iter().any(|op| op.contains("Working Set")),
             "moderate should not touch process working sets"

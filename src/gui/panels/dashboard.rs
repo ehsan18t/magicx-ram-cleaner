@@ -387,7 +387,7 @@ fn draw_result_success(
         );
         ui.add_space(2.0);
         ui.label(
-            egui::RichText::new(format!("{} clean completed", msg.level))
+            egui::RichText::new(format!("{} Clean Completed", msg.level.title_case_name()))
                 .strong()
                 .size(13.0)
                 .color(theme::text_color(dark)),
