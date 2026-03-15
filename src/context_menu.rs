@@ -39,6 +39,8 @@
 use anyhow::{Context, Result, bail};
 use colored::Colorize;
 
+use crate::strings;
+
 // ─── Registry key paths ──────────────────────────────────────────────────────
 
 /// Registry roots where the context menu is installed.
@@ -69,31 +71,31 @@ struct MenuEntry {
 const ENTRIES: &[MenuEntry] = &[
     MenuEntry {
         key: "01quick",
-        label: "Quick Clean",
+        label: strings::context_menu::QUICK_CLEAN,
         icon_resource_id: 2, // Phosphor LEAF
         args: "clean --level gentle --notify",
     },
     MenuEntry {
         key: "02standard",
-        label: "Standard Clean",
+        label: strings::context_menu::STANDARD_CLEAN,
         icon_resource_id: 3, // Phosphor LIGHTNING
         args: "clean --level moderate --notify",
     },
     MenuEntry {
         key: "03deep",
-        label: "Deep Clean",
+        label: strings::context_menu::DEEP_CLEAN,
         icon_resource_id: 4, // Phosphor FIRE
         args: "clean --level aggressive --notify",
     },
     MenuEntry {
         key: "04purge_standby",
-        label: "Purge Standby List",
+        label: strings::context_menu::PURGE_STANDBY,
         icon_resource_id: 5, // Phosphor BROOM
         args: "purge-standby --notify",
     },
     MenuEntry {
         key: "05status",
-        label: "Memory Status",
+        label: strings::context_menu::MEMORY_STATUS,
         icon_resource_id: 6, // Phosphor GAUGE
         args: "status --notify",
     },
@@ -249,7 +251,7 @@ pub fn install(exe_path: &str) -> Result<()> {
     println!(
         "  {} Right-click your Desktop or inside any folder to see the {} submenu.",
         "\u{2192}".cyan(),
-        "MagicX RAM Cleaner".white().bold()
+        strings::context_menu::ROOT_LABEL.white().bold()
     );
     println!(
         "  {} {} entries registered:",
@@ -277,7 +279,8 @@ fn install_at(exe_path: &str, root_path: &str) -> Result<()> {
     // MUIVerb is the display name; do NOT set (Default) on the root key
     // because the shell interprets it as a verb name and an unexpected
     // value can prevent the cascading submenu from expanding.
-    set_string(root.raw(), "MUIVerb", "MagicX RAM Cleaner").context("failed to set MUIVerb")?;
+    set_string(root.raw(), "MUIVerb", strings::context_menu::ROOT_LABEL)
+        .context("failed to set MUIVerb")?;
     set_string(root.raw(), "SubCommands", "").context("failed to set SubCommands")?;
     set_string(root.raw(), "Icon", &format!("{exe_path},-1")).context("failed to set root Icon")?;
 

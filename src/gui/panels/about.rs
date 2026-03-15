@@ -8,25 +8,18 @@
 use eframe::egui;
 use egui_phosphor::regular as ph;
 
+use crate::strings;
+
 use super::super::app::MagicXApp;
 use super::super::{theme, widgets};
 
-// --- Links -------------------------------------------------------------------
+// --- Links (from strings module) ─────────────────────────────────────────────
+
+use strings::developer::{GITHUB_URL as DEV_GITHUB, LINKEDIN_URL as DEV_LINKEDIN};
+use strings::developer::{TELEGRAM_URL as DEV_TELEGRAM, WEBSITE_URL as DEV_WEBSITE};
 
 /// Source code repository URL.
-const REPO_URL: &str = "https://github.com/ehsan18t/magicx-ram-cleaner";
-
-/// Developer's GitHub profile URL.
-const DEV_GITHUB: &str = "https://github.com/ehsan18t";
-
-/// Developer's `LinkedIn` profile URL.
-const DEV_LINKEDIN: &str = "https://linkedin.com/in/ehsan18t";
-
-/// Developer's Telegram profile URL.
-const DEV_TELEGRAM: &str = "https://t.me/ehsan18t";
-
-/// Developer's personal website URL.
-const DEV_WEBSITE: &str = "https://ehsankhan.me";
+const REPO_URL: &str = strings::REPO_URL;
 
 // --- Layout constants --------------------------------------------------------
 
@@ -68,7 +61,7 @@ const COLOR_WEBSITE: egui::Color32 = egui::Color32::from_rgb(14, 116, 144);
 /// Draw the about panel.
 pub fn draw(ui: &mut egui::Ui, app: &MagicXApp) {
     let dark = app.settings.dark_mode;
-    widgets::page_title(ui, ph::INFO, "About", dark);
+    widgets::page_title(ui, ph::INFO, strings::gui::about::TITLE, dark);
 
     draw_hero(ui, dark);
     ui.add_space(theme::SECTION_SPACING);
@@ -143,7 +136,7 @@ fn draw_hero_content(ui: &mut egui::Ui, dark: bool) {
             ui.painter().text(
                 badge_rect.center(),
                 egui::Align2::CENTER_CENTER,
-                "MGX",
+                strings::MONOGRAM,
                 egui::FontId::proportional(16.0),
                 theme::ACCENT,
             );
@@ -153,7 +146,7 @@ fn draw_hero_content(ui: &mut egui::Ui, dark: bool) {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.label(
-                    egui::RichText::new("MagicX RAM Cleaner")
+                    egui::RichText::new(strings::APP_NAME)
                         .strong()
                         .size(20.0)
                         .color(theme::text_color(dark)),
@@ -163,7 +156,7 @@ fn draw_hero_content(ui: &mut egui::Ui, dark: bool) {
             });
             ui.add_space(4.0);
             ui.label(
-                egui::RichText::new("The most powerful Windows RAM cleaner")
+                egui::RichText::new(strings::APP_TAGLINE)
                     .size(12.0)
                     .color(theme::muted_color(dark)),
             );
@@ -172,8 +165,13 @@ fn draw_hero_content(ui: &mut egui::Ui, dark: bool) {
                 view_on_github_btn(ui, dark);
                 ui.add_space(4.0);
                 ui.spacing_mut().item_spacing.x = 8.0;
-                meta_chip(ui, ph::WINDOWS_LOGO, "Windows x86-64", dark);
-                meta_chip(ui, ph::SCALES, "MIT License", dark);
+                meta_chip(
+                    ui,
+                    ph::WINDOWS_LOGO,
+                    strings::gui::about::CHIP_PLATFORM,
+                    dark,
+                );
+                meta_chip(ui, ph::SCALES, strings::gui::about::CHIP_LICENSE, dark);
             });
         });
     });
@@ -184,7 +182,7 @@ fn draw_hero_content(ui: &mut egui::Ui, dark: bool) {
 /// Both sides share a uniform height derived from the social grid dimensions.
 fn draw_developer(ui: &mut egui::Ui, dark: bool) {
     widgets::card(ui, dark, |ui| {
-        widgets::section_header(ui, "Developer");
+        widgets::section_header(ui, strings::gui::about::SECTION_DEVELOPER);
 
         let grid_side = ICON_BTN_SIZE.mul_add(2.0, 8.0); // 42×2 + 8 = 92 px
         let avatar_total = AVATAR_SIZE + 10.0; // inner circle + outer ring
@@ -265,7 +263,7 @@ fn draw_dev_avatar(ui: &mut egui::Ui) {
     ui.painter().text(
         center,
         egui::Align2::CENTER_CENTER,
-        "EK",
+        strings::developer::INITIALS,
         egui::FontId::proportional(18.0),
         theme::ACCENT,
     );
@@ -276,22 +274,23 @@ fn draw_dev_bio(ui: &mut egui::Ui, dark: bool) {
     ui.vertical(|ui| {
         ui.add_space(2.0);
         ui.label(
-            egui::RichText::new("Ehsan Khan")
+            egui::RichText::new(strings::developer::NAME)
                 .strong()
                 .size(16.0)
                 .color(theme::text_color(dark)),
         );
         ui.add_space(1.0);
         ui.label(
-            egui::RichText::new("@ehsan18t")
+            egui::RichText::new(strings::developer::HANDLE)
                 .size(12.0)
                 .color(theme::ACCENT),
         );
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
-            tag_pill(ui, "Software Engineer", dark);
-            tag_pill(ui, "Open Source Enthusiast", dark);
+            for tag in strings::developer::BIO_TAGS {
+                tag_pill(ui, tag, dark);
+            }
         });
     });
 }
@@ -302,11 +301,17 @@ fn draw_dev_socials_grid(ui: &mut egui::Ui) {
         ui.spacing_mut().item_spacing.y = 8.0;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
-            social_icon_btn(ui, ph::GITHUB_LOGO, "GitHub", DEV_GITHUB, COLOR_GITHUB);
+            social_icon_btn(
+                ui,
+                ph::GITHUB_LOGO,
+                strings::gui::about::SOCIAL_GITHUB,
+                DEV_GITHUB,
+                COLOR_GITHUB,
+            );
             social_icon_btn(
                 ui,
                 ph::LINKEDIN_LOGO,
-                "LinkedIn",
+                strings::gui::about::SOCIAL_LINKEDIN,
                 DEV_LINKEDIN,
                 COLOR_LINKEDIN,
             );
@@ -316,11 +321,17 @@ fn draw_dev_socials_grid(ui: &mut egui::Ui) {
             social_icon_btn(
                 ui,
                 ph::TELEGRAM_LOGO,
-                "Telegram",
+                strings::gui::about::SOCIAL_TELEGRAM,
                 DEV_TELEGRAM,
                 COLOR_TELEGRAM,
             );
-            social_icon_btn(ui, ph::GLOBE, "Website", DEV_WEBSITE, COLOR_WEBSITE);
+            social_icon_btn(
+                ui,
+                ph::GLOBE,
+                strings::gui::about::SOCIAL_WEBSITE,
+                DEV_WEBSITE,
+                COLOR_WEBSITE,
+            );
         });
     });
 }
@@ -329,61 +340,85 @@ fn draw_dev_socials_grid(ui: &mut egui::Ui) {
 /// contribution call-to-action banner.
 fn draw_project(ui: &mut egui::Ui, dark: bool) {
     widgets::card(ui, dark, |ui| {
-        widgets::section_header(ui, "Project & License");
+        widgets::section_header(ui, strings::gui::about::SECTION_PROJECT);
 
-        info_row(ui, ph::CODE, "Technology", dark, |ui| {
-            ui.label(
-                egui::RichText::new("Rust")
-                    .size(12.0)
-                    .strong()
-                    .color(theme::text_color(dark)),
-            );
-            ui.add_space(4.0);
-            ui.label(
-                egui::RichText::new("2024 Edition")
-                    .size(12.0)
-                    .color(theme::muted_color(dark)),
-            );
-        });
-
-        row_divider(ui, dark);
-
-        info_row(ui, ph::WINDOWS_LOGO, "Platform", dark, |ui| {
-            ui.label(
-                egui::RichText::new("Windows x86-64")
-                    .size(12.0)
-                    .strong()
-                    .color(theme::text_color(dark)),
-            );
-        });
+        info_row(
+            ui,
+            ph::CODE,
+            strings::gui::about::ROW_TECHNOLOGY,
+            dark,
+            |ui| {
+                ui.label(
+                    egui::RichText::new(strings::gui::about::VALUE_RUST)
+                        .size(12.0)
+                        .strong()
+                        .color(theme::text_color(dark)),
+                );
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(strings::gui::about::VALUE_EDITION)
+                        .size(12.0)
+                        .color(theme::muted_color(dark)),
+                );
+            },
+        );
 
         row_divider(ui, dark);
 
-        info_row(ui, ph::GITHUB_LOGO, "Repository", dark, |ui| {
-            ui.hyperlink_to(
-                egui::RichText::new("ehsan18t/magicx-ram-cleaner")
-                    .size(12.0)
-                    .color(theme::ACCENT),
-                REPO_URL,
-            );
-        });
+        info_row(
+            ui,
+            ph::WINDOWS_LOGO,
+            strings::gui::about::ROW_PLATFORM,
+            dark,
+            |ui| {
+                ui.label(
+                    egui::RichText::new(strings::gui::about::VALUE_PLATFORM)
+                        .size(12.0)
+                        .strong()
+                        .color(theme::text_color(dark)),
+                );
+            },
+        );
 
         row_divider(ui, dark);
 
-        info_row(ui, ph::SCALES, "License", dark, |ui| {
-            ui.label(
-                egui::RichText::new("MIT")
-                    .size(12.0)
-                    .strong()
-                    .color(theme::text_color(dark)),
-            );
-            ui.add_space(4.0);
-            ui.label(
-                egui::RichText::new("\u{00b7}  \u{00a9} 2026 MagicXMod")
-                    .size(12.0)
-                    .color(theme::muted_color(dark)),
-            );
-        });
+        info_row(
+            ui,
+            ph::GITHUB_LOGO,
+            strings::gui::about::ROW_REPOSITORY,
+            dark,
+            |ui| {
+                ui.hyperlink_to(
+                    egui::RichText::new(strings::REPO_SHORT)
+                        .size(12.0)
+                        .color(theme::ACCENT),
+                    REPO_URL,
+                );
+            },
+        );
+
+        row_divider(ui, dark);
+
+        info_row(
+            ui,
+            ph::SCALES,
+            strings::gui::about::ROW_LICENSE,
+            dark,
+            |ui| {
+                ui.label(
+                    egui::RichText::new(strings::gui::about::VALUE_LICENSE)
+                        .size(12.0)
+                        .strong()
+                        .color(theme::text_color(dark)),
+                );
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(format!("\u{00b7}  {}", strings::COPYRIGHT))
+                        .size(12.0)
+                        .color(theme::muted_color(dark)),
+                );
+            },
+        );
 
         ui.add_space(12.0);
 
@@ -426,19 +461,16 @@ fn draw_contrib_banner(ui: &mut egui::Ui, dark: bool) {
                 ui.add_space(text_x_offset);
                 ui.vertical(|ui| {
                     ui.label(
-                        egui::RichText::new("Open Source")
+                        egui::RichText::new(strings::gui::about::BANNER_HEADING)
                             .size(13.0)
                             .strong()
                             .color(theme::text_color(dark)),
                     );
                     ui.add_space(2.0);
                     ui.label(
-                        egui::RichText::new(
-                            "Free and open-source software. Contributions, \
-                             bug reports, and feature requests are welcome!",
-                        )
-                        .size(11.0)
-                        .color(theme::muted_color(dark)),
+                        egui::RichText::new(strings::gui::about::BANNER_BODY)
+                            .size(11.0)
+                            .color(theme::muted_color(dark)),
                     );
                 })
             });

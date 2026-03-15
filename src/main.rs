@@ -25,7 +25,9 @@ use clap::{ColorChoice, CommandFactory, FromArgMatches};
 use colored::Colorize;
 
 use magicx_ram_cleaner::cli::{Cli, Commands, ContextMenuAction};
-use magicx_ram_cleaner::{cleaner, console, context_menu, display, gui, monitor, privilege, stats};
+use magicx_ram_cleaner::{
+    cleaner, console, context_menu, display, gui, monitor, privilege, stats, strings,
+};
 
 /// Entry point — returns [`ExitCode`] instead of calling `std::process::exit()`.
 ///
@@ -67,13 +69,13 @@ fn main() -> ExitCode {
     // In notify mode, show a balloon notification with the outcome.
     if notify {
         let (title, body) = match &result {
-            Ok((false, msg)) => ("MagicX RAM Cleaner", msg.as_str()),
-            Ok((true, msg)) => ("MagicX RAM Cleaner — Warning", msg.as_str()),
+            Ok((false, msg)) => (strings::notification::TITLE, msg.as_str()),
+            Ok((true, msg)) => (strings::notification::TITLE_WARNING, msg.as_str()),
             Err(e) => {
                 // Format the error into a static-lifetime-friendly string
                 // (we'll use a local binding so the borrow lives long enough).
                 drop(console::show_balloon_notification(
-                    "MagicX RAM Cleaner \u{2014} Error",
+                    strings::notification::TITLE_ERROR,
                     &format!("{e:#}"),
                 ));
                 return ExitCode::from(2);

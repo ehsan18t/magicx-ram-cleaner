@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cleaner::{self, CleanLevel, SmartCleanResult};
 use crate::stats::{self, MemorySnapshot, ProcessMemoryInfo};
+use crate::strings;
 
 use super::{panels, theme, tray};
 
@@ -334,7 +335,7 @@ impl MagicXApp {
         // WM_PAINT message that wakes eframe even when WS_VISIBLE is cleared.
         // FindWindowW succeeds here because the window is already created by
         // eframe before the app_creator closure is called.
-        let hwnd = crate::console::find_app_window("MagicX RAM Cleaner");
+        let hwnd = crate::console::find_app_window(strings::APP_NAME);
 
         // Force Windows dark mode at the process level so native menus
         // and the title bar match the user's in-app theme from the start.
@@ -879,10 +880,10 @@ fn stats_thread(
 /// Icons are sourced from the Phosphor icon font (`egui_phosphor::regular`),
 /// which is registered at startup in [`MagicXApp::new`].
 const NAV_ITEMS: [(Panel, &str, &str); 4] = [
-    (Panel::Dashboard, ph::GAUGE, "Dashboard"),
-    (Panel::Monitor, ph::ACTIVITY, "Monitor"),
-    (Panel::Processes, ph::CPU, "Processes"),
-    (Panel::Settings, ph::GEAR, "Settings"),
+    (Panel::Dashboard, ph::GAUGE, strings::tray::NAV_DASHBOARD),
+    (Panel::Monitor, ph::ACTIVITY, strings::tray::NAV_MONITOR),
+    (Panel::Processes, ph::CPU, strings::tray::NAV_PROCESSES),
+    (Panel::Settings, ph::GEAR, strings::tray::NAV_SETTINGS),
 ];
 
 /// Draw the sidebar with navigation and branding.
@@ -905,9 +906,16 @@ fn draw_sidebar(ctx: &egui::Context, app: &mut MagicXApp) {
             // Pin the About button to the bottom of the sidebar.
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                 let selected = app.active_panel == Panel::About;
-                draw_nav_button(ui, ph::INFO, "About", selected, dark, || {
-                    app.active_panel = Panel::About;
-                });
+                draw_nav_button(
+                    ui,
+                    ph::INFO,
+                    strings::gui::about::TITLE,
+                    selected,
+                    dark,
+                    || {
+                        app.active_panel = Panel::About;
+                    },
+                );
             });
         });
 }
@@ -927,7 +935,7 @@ fn draw_sidebar_brand(ui: &mut egui::Ui) {
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
-            "MGX",
+            strings::MONOGRAM,
             egui::FontId::proportional(13.0),
             theme::ACCENT,
         );

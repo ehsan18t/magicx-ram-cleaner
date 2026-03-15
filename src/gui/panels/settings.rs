@@ -10,10 +10,12 @@ use super::super::app::MagicXApp;
 use super::super::persistence::SettingsManager;
 use super::super::{theme, widgets};
 
+use crate::strings;
+
 /// Draw the settings panel.
 pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
-    widgets::page_title(ui, ph::GEAR, "Settings", dark);
+    widgets::page_title(ui, ph::GEAR, strings::gui::settings::TITLE, dark);
 
     draw_appearance(ui, app);
     ui.add_space(theme::SECTION_SPACING);
@@ -31,29 +33,32 @@ fn draw_appearance(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
 
     widgets::card(ui, dark, |ui| {
-        widgets::section_header(ui, "Appearance");
+        widgets::section_header(ui, strings::gui::settings::SECTION_APPEARANCE);
 
         ui.horizontal(|ui| {
             ui.label(
-                egui::RichText::new("Theme:")
+                egui::RichText::new(strings::gui::settings::LABEL_THEME)
                     .size(12.0)
                     .color(theme::text_color(dark)),
             );
             ui.add_space(8.0);
 
-            let dark_btn =
-                egui::Button::new(egui::RichText::new("Dark").size(12.0).color(if dark {
-                    theme::ACCENT
-                } else {
-                    theme::muted_color(dark)
-                }))
-                .min_size(egui::vec2(60.0, 28.0))
-                .corner_radius(egui::CornerRadius::same(6))
-                .fill(if dark {
-                    theme::ACCENT.gamma_multiply(0.15)
-                } else {
-                    theme::surface_color(dark)
-                });
+            let dark_btn = egui::Button::new(
+                egui::RichText::new(strings::gui::settings::THEME_DARK)
+                    .size(12.0)
+                    .color(if dark {
+                        theme::ACCENT
+                    } else {
+                        theme::muted_color(dark)
+                    }),
+            )
+            .min_size(egui::vec2(60.0, 28.0))
+            .corner_radius(egui::CornerRadius::same(6))
+            .fill(if dark {
+                theme::ACCENT.gamma_multiply(0.15)
+            } else {
+                theme::surface_color(dark)
+            });
 
             if ui.add(dark_btn).clicked() {
                 app.settings.dark_mode = true;
@@ -61,19 +66,22 @@ fn draw_appearance(ui: &mut egui::Ui, app: &mut MagicXApp) {
 
             ui.add_space(4.0);
 
-            let light_btn =
-                egui::Button::new(egui::RichText::new("Light").size(12.0).color(if dark {
-                    theme::muted_color(dark)
-                } else {
-                    theme::ACCENT
-                }))
-                .min_size(egui::vec2(60.0, 28.0))
-                .corner_radius(egui::CornerRadius::same(6))
-                .fill(if dark {
-                    theme::surface_color(dark)
-                } else {
-                    theme::ACCENT.gamma_multiply(0.15)
-                });
+            let light_btn = egui::Button::new(
+                egui::RichText::new(strings::gui::settings::THEME_LIGHT)
+                    .size(12.0)
+                    .color(if dark {
+                        theme::muted_color(dark)
+                    } else {
+                        theme::ACCENT
+                    }),
+            )
+            .min_size(egui::vec2(60.0, 28.0))
+            .corner_radius(egui::CornerRadius::same(6))
+            .fill(if dark {
+                theme::surface_color(dark)
+            } else {
+                theme::ACCENT.gamma_multiply(0.15)
+            });
 
             if ui.add(light_btn).clicked() {
                 app.settings.dark_mode = false;
@@ -87,23 +95,21 @@ fn draw_integration(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
 
     widgets::card(ui, dark, |ui| {
-        widgets::section_header(ui, "Integration");
+        widgets::section_header(ui, strings::gui::settings::SECTION_INTEGRATION);
 
         // ── Minimize to Tray ──────────────────────────────────────
         ui.horizontal(|ui| {
             ui.checkbox(&mut app.settings.minimize_to_tray, "");
             ui.vertical(|ui| {
                 ui.label(
-                    egui::RichText::new("Minimize to Tray on Close")
+                    egui::RichText::new(strings::gui::settings::LABEL_MINIMIZE_TO_TRAY)
                         .size(12.0)
                         .color(theme::text_color(dark)),
                 );
                 ui.label(
-                    egui::RichText::new(
-                        "Clicking \u{00d7} hides to the notification area instead of quitting",
-                    )
-                    .size(10.0)
-                    .color(theme::muted_color(dark)),
+                    egui::RichText::new(strings::gui::settings::DESC_MINIMIZE_TO_TRAY)
+                        .size(10.0)
+                        .color(theme::muted_color(dark)),
                 );
             });
         });
@@ -116,12 +122,12 @@ fn draw_integration(ui: &mut egui::Ui, app: &mut MagicXApp) {
             ui.checkbox(&mut app.settings.auto_start, "");
             ui.vertical(|ui| {
                 ui.label(
-                    egui::RichText::new("Launch at Windows Startup")
+                    egui::RichText::new(strings::gui::settings::LABEL_AUTOSTART)
                         .size(12.0)
                         .color(theme::text_color(dark)),
                 );
                 ui.label(
-                    egui::RichText::new("Registers in HKCU\\Run for the current user")
+                    egui::RichText::new(strings::gui::settings::DESC_AUTOSTART)
                         .size(10.0)
                         .color(theme::muted_color(dark)),
                 );
@@ -167,23 +173,23 @@ fn draw_context_menu(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
 
     widgets::card(ui, dark, |ui| {
-        widgets::section_header(ui, "Desktop Context Menu");
+        widgets::section_header(ui, strings::gui::settings::SECTION_CONTEXT_MENU);
 
         ui.label(
-            egui::RichText::new(
-                "Adds a \u{201c}MagicX RAM Cleaner\u{201d} submenu when right-clicking \
-                 the Desktop or any folder background.",
-            )
-            .size(11.0)
-            .color(theme::muted_color(dark)),
+            egui::RichText::new(strings::gui::settings::DESC_CONTEXT_MENU)
+                .size(11.0)
+                .color(theme::muted_color(dark)),
         );
         ui.add_space(8.0);
 
         // Status badge
         let (status_text, status_color) = if app.context_menu_installed {
-            ("\u{25cf} Installed", theme::GREEN)
+            (strings::gui::settings::STATUS_INSTALLED, theme::GREEN)
         } else {
-            ("\u{25cb} Not installed", theme::muted_color(dark))
+            (
+                strings::gui::settings::STATUS_NOT_INSTALLED,
+                theme::muted_color(dark),
+            )
         };
         ui.label(
             egui::RichText::new(status_text)
@@ -221,7 +227,7 @@ fn draw_context_menu_install_btn(ui: &mut egui::Ui, dark: bool, app: &mut MagicX
 
     if ui
         .add_enabled(!app.context_menu_installed, btn)
-        .on_hover_text("Register context menu entries in the Windows registry")
+        .on_hover_text(strings::gui::settings::TOOLTIP_INSTALL)
         .clicked()
     {
         match crate::context_menu::current_exe_path().and_then(|p| crate::context_menu::install(&p))
@@ -229,7 +235,7 @@ fn draw_context_menu_install_btn(ui: &mut egui::Ui, dark: bool, app: &mut MagicX
             Ok(()) => {
                 app.context_menu_installed = true;
                 app.settings_status = Some((
-                    "Context menu installed successfully".to_owned(),
+                    strings::gui::settings::MSG_CTX_INSTALLED.to_owned(),
                     false,
                     std::time::Instant::now(),
                 ));
@@ -266,14 +272,14 @@ fn draw_context_menu_remove_btn(ui: &mut egui::Ui, dark: bool, app: &mut MagicXA
 
     if ui
         .add_enabled(app.context_menu_installed, btn)
-        .on_hover_text("Remove context menu entries from the Windows registry")
+        .on_hover_text(strings::gui::settings::TOOLTIP_REMOVE)
         .clicked()
     {
         match crate::context_menu::uninstall() {
             Ok(()) => {
                 app.context_menu_installed = false;
                 app.settings_status = Some((
-                    "Context menu removed successfully".to_owned(),
+                    strings::gui::settings::MSG_CTX_REMOVED.to_owned(),
                     false,
                     std::time::Instant::now(),
                 ));
@@ -294,12 +300,12 @@ fn draw_display(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
 
     widgets::card(ui, dark, |ui| {
-        widgets::section_header(ui, "Preferences");
+        widgets::section_header(ui, strings::gui::settings::SECTION_PREFERENCES);
 
         ui.horizontal(|ui| {
             ui.checkbox(&mut app.settings.show_level_tooltips, "");
             ui.label(
-                egui::RichText::new("Show clean-level tooltips on hover")
+                egui::RichText::new(strings::gui::settings::LABEL_TOOLTIPS)
                     .size(12.0)
                     .color(theme::text_color(dark)),
             );
@@ -322,14 +328,12 @@ fn draw_backup(ui: &mut egui::Ui, app: &mut MagicXApp) {
     }
 
     widgets::card(ui, dark, |ui| {
-        widgets::section_header(ui, "Backup & Restore");
+        widgets::section_header(ui, strings::gui::settings::SECTION_BACKUP);
 
         ui.label(
-            egui::RichText::new(
-                "Export your settings to a JSON file or restore from a previous backup.",
-            )
-            .size(11.0)
-            .color(theme::muted_color(dark)),
+            egui::RichText::new(strings::gui::settings::DESC_BACKUP)
+                .size(11.0)
+                .color(theme::muted_color(dark)),
         );
         ui.add_space(10.0);
 
@@ -346,7 +350,7 @@ fn draw_backup(ui: &mut egui::Ui, app: &mut MagicXApp) {
 
             if ui
                 .add(export_btn)
-                .on_hover_text("Save all settings to a JSON file")
+                .on_hover_text(strings::gui::settings::TOOLTIP_EXPORT)
                 .clicked()
             {
                 match SettingsManager::export(&app.settings) {
@@ -386,14 +390,14 @@ fn draw_backup(ui: &mut egui::Ui, app: &mut MagicXApp) {
 
             if ui
                 .add(import_btn)
-                .on_hover_text("Load settings from a JSON backup file")
+                .on_hover_text(strings::gui::settings::TOOLTIP_IMPORT)
                 .clicked()
             {
                 match SettingsManager::import() {
                     Ok(Some(new_settings)) => {
                         app.settings = new_settings;
                         app.settings_status = Some((
-                            "Settings imported successfully".to_owned(),
+                            strings::gui::settings::MSG_IMPORT_OK.to_owned(),
                             false,
                             std::time::Instant::now(),
                         ));

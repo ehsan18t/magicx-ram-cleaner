@@ -32,6 +32,7 @@ use tray_icon::{
 };
 
 use crate::cleaner::CleanLevel;
+use crate::strings;
 
 use super::app::Panel;
 
@@ -126,7 +127,7 @@ impl TrayHandle {
         let tray = TrayIconBuilder::new()
             .with_icon(icon)
             .with_menu(Box::new(menu))
-            .with_tooltip("MagicX RAM Cleaner")
+            .with_tooltip(strings::tray::TOOLTIP)
             .build()
             .map_err(|e| format!("Failed to register tray icon: {e}"))?;
 
@@ -300,18 +301,18 @@ fn load_icon() -> Result<tray_icon::Icon, String> {
 /// ```
 fn build_menu(dark: bool) -> Result<(MenuIds, Menu), String> {
     // Phosphor Regular codepoints (from egui_phosphor::regular).
-    let show_item = icon_menu_item("Open MagicX RAM Cleaner", '\u{E3FE}', dark); // ROCKET_LAUNCH
-    let quit_item = icon_menu_item("Quit", '\u{E3DA}', dark); // POWER
+    let show_item = icon_menu_item(strings::tray::OPEN, '\u{E3FE}', dark); // ROCKET_LAUNCH
+    let quit_item = icon_menu_item(strings::tray::QUIT, '\u{E3DA}', dark); // POWER
 
-    let gentle_item = icon_menu_item("Gentle", '\u{E2DA}', dark); // LEAF
-    let moderate_item = icon_menu_item("Moderate", '\u{E2DE}', dark); // LIGHTNING
-    let aggressive_item = icon_menu_item("Aggressive", '\u{E242}', dark); // FIRE
-    let nuclear_item = icon_menu_item("Nuclear", '\u{E9DC}', dark); // RADIOACTIVE
+    let gentle_item = icon_menu_item(strings::levels::GENTLE_NAME, '\u{E2DA}', dark); // LEAF
+    let moderate_item = icon_menu_item(strings::levels::MODERATE_NAME, '\u{E2DE}', dark); // LIGHTNING
+    let aggressive_item = icon_menu_item(strings::levels::AGGRESSIVE_NAME, '\u{E242}', dark); // FIRE
+    let nuclear_item = icon_menu_item(strings::levels::NUCLEAR_NAME, '\u{E9DC}', dark); // RADIOACTIVE
 
-    let nav_dashboard = icon_menu_item("Dashboard", '\u{E628}', dark); // GAUGE
-    let nav_monitor = icon_menu_item("Monitor", '\u{E000}', dark); // ACTIVITY
-    let nav_processes = icon_menu_item("Processes", '\u{E610}', dark); // CPU
-    let nav_settings = icon_menu_item("Settings", '\u{E270}', dark); // GEAR
+    let nav_dashboard = icon_menu_item(strings::tray::NAV_DASHBOARD, '\u{E628}', dark); // GAUGE
+    let nav_monitor = icon_menu_item(strings::tray::NAV_MONITOR, '\u{E000}', dark); // ACTIVITY
+    let nav_processes = icon_menu_item(strings::tray::NAV_PROCESSES, '\u{E610}', dark); // CPU
+    let nav_settings = icon_menu_item(strings::tray::NAV_SETTINGS, '\u{E270}', dark); // GEAR
 
     let ids = MenuIds {
         show: show_item.id().clone(),
@@ -326,7 +327,7 @@ fn build_menu(dark: bool) -> Result<(MenuIds, Menu), String> {
         nav_settings: nav_settings.id().clone(),
     };
 
-    let clean_submenu = Submenu::new("Clean RAM", true);
+    let clean_submenu = Submenu::new(strings::tray::SUBMENU_CLEAN, true);
     // Give the submenu itself a broom icon.
     if let Some(broom) = rasterize_glyph('\u{EC54}', dark) {
         // SAFETY: set_icon cannot fail on Windows; errors are silently ignored.

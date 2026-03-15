@@ -324,10 +324,10 @@ impl CleanLevel {
     #[must_use]
     pub const fn title_case_name(self) -> &'static str {
         match self {
-            Self::Gentle => "Gentle",
-            Self::Moderate => "Moderate",
-            Self::Aggressive => "Aggressive",
-            Self::Nuclear => "Nuclear",
+            Self::Gentle => crate::strings::levels::GENTLE_NAME,
+            Self::Moderate => crate::strings::levels::MODERATE_NAME,
+            Self::Aggressive => crate::strings::levels::AGGRESSIVE_NAME,
+            Self::Nuclear => crate::strings::levels::NUCLEAR_NAME,
         }
     }
 }

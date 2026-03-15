@@ -27,6 +27,7 @@ use windows_sys::Win32::System::Console::SetConsoleCtrlHandler;
 use crate::cleaner::{self, CleanLevel};
 use crate::display;
 use crate::stats::MemorySnapshot;
+use crate::strings;
 
 /// Maximum consecutive auto-clean errors before the monitor aborts.
 /// Prevents infinite error-clean-error loops on a malfunctioning system.
@@ -125,7 +126,11 @@ pub fn run_monitor(
     let cooldown_val = cooldown_secs.unwrap_or_else(|| interval_secs.saturating_mul(2));
     let cooldown = std::time::Duration::from_secs(cooldown_val);
 
-    println!("\n{} MagicX RAM Monitor started", "◉".green().bold());
+    println!(
+        "\n{} {}",
+        "◉".green().bold(),
+        strings::cli::monitor::STARTED
+    );
     println!(
         "  Interval: {}s | Auto-clean: {} | Level: {} | Cooldown: {}s",
         interval_secs,
@@ -133,7 +138,7 @@ pub fn run_monitor(
         auto_level.title_case_name(),
         cooldown_val,
     );
-    println!("  Press Ctrl+C to stop.\n");
+    println!("  {}\n", strings::cli::monitor::CTRL_C_HINT);
 
     let mut last_clean: Option<Instant> = None;
     let mut consecutive_errors: u32 = 0;
@@ -172,7 +177,7 @@ pub fn run_monitor(
         }
     }
 
-    println!("\n{} Monitor stopped.", "◉".red().bold());
+    println!("\n{} {}", "◉".red().bold(), strings::cli::monitor::STOPPED);
     Ok(())
 }
 

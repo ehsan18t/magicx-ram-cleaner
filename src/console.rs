@@ -154,7 +154,7 @@ const fn wide_literal<const N: usize>(src: &[u8]) -> [u16; N] {
 /// Wait for the user to press Enter before the console window closes.
 pub fn pause_before_exit() {
     use std::io::Write;
-    eprint!("\n  {}", "Press Enter to exit...".dimmed());
+    eprint!("\n  {}", crate::strings::cli::PAUSE_PROMPT.dimmed());
     drop(std::io::stderr().flush());
     drop(std::io::stdin().read_line(&mut String::new()));
 }
@@ -413,7 +413,7 @@ pub fn show_balloon_notification(title: &str, body: &str) -> Result<()> {
     nid.hIcon = hicon;
 
     // Tooltip (shown on hover over the tray icon)
-    write_wide_into(&mut nid.szTip, "MagicX RAM Cleaner");
+    write_wide_into(&mut nid.szTip, crate::strings::APP_NAME);
 
     // Balloon title and body
     write_wide_into(&mut nid.szInfoTitle, title);
@@ -585,7 +585,7 @@ pub fn try_acquire_single_instance() -> Option<isize> {
     if already_exists {
         // Another instance owns the mutex. Find its window and bring it
         // to the foreground, then signal the caller to exit.
-        let hwnd = find_app_window("MagicX RAM Cleaner");
+        let hwnd = find_app_window(crate::strings::APP_NAME);
         if hwnd != 0 {
             // SAFETY: hwnd is the existing instance's main window.
             // ShowWindow(SW_RESTORE) un-minimizes if iconic, and

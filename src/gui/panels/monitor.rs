@@ -7,6 +7,7 @@ use eframe::egui;
 use egui_phosphor::regular as ph;
 
 use crate::cleaner::CleanLevel;
+use crate::strings;
 
 use super::super::app::MagicXApp;
 use super::super::{theme, widgets};
@@ -14,7 +15,7 @@ use super::super::{theme, widgets};
 /// Draw the monitoring panel.
 pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
-    widgets::page_title(ui, ph::ACTIVITY, "Memory Monitor", dark);
+    widgets::page_title(ui, ph::ACTIVITY, strings::gui::monitor::TITLE, dark);
 
     draw_toggle_card(ui, app, dark);
     ui.add_space(theme::SECTION_SPACING);
@@ -28,7 +29,7 @@ fn draw_toggle_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
     widgets::card(ui, dark, |ui| {
         ui.horizontal(|ui| {
             ui.label(
-                egui::RichText::new("Auto-Clean")
+                egui::RichText::new(strings::gui::monitor::LABEL_AUTO_CLEAN)
                     .strong()
                     .size(14.0)
                     .color(theme::text_color(dark)),
@@ -39,9 +40,12 @@ fn draw_toggle_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
             app.settings.auto_clean_enabled = app.monitor_active;
             ui.add_space(8.0);
             let (status_text, status_color) = if app.monitor_active {
-                ("Running", theme::GREEN)
+                (strings::gui::monitor::STATUS_RUNNING, theme::GREEN)
             } else {
-                ("Stopped", theme::muted_color(dark))
+                (
+                    strings::gui::monitor::STATUS_STOPPED,
+                    theme::muted_color(dark),
+                )
             };
             ui.label(
                 egui::RichText::new(status_text)
@@ -52,7 +56,7 @@ fn draw_toggle_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
 
         ui.add_space(6.0);
         ui.label(
-            egui::RichText::new("Automatically cleans memory when usage exceeds the threshold.")
+            egui::RichText::new(strings::gui::monitor::DESCRIPTION)
                 .size(11.0)
                 .color(theme::muted_color(dark)),
         );
@@ -62,12 +66,12 @@ fn draw_toggle_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
 /// Configuration card: threshold, cooldown, and clean level controls.
 fn draw_config_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
     widgets::card(ui, dark, |ui| {
-        widgets::section_header(ui, "Configuration");
+        widgets::section_header(ui, strings::gui::monitor::SECTION_CONFIG);
 
         // Threshold slider
         ui.horizontal(|ui| {
             ui.label(
-                egui::RichText::new("Threshold:")
+                egui::RichText::new(strings::gui::monitor::LABEL_THRESHOLD)
                     .size(12.0)
                     .color(theme::text_color(dark)),
             );
@@ -92,7 +96,7 @@ fn draw_config_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
         // Cooldown slider
         ui.horizontal(|ui| {
             ui.label(
-                egui::RichText::new("Cooldown:")
+                egui::RichText::new(strings::gui::monitor::LABEL_COOLDOWN)
                     .size(12.0)
                     .color(theme::text_color(dark)),
             );
@@ -116,7 +120,7 @@ fn draw_config_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
         // Clean level combo
         ui.horizontal(|ui| {
             ui.label(
-                egui::RichText::new("Clean Level:")
+                egui::RichText::new(strings::gui::monitor::LABEL_CLEAN_LEVEL)
                     .size(12.0)
                     .color(theme::text_color(dark)),
             );
@@ -144,10 +148,10 @@ fn draw_config_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
 fn draw_log_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
     widgets::card(ui, dark, |ui| {
         ui.horizontal(|ui| {
-            widgets::section_header(ui, "Activity Log");
+            widgets::section_header(ui, strings::gui::monitor::SECTION_LOG);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
-                    .small_button(egui::RichText::new("Clear").size(10.0))
+                    .small_button(egui::RichText::new(strings::gui::monitor::BTN_CLEAR).size(10.0))
                     .clicked()
                 {
                     app.monitor_log.clear();
@@ -157,7 +161,7 @@ fn draw_log_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
 
         if app.monitor_log.is_empty() {
             ui.label(
-                egui::RichText::new("No activity yet.")
+                egui::RichText::new(strings::gui::monitor::EMPTY_LOG)
                     .size(11.0)
                     .color(theme::muted_color(dark)),
             );

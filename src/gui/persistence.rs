@@ -16,6 +16,7 @@
 use std::path::{Path, PathBuf};
 
 use super::app::GuiSettings;
+use crate::strings;
 
 // ─── Default Path ─────────────────────────────────────────────────────────────
 
@@ -50,7 +51,7 @@ fn pick_save_path(default_name: &str) -> Option<PathBuf> {
 
     // Pairs separated by single NUL; to_wide appends a final NUL → double-NUL terminator.
     let filter = to_wide("JSON settings (*.json)\0*.json\0All files (*.*)\0*.*\0");
-    let title = to_wide("Export Settings \u{2014} MagicX RAM Cleaner");
+    let title = to_wide(strings::gui::persistence::EXPORT_TITLE);
     let ext = to_wide("json");
 
     // Pre-populate the filename buffer with the suggested default.
@@ -100,7 +101,7 @@ fn pick_open_path() -> Option<PathBuf> {
     };
 
     let filter = to_wide("JSON settings (*.json)\0*.json\0All files (*.*)\0*.*\0");
-    let title = to_wide("Import Settings \u{2014} MagicX RAM Cleaner");
+    let title = to_wide(strings::gui::persistence::IMPORT_TITLE);
     let mut file_buf = vec![0u16; 512];
 
     // SAFETY: Same contract as pick_save_path — zero-initialised C struct, all
@@ -229,7 +230,7 @@ impl SettingsManager {
         };
 
         const RUN_SUBKEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-        const VALUE_NAME: &str = "MagicX RAM Cleaner";
+        const VALUE_NAME: &str = strings::APP_NAME;
 
         let subkey_wide = to_wide(RUN_SUBKEY);
         let value_wide = to_wide(VALUE_NAME);

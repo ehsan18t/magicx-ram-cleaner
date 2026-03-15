@@ -6,6 +6,7 @@ use crate::cleaner::{CleanLevel, CleanResult};
 use crate::stats::{
     FileCacheSnapshot, MemoryListInfo, MemorySnapshot, ProcessMemoryInfo, format_bytes,
 };
+use crate::strings;
 use colored::{ColoredString, Colorize};
 
 /// Colour a memory load percentage: red (>85%), yellow (>60%), green (≤60%).
@@ -429,10 +430,7 @@ pub fn print_dry_run(level: CleanLevel, operations: &[&str]) {
     for (i, op) in operations.iter().enumerate() {
         println!("  {}. {}", (i + 1).to_string().cyan(), op.white().bold());
     }
-    println!(
-        "\n  {}",
-        "No operations were executed. Remove --dry-run to clean.".yellow()
-    );
+    println!("\n  {}", strings::cli::DRY_RUN_FOOTER.yellow());
     println!();
 }
 

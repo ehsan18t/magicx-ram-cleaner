@@ -83,6 +83,9 @@
 #[allow(unsafe_code)]
 pub mod cleaner;
 
+/// Centralised user-facing text constants for CLI and GUI.
+pub mod strings;
+
 /// Command-line interface definitions (clap parser, subcommands, help text).
 pub mod cli;
 

@@ -8,6 +8,7 @@ use egui_phosphor::regular as ph;
 
 use crate::cleaner::CleanLevel;
 use crate::stats;
+use crate::strings;
 
 use super::super::app::{CleanResultMsg, MagicXApp};
 use super::super::{theme, widgets};
@@ -20,7 +21,7 @@ use super::super::{theme, widgets};
 /// 3. Progress / result feedback
 pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
-    widgets::page_title(ui, ph::GAUGE, "Dashboard", dark);
+    widgets::page_title(ui, ph::GAUGE, strings::gui::dashboard::TITLE, dark);
 
     let snapshot = app.latest_snapshot.lock().ok().and_then(|s| s.clone());
 
@@ -49,7 +50,7 @@ pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
             ui.spinner();
             ui.add_space(6.0);
             ui.label(
-                egui::RichText::new("Loading memory information...")
+                egui::RichText::new(strings::gui::dashboard::LOADING)
                     .size(12.0)
                     .color(theme::muted_color(dark)),
             );
@@ -83,14 +84,14 @@ fn draw_info_card(ui: &mut egui::Ui, snap: &stats::MemorySnapshot, dark: bool) {
 
             widgets::stat_label(
                 ui,
-                "Total RAM",
+                strings::gui::dashboard::LABEL_TOTAL_RAM,
                 &stats::format_bytes(snap.total_physical),
                 theme::ACCENT,
                 dark,
             );
             widgets::stat_label(
                 ui,
-                "Page File",
+                strings::gui::dashboard::LABEL_PAGE_FILE,
                 &format!(
                     "{} / {}",
                     stats::format_bytes(snap.total_page_file - snap.available_page_file),
@@ -101,7 +102,7 @@ fn draw_info_card(ui: &mut egui::Ui, snap: &stats::MemorySnapshot, dark: bool) {
             );
             widgets::stat_label(
                 ui,
-                "Threads",
+                strings::gui::dashboard::LABEL_THREADS,
                 &snap.thread_count.to_string(),
                 theme::muted_color(dark),
                 dark,
@@ -125,30 +126,30 @@ struct LevelInfo {
 const LEVELS: [LevelInfo; 4] = [
     LevelInfo {
         level: CleanLevel::Gentle,
-        name: "Gentle",
-        short: "Purge all standby pages",
-        detail: "Purges all standby pages (priorities 0–7). Standby pages are already outside every process's working set — completely safe to run at any time.",
+        name: strings::levels::GENTLE_NAME,
+        short: strings::levels::GENTLE_SHORT,
+        detail: strings::levels::GENTLE_DETAIL,
         color: theme::LEVEL_GENTLE,
     },
     LevelInfo {
         level: CleanLevel::Moderate,
-        name: "Moderate",
-        short: "Modified pages + all standby",
-        detail: "Flushes modified pages to disk, then purges all standby pages. No process working sets are touched — running apps are unaffected, but expect a brief I/O spike.",
+        name: strings::levels::MODERATE_NAME,
+        short: strings::levels::MODERATE_SHORT,
+        detail: strings::levels::MODERATE_DETAIL,
         color: theme::LEVEL_MODERATE,
     },
     LevelInfo {
         level: CleanLevel::Aggressive,
-        name: "Aggressive",
-        short: "Full clean — cache, registry, working sets, standby",
-        detail: "File cache flush → registry flush → empty working sets → flush modified → purge all standby. Frees maximum RAM but may cause a brief I/O spike as apps re-fault pages.",
+        name: strings::levels::AGGRESSIVE_NAME,
+        short: strings::levels::AGGRESSIVE_SHORT,
+        detail: strings::levels::AGGRESSIVE_DETAIL,
         color: theme::LEVEL_AGGRESSIVE,
     },
     LevelInfo {
         level: CleanLevel::Nuclear,
-        name: "Nuclear",
-        short: "Everything + combining + 2nd pass",
-        detail: "All of Aggressive plus memory page combining (dedup) and a second flush+purge pass to catch pages modified during combining. Use when you need every last byte freed.",
+        name: strings::levels::NUCLEAR_NAME,
+        short: strings::levels::NUCLEAR_SHORT,
+        detail: strings::levels::NUCLEAR_DETAIL,
         color: theme::LEVEL_NUCLEAR,
     },
 ];
@@ -159,7 +160,7 @@ const LEVELS: [LevelInfo; 4] = [
 /// shows a floating tooltip with the full level description.
 /// Clicking triggers the clean operation.
 fn draw_clean_section(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
-    widgets::section_header(ui, "Clean Memory");
+    widgets::section_header(ui, strings::gui::dashboard::SECTION_CLEAN);
 
     let enabled = !app.cleaning_in_progress;
     let tooltips = app.settings.show_level_tooltips;
@@ -347,7 +348,7 @@ fn draw_progress_card(ui: &mut egui::Ui, dark: bool) {
             ui.spinner();
             ui.add_space(6.0);
             ui.label(
-                egui::RichText::new("Cleaning in progress...")
+                egui::RichText::new(strings::gui::dashboard::CLEANING)
                     .strong()
                     .size(12.0)
                     .color(theme::ACCENT),
@@ -407,10 +408,16 @@ fn draw_result_success(
 
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 20.0;
-        widgets::stat_label(ui, "Freed", &freed_str, theme::GREEN, dark);
         widgets::stat_label(
             ui,
-            "Usage",
+            strings::gui::dashboard::LABEL_FREED,
+            &freed_str,
+            theme::GREEN,
+            dark,
+        );
+        widgets::stat_label(
+            ui,
+            strings::gui::dashboard::LABEL_USAGE,
             &format!(
                 "{}% {} {}%",
                 result.overall_before.memory_load_percent,
@@ -422,7 +429,7 @@ fn draw_result_success(
         );
         widgets::stat_label(
             ui,
-            "Available",
+            strings::gui::dashboard::LABEL_AVAILABLE,
             &format!(
                 "{} {} {}",
                 stats::format_bytes(result.overall_before.available_physical),

@@ -17,6 +17,7 @@ use egui_extras::{Column, TableBuilder};
 use egui_phosphor::regular as ph;
 
 use crate::stats;
+use crate::strings;
 
 use super::super::app::MagicXApp;
 use super::super::{theme, widgets};
@@ -82,7 +83,7 @@ fn group_processes(procs: &[stats::ProcessMemoryInfo]) -> Vec<GroupedProcess> {
 /// Draw the processes panel.
 pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
-    widgets::page_title(ui, ph::CPU, "Top Processes", dark);
+    widgets::page_title(ui, ph::CPU, strings::gui::processes::TITLE, dark);
 
     draw_toolbar(ui, app);
     ui.add_space(8.0);
@@ -145,8 +146,12 @@ fn draw_table_card(
             .column(Column::exact(115.0))                // Working Set + bar
             .column(Column::exact(90.0))                 // Peak
             .header(HEADER_HEIGHT, |mut header| {
-                let cols: &[(&str, usize)] =
-                    &[("Process", 0), ("Count", 1), ("Memory", 2), ("Peak", 3)];
+                let cols: &[(&str, usize)] = &[
+                    (strings::gui::processes::COL_PROCESS, 0),
+                    (strings::gui::processes::COL_COUNT, 1),
+                    (strings::gui::processes::COL_MEMORY, 2),
+                    (strings::gui::processes::COL_PEAK, 3),
+                ];
                 for &(label, col_idx) in cols {
                     header.col(|ui| {
                         if col_idx == 0 {
@@ -260,7 +265,7 @@ fn draw_toolbar(ui: &mut egui::Ui, app: &mut MagicXApp) {
     ui.horizontal(|ui| {
         // ── Left: count slider ─────────────────────────────────────────────
         ui.label(
-            egui::RichText::new("Show top")
+            egui::RichText::new(strings::gui::processes::LABEL_SHOW_TOP)
                 .size(11.5)
                 .color(theme::muted_color(dark)),
         );
@@ -291,13 +296,13 @@ fn draw_toolbar(ui: &mut egui::Ui, app: &mut MagicXApp) {
             let has_text = !app.process_search.is_empty();
             if ui
                 .add_enabled(has_text, egui::Button::new(ph::X).small())
-                .on_hover_text("Clear search")
+                .on_hover_text(strings::gui::processes::BTN_CLEAR_SEARCH)
                 .clicked()
             {
                 app.process_search.clear();
             }
             let edit = egui::TextEdit::singleline(&mut app.process_search)
-                .hint_text("search…")
+                .hint_text(strings::gui::processes::SEARCH_HINT)
                 .desired_width(140.0);
             ui.add(edit);
             ui.label(
@@ -312,10 +317,10 @@ fn draw_toolbar(ui: &mut egui::Ui, app: &mut MagicXApp) {
 /// Human-readable name for a sort column index.
 const fn col_name(col: usize) -> &'static str {
     match col {
-        0 => "name",
-        1 => "count",
-        3 => "peak",
-        _ => "memory",
+        0 => strings::gui::processes::COL_NAMES[0],
+        1 => strings::gui::processes::COL_NAMES[1],
+        3 => strings::gui::processes::COL_NAMES[3],
+        _ => strings::gui::processes::COL_NAMES[2],
     }
 }
 

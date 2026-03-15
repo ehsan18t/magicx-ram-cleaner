@@ -6,6 +6,7 @@
 use eframe::egui;
 
 use crate::stats::{self, MemorySnapshot};
+use crate::strings;
 
 use super::theme;
 
@@ -117,7 +118,7 @@ pub fn memory_overview(ui: &mut egui::Ui, snap: &MemorySnapshot, dark_mode: bool
         ui.vertical(|ui| {
             ui.add_space(8.0);
             ui.label(
-                egui::RichText::new("Memory Used")
+                egui::RichText::new(strings::gui::widgets::LABEL_MEMORY_USED)
                     .size(12.0)
                     .color(theme::muted_color(dark_mode)),
             );
@@ -146,28 +147,28 @@ pub fn memory_overview(ui: &mut egui::Ui, snap: &MemorySnapshot, dark_mode: bool
 
         stat_label(
             ui,
-            "Available",
+            strings::gui::widgets::LABEL_AVAILABLE,
             &stats::format_bytes(snap.available_physical),
             theme::GREEN,
             dark_mode,
         );
         stat_label(
             ui,
-            "Used",
+            strings::gui::widgets::LABEL_USED,
             &stats::format_bytes(snap.used_physical),
             theme::RED,
             dark_mode,
         );
         stat_label(
             ui,
-            "Commit",
+            strings::gui::widgets::LABEL_COMMIT,
             &format!("{:.0}%", snap.commit_percent()),
             theme::YELLOW,
             dark_mode,
         );
         stat_label(
             ui,
-            "Processes",
+            strings::gui::widgets::LABEL_PROCESSES,
             &snap.process_count.to_string(),
             theme::ACCENT,
             dark_mode,
