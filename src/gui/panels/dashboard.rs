@@ -362,10 +362,14 @@ fn draw_result(ui: &mut egui::Ui, msg: &CleanResultMsg, dark: bool) {
         Ok(result) => draw_result_success(ui, msg, result, dark),
         Err(e) => {
             ui.label(
-                egui::RichText::new(format!("{} Clean failed: {e}", ph::X))
-                    .color(theme::RED)
-                    .strong()
-                    .size(13.0),
+                egui::RichText::new(format!(
+                    "{} {} Clean Failed: {e}",
+                    ph::X,
+                    msg.level.title_case_name()
+                ))
+                .color(theme::RED)
+                .strong()
+                .size(13.0),
             );
         }
     });

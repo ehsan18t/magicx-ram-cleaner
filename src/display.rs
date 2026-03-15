@@ -325,7 +325,7 @@ pub fn print_banner() {
 /// Print the "Starting X clean..." header before a smart clean run.
 pub fn print_clean_start(level: CleanLevel) {
     println!(
-        "\n{} Starting {} clean...\n",
+        "\n{} Starting {} Clean...\n",
         "⚡".yellow().bold(),
         level.title_case_name().bold()
     );
