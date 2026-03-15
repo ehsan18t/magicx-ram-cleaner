@@ -248,9 +248,8 @@ pub struct MagicXApp {
 
     /// Timestamp when `hidden_to_tray` was last set to `true` via the
     /// close intercept.  Used to suppress the external-restore detection
-    /// for a short grace period so that the asynchronous `Visible(false)`
-    /// viewport command has time to take effect before we poll
-    /// `IsWindowVisible`.
+    /// for a short grace period so that the `ShowWindow(SW_HIDE)` call
+    /// has time to settle before we poll `IsWindowVisible`.
     hide_requested_at: Option<Instant>,
 
     /// Set to `true` when the user selects "Quit" from the tray menu.
@@ -649,12 +648,13 @@ impl eframe::App for MagicXApp {
         let close_requested = ctx.input(|i| i.viewport().close_requested());
         if close_requested && self.settings.minimize_to_tray && !self.quit_requested {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-            // Belt-and-braces: call SW_HIDE directly so the window vanishes
-            // on this frame even when winit's internal visibility state is
-            // stale (e.g. after a second instance called ShowWindow(SW_RESTORE)
-            // which winit didn't observe).  Without this the async Visible(false)
-            // command is silently dropped and the window stays on screen.
+            // Hide the window directly via Win32 instead of using the eframe
+            // ViewportCommand::Visible(false) API.  The async viewport command
+            // triggers a known eframe/winit bug (emilk/egui#7776) where the
+            // event loop switches to ControlFlow::Poll, spinning the CPU at
+            // full speed.  By only calling SW_HIDE, winit's internal visibility
+            // state remains "visible" so it continues to use ControlFlow::Wait,
+            // and request_repaint_after() properly gates the wakeup interval.
             crate::console::hide_window(self.hwnd);
             self.hidden_to_tray = true;
             self.hide_requested_at = Some(Instant::now());
@@ -667,10 +667,10 @@ impl eframe::App for MagicXApp {
         // so the UI renders and the close button works normally.
         //
         // A 500 ms grace period after the close intercept prevents this
-        // check from racing with the asynchronous Visible(false)
-        // viewport command.  Without the cooldown, WS_VISIBLE may
-        // still be set when we poll, which would immediately undo
-        // the hide and leave the close button inoperative.
+        // check from firing on the same or nearby frames.  Without the
+        // cooldown, a stale WS_VISIBLE flag may still be set when we
+        // poll, which would immediately undo the hide and leave the
+        // close button inoperative.
         let hide_settled = self
             .hide_requested_at
             .is_none_or(|t| t.elapsed() >= Duration::from_millis(500));
@@ -724,22 +724,12 @@ impl eframe::App for MagicXApp {
         if window_visible {
             self.update_visible_ui(ctx);
         } else if self.hidden_to_tray {
-            // Workaround for eframe bug emilk/egui#7776:
-            // When the window is hidden via Visible(false), eframe's
-            // winit event loop spins with ControlFlow::Poll at full
-            // speed, never blocking.  An explicit sleep throttles the
-            // loop to ~5 Hz until the upstream fix (PR #7905) lands.
-            // request_repaint_after() tells eframe not to schedule
-            // the next frame any sooner.
-            //
-            // The tray-watcher thread calls ctx.request_repaint()
-            // on events, which overrides the delay and wakes us
-            // immediately when the user interacts with the tray icon.
-            // The 200 ms sleep throttle is deferred to avoid adding
-            // latency to close / tray-action transitions.  When a
-            // close was just requested on this frame the window is
-            // transitioning to hidden — skip the sleep so eframe
-            // can process the Visible(false) command immediately.
+            // The window is hidden via Win32 SW_HIDE only (no eframe
+            // Visible(false)) so the event loop uses ControlFlow::Wait
+            // instead of the buggy ControlFlow::Poll (egui#7776).
+            // request_repaint_after() properly gates the wakeup
+            // interval at ~1 Hz.  The sleep is a safety throttle in
+            // case the event loop fires faster than expected.
             ctx.request_repaint_after(Duration::from_secs(1));
             std::thread::sleep(Duration::from_millis(200));
         } else if self.monitor_active {

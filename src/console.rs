@@ -730,19 +730,15 @@ pub fn reveal_window(hwnd: isize) {
 
 /// Immediately hide the window by calling `ShowWindow(SW_HIDE)` directly.
 ///
-/// Unlike `egui::ViewportCommand::Visible` with `false`, which is an async
-/// request processed by winit on the next event-loop cycle, this call
-/// synchronously clears the `WS_VISIBLE` flag so the window disappears on
-/// the current frame.
-///
-/// This is used as a belt-and-braces companion to the egui viewport command
-/// in the close intercept.  When the window was previously restored by an
-/// external process (e.g. a second instance via `ShowWindow(SW_RESTORE)`),
-/// winit's internal visibility state may not yet reflect reality.  In that
-/// case the async `Visible(false)` command is silently ignored, leaving the
-/// window visible and producing a blank-flash / no-close symptom.  Calling
-/// this function guarantees the window is hidden regardless of winit's
-/// tracked state.
+/// Synchronously clears the `WS_VISIBLE` flag so the window disappears on
+/// the current frame.  This is the **primary** hide mechanism used by the
+/// close-intercept / minimize-to-tray flow instead of the eframe
+/// `ViewportCommand::Visible(false)` API.  The viewport command triggers a
+/// known eframe/winit bug (`emilk/egui#7776`) where the event loop switches
+/// to `ControlFlow::Poll`, spinning the CPU.  Calling `SW_HIDE` directly
+/// keeps winit's internal visibility state as "visible", so it continues to
+/// use `ControlFlow::Wait` and `request_repaint_after()` properly gates the
+/// wakeup interval.
 ///
 /// Does nothing when `hwnd` is `0`.
 pub fn hide_window(hwnd: isize) {
