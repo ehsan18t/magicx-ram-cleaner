@@ -1,6 +1,6 @@
 [package]
 name = "magicx-ram-cleaner"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 authors = ["MagicX"]
 description = "The most powerful Windows RAM cleaner — CLI + GUI in a single portable exe. Surpasses EmptyStandbyList with granular control over every memory subsystem"
