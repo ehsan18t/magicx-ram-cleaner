@@ -248,8 +248,8 @@ pub struct MagicXApp {
 
     /// Timestamp when `hidden_to_tray` was last set to `true` via the
     /// close intercept.  Used to suppress the external-restore detection
-    /// for a short grace period so that the `ShowWindow(SW_HIDE)` call
-    /// has time to settle before we poll `IsWindowVisible`.
+    /// for a short grace period so that the cloaking calls have time to
+    /// settle before we poll `IsIconic`.
     hide_requested_at: Option<Instant>,
 
     /// Set to `true` when the user selects "Quit" from the tray menu.
@@ -342,9 +342,8 @@ impl MagicXApp {
         crate::console::set_title_bar_dark_mode(hwnd, initial_dark_mode);
 
         // Initialize tray icon if minimize-to-tray was previously enabled.
-        // Pass the egui context and HWND so the watcher thread can both call
-        // request_repaint() (for visible windows) and post a synthetic WM_PAINT
-        // (for hidden windows, where request_repaint alone is suppressed by OS).
+        // Pass the egui context and HWND so the watcher thread can call
+        // request_repaint() to wake the event loop on tray events.
         let tray_handle = if settings.minimize_to_tray {
             tray::TrayHandle::new(cc.egui_ctx.clone(), hwnd, initial_dark_mode).ok()
         } else {
@@ -525,20 +524,17 @@ impl MagicXApp {
         };
         match action {
             tray::TrayAction::Show => {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                crate::console::uncloak_window(self.hwnd);
                 self.hidden_to_tray = false;
             }
             tray::TrayAction::Clean(level) => {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                crate::console::uncloak_window(self.hwnd);
                 self.hidden_to_tray = false;
                 self.active_panel = Panel::Dashboard;
                 self.start_clean(level);
             }
             tray::TrayAction::Navigate(panel) => {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                crate::console::uncloak_window(self.hwnd);
                 self.hidden_to_tray = false;
                 self.active_panel = panel;
             }
@@ -569,9 +565,9 @@ impl MagicXApp {
                     tray::TrayHandle::new(ctx.clone(), self.hwnd, self.settings.dark_mode).ok();
             } else {
                 self.tray_handle = None;
-                // Un-hide if the window was minimised while the setting was on.
+                // Uncloak if the window was hidden while the setting was on.
                 if self.hidden_to_tray {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                    crate::console::uncloak_window(self.hwnd);
                     self.hidden_to_tray = false;
                 }
             }
@@ -648,33 +644,34 @@ impl eframe::App for MagicXApp {
         let close_requested = ctx.input(|i| i.viewport().close_requested());
         if close_requested && self.settings.minimize_to_tray && !self.quit_requested {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            // Hide the window directly via Win32 instead of using the eframe
-            // ViewportCommand::Visible(false) API.  The async viewport command
-            // triggers a known eframe/winit bug (emilk/egui#7776) where the
-            // event loop switches to ControlFlow::Poll, spinning the CPU at
-            // full speed.  By only calling SW_HIDE, winit's internal visibility
-            // state remains "visible" so it continues to use ControlFlow::Wait,
+            // Cloak the window instead of hiding it (SW_HIDE) or using the
+            // eframe Visible(false) API.  Both of those clear WS_VISIBLE,
+            // which causes eframe's event loop to enter ControlFlow::Poll
+            // (emilk/egui#7776), spinning the CPU at full speed.  Cloaking
+            // minimizes the window as an invisible tool window while keeping
+            // WS_VISIBLE set, so the event loop stays in ControlFlow::Wait
             // and request_repaint_after() properly gates the wakeup interval.
-            crate::console::hide_window(self.hwnd);
+            crate::console::cloak_window(self.hwnd);
             self.hidden_to_tray = true;
             self.hide_requested_at = Some(Instant::now());
         }
 
         // ── External restore detection ───────────────────────────────
-        // When the app is hidden to tray, a second instance (or other
-        // external caller) may restore the window via ShowWindow.
-        // Detect the WS_VISIBLE flag and reconcile our internal state
+        // When the app is cloaked to tray, a second instance (or other
+        // external caller) may restore the window via ShowWindow(SW_RESTORE).
+        // Detect the un-minimized state and reconcile our internal state
         // so the UI renders and the close button works normally.
         //
         // A 500 ms grace period after the close intercept prevents this
-        // check from firing on the same or nearby frames.  Without the
-        // cooldown, a stale WS_VISIBLE flag may still be set when we
-        // poll, which would immediately undo the hide and leave the
-        // close button inoperative.
+        // check from firing on the same or nearby frames.
         let hide_settled = self
             .hide_requested_at
             .is_none_or(|t| t.elapsed() >= Duration::from_millis(500));
-        if self.hidden_to_tray && hide_settled && crate::console::is_window_visible(self.hwnd) {
+        if self.hidden_to_tray && hide_settled && !crate::console::is_window_minimized(self.hwnd) {
+            // The window was un-minimized externally.  Restore the
+            // extended styles (WS_EX_APPWINDOW, remove WS_EX_TOOLWINDOW)
+            // so the taskbar button reappears.
+            crate::console::uncloak_window(self.hwnd);
             self.hidden_to_tray = false;
             self.hide_requested_at = None;
         }
@@ -724,14 +721,14 @@ impl eframe::App for MagicXApp {
         if window_visible {
             self.update_visible_ui(ctx);
         } else if self.hidden_to_tray {
-            // The window is hidden via Win32 SW_HIDE only (no eframe
-            // Visible(false)) so the event loop uses ControlFlow::Wait
-            // instead of the buggy ControlFlow::Poll (egui#7776).
-            // request_repaint_after() properly gates the wakeup
-            // interval at ~1 Hz.  The sleep is a safety throttle in
-            // case the event loop fires faster than expected.
+            // The window is cloaked (minimized tool window with
+            // WS_VISIBLE), so eframe's event loop stays in
+            // ControlFlow::Wait instead of the buggy ControlFlow::Poll
+            // that fires for truly invisible windows (egui#7776).
+            // request_repaint_after() properly gates wakeups; the event
+            // loop blocks at the kernel level until the timeout expires
+            // or a tray-thread request_repaint() wakes it.
             ctx.request_repaint_after(Duration::from_secs(1));
-            std::thread::sleep(Duration::from_millis(200));
         } else if self.monitor_active {
             // Window is minimized but auto-clean is enabled.
             // Schedule a low-frequency wake-up so the threshold check

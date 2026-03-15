@@ -102,11 +102,9 @@ impl TrayHandle {
     /// [`egui::Context::request_repaint`] when a tray event arrives.
     ///
     /// `hwnd` is the Win32 window handle of the main application window
-    /// (obtained via [`crate::console::find_app_window`]).  The watcher
-    /// thread uses it to post a synthetic `WM_PAINT` message that wakes
-    /// eframe's event loop even while the window is invisible — unlike
-    /// `request_repaint`, `PostMessageW(WM_PAINT)` is not suppressed for
-    /// windows with `WS_VISIBLE` cleared.
+    /// (obtained via [`crate::console::find_app_window`]).  Currently
+    /// unused by the watcher thread but retained in the API for future
+    /// use (e.g. posting synthetic messages for edge-case wakeups).
     ///
     /// `dark` controls the glyph colour in menu icons: white glyphs for
     /// dark menus, charcoal for light menus.  The caller should pass the
@@ -175,17 +173,17 @@ impl Drop for TrayHandle {
 ///
 /// When an event is decoded the function:
 ///
-/// 1. Makes the window visible via Win32 `ShowWindow` so that eframe can
-///    process repaints (Windows suppresses `RedrawWindow` for invisible
-///    windows, defeating `ctx.request_repaint()`).
-/// 2. Sends a [`TrayAction`] through the channel.
-/// 3. Calls [`egui::Context::request_repaint`] to guarantee `update()` runs.
+/// 1. Sends a [`TrayAction`] through the channel.
+/// 2. Calls [`egui::Context::request_repaint`] to guarantee `update()` runs.
+///
+/// Window state management (uncloaking, restoring extended styles, bringing
+/// to foreground) is handled by the main thread in `poll_tray_events`.
 fn tray_watcher_thread(
     ids: &MenuIds,
     tx: &Sender<TrayAction>,
     shutdown: &Arc<AtomicBool>,
     ctx: &egui::Context,
-    hwnd: isize,
+    _hwnd: isize,
 ) {
     loop {
         if shutdown.load(Ordering::Relaxed) {
@@ -220,15 +218,9 @@ fn tray_watcher_thread(
                 continue;
             };
 
-            // Make the window visible BEFORE requesting a repaint.
-            // For Show / Clean / Navigate: restore to foreground with focus.
-            // For Quit: reveal silently so eframe can process the close.
-            match action {
-                TrayAction::Show | TrayAction::Clean(_) | TrayAction::Navigate(_) => {
-                    crate::console::restore_window(hwnd);
-                }
-                TrayAction::Quit => crate::console::reveal_window(hwnd),
-            }
+            // Window state management (uncloak/restore) is handled by the
+            // main thread in poll_tray_events.  We only send the action and
+            // request a repaint to wake the event loop.
 
             if tx.send(action).is_err() {
                 return; // app receiver dropped — exit cleanly
@@ -246,7 +238,6 @@ fn tray_watcher_thread(
                 ..
             } = event
             {
-                crate::console::restore_window(hwnd);
                 if tx.send(TrayAction::Show).is_err() {
                     return;
                 }

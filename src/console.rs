@@ -731,14 +731,8 @@ pub fn reveal_window(hwnd: isize) {
 /// Immediately hide the window by calling `ShowWindow(SW_HIDE)` directly.
 ///
 /// Synchronously clears the `WS_VISIBLE` flag so the window disappears on
-/// the current frame.  This is the **primary** hide mechanism used by the
-/// close-intercept / minimize-to-tray flow instead of the eframe
-/// `ViewportCommand::Visible(false)` API.  The viewport command triggers a
-/// known eframe/winit bug (`emilk/egui#7776`) where the event loop switches
-/// to `ControlFlow::Poll`, spinning the CPU.  Calling `SW_HIDE` directly
-/// keeps winit's internal visibility state as "visible", so it continues to
-/// use `ControlFlow::Wait` and `request_repaint_after()` properly gates the
-/// wakeup interval.
+/// the current frame.  Prefer [`cloak_window`] for the minimize-to-tray
+/// flow; this function is used internally by `cloak_window`.
 ///
 /// Does nothing when `hwnd` is `0`.
 pub fn hide_window(hwnd: isize) {
@@ -751,6 +745,80 @@ pub fn hide_window(hwnd: isize) {
     // SAFETY: `hwnd` is our own main window, valid for the lifetime of the
     // process.  `SW_HIDE` is a standard, non-destructive window-state change.
     unsafe { ShowWindow(hwnd as *mut _, SW_HIDE) };
+}
+
+/// Cloak the window: make it invisible to the user while keeping
+/// `WS_VISIBLE` set so eframe's event loop stays in `ControlFlow::Wait`.
+///
+/// The approach avoids the eframe/winit CPU bug (`emilk/egui#7776`) where
+/// `ControlFlow::Poll` is used for invisible windows.  Steps:
+///
+/// 1. `SW_HIDE` — instantly clear `WS_VISIBLE` so no animations play.
+/// 2. Add `WS_EX_TOOLWINDOW` / remove `WS_EX_APPWINDOW` — hides the
+///    window from the taskbar and Alt-Tab.
+/// 3. `SW_SHOWMINNOACTIVE` — restores `WS_VISIBLE` in the iconic
+///    (minimized) state without stealing focus.  On modern Windows,
+///    a minimized tool window has no on-screen representation.
+///
+/// After this call: `IsWindowVisible` → `true`, `IsIconic` → `true`,
+/// no taskbar button, no Alt-Tab entry, zero visual presence.
+///
+/// Does nothing when `hwnd` is `0`.
+pub fn cloak_window(hwnd: isize) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GWL_EXSTYLE, GetWindowLongPtrW, SW_SHOWMINNOACTIVE, SetWindowLongPtrW, ShowWindow,
+        WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+    };
+
+    if hwnd == 0 {
+        return;
+    }
+
+    // SAFETY: All calls operate on our own main-window handle, which is
+    // valid for the process lifetime.  The sequence is
+    // hide → style change → show-minimized, each a standard Win32 call.
+    unsafe {
+        hide_window(hwnd);
+        let ex = GetWindowLongPtrW(hwnd as *mut _, GWL_EXSTYLE);
+        #[allow(clippy::cast_possible_wrap)]
+        let new_ex = (ex | WS_EX_TOOLWINDOW as isize) & !(WS_EX_APPWINDOW as isize);
+        SetWindowLongPtrW(hwnd as *mut _, GWL_EXSTYLE, new_ex);
+        ShowWindow(hwnd as *mut _, SW_SHOWMINNOACTIVE);
+    }
+}
+
+/// Reverse [`cloak_window`]: restore the window to its pre-minimize state
+/// with a normal taskbar button and Alt-Tab entry.
+///
+/// Steps:
+///
+/// 1. Remove `WS_EX_TOOLWINDOW` / add `WS_EX_APPWINDOW` — taskbar and
+///    Alt-Tab presence restored.
+/// 2. `SW_RESTORE` — un-minimizes to the previous size and position.
+/// 3. `SetForegroundWindow` — brings the window to the front.
+///
+/// Does nothing when `hwnd` is `0`.
+pub fn uncloak_window(hwnd: isize) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GWL_EXSTYLE, GetWindowLongPtrW, SW_RESTORE, SetForegroundWindow, SetWindowLongPtrW,
+        ShowWindow, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+    };
+
+    if hwnd == 0 {
+        return;
+    }
+
+    // SAFETY: All calls operate on our own main-window handle, which is
+    // valid for the process lifetime.  The sequence is
+    // style-restore → un-minimize → foreground, each a standard Win32 call.
+    unsafe {
+        let ex = GetWindowLongPtrW(hwnd as *mut _, GWL_EXSTYLE);
+        #[allow(clippy::cast_possible_wrap)]
+        let new_ex = (ex & !(WS_EX_TOOLWINDOW as isize)) | WS_EX_APPWINDOW as isize;
+        SetWindowLongPtrW(hwnd as *mut _, GWL_EXSTYLE, new_ex);
+        ShowWindow(hwnd as *mut _, SW_RESTORE);
+        SetForegroundWindow(hwnd as *mut _);
+    }
 }
 
 /// Load the application icon (resource ID 1) from the running executable.
