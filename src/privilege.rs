@@ -95,6 +95,15 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
 }
 
 /// Enable all privileges needed for full RAM cleaning.
+///
+/// Enables `SeProfileSingleProcessPrivilege` (memory list commands) and
+/// `SeIncreaseQuotaPrivilege` (file cache management).  `SeDebugPrivilege`
+/// is attempted but its failure is silently ignored since it is optional
+/// (only needed for trimming protected processes).
+///
+/// # Errors
+///
+/// Returns an error if a mandatory privilege cannot be enabled.
 pub fn enable_all_privileges() -> Result<()> {
     enable_privilege("SeProfileSingleProcessPrivilege")
         .context("Required for memory list operations")?;
@@ -109,10 +118,15 @@ fn get_last_error() -> u32 {
     unsafe { windows_sys::Win32::Foundation::GetLastError() }
 }
 
-/// Check if we're actually running with elevated (Administrator) privileges.
+/// Verify that the process is running with Administrator elevation.
 ///
 /// Uses `CheckTokenMembership` with the built-in Administrators group SID
-/// to verify true elevation, not just token access.
+/// (`S-1-5-32-544`) to confirm true elevation, not just token access.
+///
+/// # Errors
+///
+/// Returns an error with a user-friendly message if the process is not
+/// elevated or if the check itself fails.
 pub fn check_admin() -> Result<()> {
     use windows_sys::Win32::Foundation::LocalFree;
     use windows_sys::Win32::Security::Authorization::ConvertStringSidToSidW;

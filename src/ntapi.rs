@@ -98,6 +98,11 @@ unsafe extern "system" {
 }
 
 /// Safe wrapper around `NtSetSystemInformation` for memory commands.
+///
+/// # Errors
+///
+/// Returns the raw [`NtStatus`] code if the kernel call fails (e.g.
+/// `STATUS_ACCESS_DENIED`, `STATUS_PRIVILEGE_NOT_HELD`).
 pub fn execute_memory_command(command: MemoryListCommand) -> Result<(), NtStatus> {
     let mut cmd = command as i32;
     // SAFETY: `cmd` is a valid i32 on the stack. NtSetSystemInformation reads
@@ -135,6 +140,10 @@ struct CombinePhysicalMemoryInfoEx {
 /// Execute a physical memory combine operation via the NT kernel.
 ///
 /// Returns the number of pages combined on success.
+///
+/// # Errors
+///
+/// Returns the raw [`NtStatus`] code if the kernel call fails.
 pub fn execute_combine_memory() -> Result<usize, NtStatus> {
     let mut info = CombinePhysicalMemoryInfoEx {
         handle: 0,
@@ -164,6 +173,10 @@ pub fn execute_combine_memory() -> Result<usize, NtStatus> {
 /// Calls `NtSetSystemInformation(SystemRegistryReconciliationInformation)` with
 /// a null buffer and zero length. This forces all dirty registry hive pages to
 /// be written to disk, freeing the modified memory they occupied.
+///
+/// # Errors
+///
+/// Returns the raw [`NtStatus`] code if the kernel call fails.
 pub fn execute_registry_flush() -> Result<(), NtStatus> {
     // SAFETY: SystemRegistryReconciliationInformation takes no input buffer.
     // Passing null pointer and zero length is the documented usage (see Mem Reduct,

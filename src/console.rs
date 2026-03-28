@@ -128,6 +128,10 @@ const fn wide_literal<const N: usize>(src: &[u8]) -> [u16; N] {
 }
 
 /// Wait for the user to press Enter before the console window closes.
+///
+/// Prints a dimmed prompt to `stderr` and blocks on `stdin`.  Intended for
+/// [`ConsoleMode::Standalone`] sessions where the console would vanish
+/// immediately after the program exits.
 pub fn pause_before_exit() {
     use std::io::Write;
     eprint!("\n  {}", crate::strings::cli::PAUSE_PROMPT.dimmed());
@@ -135,7 +139,12 @@ pub fn pause_before_exit() {
     drop(std::io::stdin().read_line(&mut String::new()));
 }
 
-/// Enable ANSI virtual terminal processing on Windows consoles.
+/// Enable ANSI virtual terminal processing on the standard output console.
+///
+/// Sets `ENABLE_VIRTUAL_TERMINAL_PROCESSING` on the `STD_OUTPUT_HANDLE` so
+/// that ANSI escape sequences (used by the `colored` crate) render correctly
+/// in legacy `conhost.exe` terminals.  Does nothing if the handle is invalid
+/// (e.g. output is fully redirected with no console attached).
 pub fn enable_ansi_colors() {
     use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
     use windows_sys::Win32::System::Console::{
@@ -157,11 +166,8 @@ pub fn enable_ansi_colors() {
     }
 }
 
-// ─── System Theme Detection ──────────────────────────────────────────────────
+// ─── System Theme Control ────────────────────────────────────────────────────
 
-/// Detect whether the Windows OS is currently using a dark theme.
-///
-/// Reads `AppsUseLightTheme` from
 /// Force the process's native Win32 menus to render in dark or light theme.
 ///
 /// Uses the undocumented but stable `SetPreferredAppMode` (ordinal 135) and

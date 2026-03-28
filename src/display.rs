@@ -33,7 +33,11 @@ fn coloured_commit(percent: f64) -> ColoredString {
     }
 }
 
-/// Print a comprehensive memory status report.
+/// Print a comprehensive memory status report to the terminal.
+///
+/// Renders a boxed header followed by sections for physical memory, page
+/// lists (if available), file system cache (if available), commit charge,
+/// page file, kernel memory pools, and system counters.
 pub fn print_status(
     snapshot: &MemorySnapshot,
     list_info: Option<&MemoryListInfo>,
@@ -268,7 +272,10 @@ fn print_kernel_and_system(snapshot: &MemorySnapshot, page_size: u64) {
     );
 }
 
-/// Print a compact one-line memory summary (for monitoring mode).
+/// Print a compact one-line memory summary prefixed with the current timestamp.
+///
+/// Used by the monitoring loop to show periodic updates without flooding the
+/// terminal.  Format: `[YYYY-MM-DD HH:MM:SS] Load: … | Used: … | Avail: …`.
 pub fn print_compact_status(snapshot: &MemorySnapshot) {
     let load_str = coloured_load(snapshot.memory_load_percent);
 
@@ -301,7 +308,10 @@ fn local_now() -> String {
 
 // ─── Application-level Display Functions ─────────────────────────────────────
 
-/// Print the `MagicX` ASCII art banner and version.
+/// Print the `MagicX` ASCII art banner and version tag.
+///
+/// Renders a cyan bold ASCII-art logo followed by the crate version read
+/// from `CARGO_PKG_VERSION` at compile time.
 pub fn print_banner() {
     println!(
         "{}",
@@ -323,7 +333,10 @@ pub fn print_banner() {
     );
 }
 
-/// Print the "Starting X clean..." header before a smart clean run.
+/// Print the "Starting X clean…" header before a smart clean run.
+///
+/// Displays the [`CleanLevel`] name in bold so the user knows which
+/// cleaning tier is about to execute.
 pub fn print_clean_start(level: CleanLevel) {
     println!(
         "\n{} Starting {} Clean...\n",
@@ -419,7 +432,10 @@ fn truncate_name(name: &str, max_len: usize) -> String {
     format!("{}…", &name[..boundary])
 }
 
-/// Print a dry-run preview of the operations that would be performed.
+/// Print a dry-run preview listing the operations that *would* be performed.
+///
+/// Shows the [`CleanLevel`] name, a numbered list of operations, and a
+/// footer hint telling the user to remove the `--dry-run` flag to execute.
 pub fn print_dry_run(level: CleanLevel, operations: &[&str]) {
     println!(
         "\n{} Dry run — {} level ({} operations):\n",
@@ -435,6 +451,10 @@ pub fn print_dry_run(level: CleanLevel, operations: &[&str]) {
 }
 
 /// Print a formatted summary of all cleaning results with before/after comparison.
+///
+/// For each [`CleanResult`], shows a pass/fail status, freed bytes, and
+/// elapsed time.  Then prints an overall before/after memory delta and
+/// total freed amount.
 pub fn print_clean_summary(
     results: &[CleanResult],
     before: &MemorySnapshot,
