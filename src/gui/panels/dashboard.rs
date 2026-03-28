@@ -201,7 +201,7 @@ fn draw_clean_section(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
                 level_to_clean = Some(info.level);
             }
 
-            // Floating tooltip — only shown when the setting is enabled
+            // Floating tooltip - only shown when the setting is enabled
             if tooltips {
                 resp.on_hover_ui(|ui| draw_level_tooltip(ui, info, dark));
             }
@@ -265,7 +265,7 @@ struct CircleCtx {
 /// - Outer coloured ring (brightens on hover)
 /// - Level name centred inside
 ///
-/// Returns nothing — click detection is handled by the caller.
+/// Returns nothing - click detection is handled by the caller.
 fn paint_circle_btn(painter: &egui::Painter, rect: egui::Rect, info: &LevelInfo, ctx: &CircleCtx) {
     let center = rect.center();
     let radius = rect.width() / 2.0;

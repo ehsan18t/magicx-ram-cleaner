@@ -8,12 +8,12 @@
     dead_code,
     rustdoc::broken_intra_doc_links
 )]
-// SUBSYSTEM:WINDOWS — no console window is created at startup.
+// SUBSYSTEM:WINDOWS - no console window is created at startup.
 // GUI launches are flash-free. For CLI usage, `console::setup_cli_console()`
 // attaches to the parent terminal (or allocates a fresh console) on demand.
 #![windows_subsystem = "windows"]
 
-//! `MagicX` RAM Cleaner — binary entry point.
+//! `MagicX` RAM Cleaner - binary entry point.
 //!
 //! Thin entry point: CLI parsing, command dispatch, and exit code mapping.
 //! All domain logic lives in the library modules (see [`lib.rs`](../magicx_ram_cleaner/index.html)).
@@ -29,12 +29,12 @@ use magicx_ram_cleaner::{
     cleaner, console, context_menu, display, gui, monitor, privilege, stats, strings,
 };
 
-/// Entry point — returns [`ExitCode`] instead of calling `std::process::exit()`.
+/// Entry point - returns [`ExitCode`] instead of calling `std::process::exit()`.
 ///
 /// Exit codes:
-/// - `0` — all operations succeeded
-/// - `1` — one or more cleaning operations failed (already reported)
-/// - `2` — fatal error (printed to stderr)
+/// - `0` - all operations succeeded
+/// - `1` - one or more cleaning operations failed (already reported)
+/// - `2` - fatal error (printed to stderr)
 fn main() -> ExitCode {
     // Detect --notify BEFORE anything else.
     let notify = detect_flag("--notify");
@@ -48,7 +48,7 @@ fn main() -> ExitCode {
     // SUBSYSTEM:WINDOWS means NO console exists at startup.
     // For CLI mode: attach to the parent terminal (if launched from
     // cmd/powershell) or allocate a fresh one. For GUI / notify modes
-    // we skip entirely — no console needed.
+    // we skip entirely - no console needed.
     let standalone = if gui_launch || notify {
         false
     } else {
@@ -335,7 +335,7 @@ fn dispatch_command(command: &Commands, quiet: bool, notify: bool) -> Result<(bo
     Ok((had_failure, notify_msg))
 }
 
-/// Handle the `status` subcommand — capture and display memory information.
+/// Handle the `status` subcommand - capture and display memory information.
 fn dispatch_status(detailed: bool, json: bool, top: Option<usize>) -> Result<()> {
     let snapshot = stats::MemorySnapshot::capture()?;
     let list_info = if detailed {
@@ -424,7 +424,7 @@ fn detect_flag(flag: &str) -> bool {
     std::env::args().any(|a| a == flag)
 }
 
-/// Detect whether the process was launched with no subcommand — i.e. the user
+/// Detect whether the process was launched with no subcommand - i.e. the user
 /// double-clicked the `.exe` or ran it with no arguments, which means we should
 /// open the GUI.
 ///

@@ -1,4 +1,4 @@
-//! # `MagicX` RAM Cleaner — GUI Mode
+//! # `MagicX` RAM Cleaner - GUI Mode
 //!
 //! egui-based graphical user interface that provides a dashboard for
 //! memory monitoring, one-click cleaning, process inspection, and settings.
@@ -11,17 +11,17 @@
 //!
 //! ```text
 //! src/gui/
-//! ├── mod.rs       — entry point (run_gui), module re-exports
-//! ├── app.rs       — MagicXApp state, eframe::App impl, sidebar, layout
-//! ├── theme.rs     — colour palette, spacing, custom Visuals
-//! ├── tray.rs      — system-tray icon handle and action routing
-//! ├── widgets.rs   — reusable components (cards, stat labels, buttons)
+//! ├── mod.rs       - entry point (run_gui), module re-exports
+//! ├── app.rs       - MagicXApp state, eframe::App impl, sidebar, layout
+//! ├── theme.rs     - colour palette, spacing, custom Visuals
+//! ├── tray.rs      - system-tray icon handle and action routing
+//! ├── widgets.rs   - reusable components (cards, stat labels, buttons)
 //! └── panels/
-//!     ├── mod.rs         — panel re-exports
-//!     ├── dashboard.rs   — memory overview, cleaning buttons, quick info
-//!     ├── monitor.rs     — auto-clean threshold / cooldown controls
-//!     ├── processes.rs   — sortable process table
-//!     └── settings.rs    — appearance, integration preferences
+//!     ├── mod.rs         - panel re-exports
+//!     ├── dashboard.rs   - memory overview, cleaning buttons, quick info
+//!     ├── monitor.rs     - auto-clean threshold / cooldown controls
+//!     ├── processes.rs   - sortable process table
+//!     └── settings.rs    - appearance, integration preferences
 //! ```
 //!
 //! ## Threading Model

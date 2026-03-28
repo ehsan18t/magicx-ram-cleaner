@@ -31,7 +31,7 @@ const HERO_BADGE_SIZE: f32 = 60.0;
 /// Used to vertically centre the monogram badge within the hero card.
 const HERO_CONTENT_HEIGHT: f32 = 86.0;
 
-/// Diameter of the developer avatar circle — compact sidebar profile.
+/// Diameter of the developer avatar circle - compact sidebar profile.
 const AVATAR_SIZE: f32 = 56.0;
 
 /// Diameter of a circular social-link icon button.
@@ -41,7 +41,7 @@ const ICON_BTN_SIZE: f32 = 42.0;
 /// Used to vertically centre the bio within the social-grid row height.
 const BIO_CONTENT_HEIGHT: f32 = 64.0;
 
-/// GitHub brand background color — lighter charcoal for sufficient contrast
+/// GitHub brand background color - lighter charcoal for sufficient contrast
 /// against the dark theme surface (`rgb(25, 31, 40)`). The official GitHub
 /// dark gray `rgb(36, 41, 47)` is nearly invisible on our dark cards; this
 /// brighter variant keeps the brand feel while remaining clearly visible.
@@ -115,7 +115,7 @@ fn draw_hero(ui: &mut egui::Ui, dark: bool) {
 /// tagline, platform metadata chips, and the `View on GitHub` CTA button.
 fn draw_hero_content(ui: &mut egui::Ui, dark: bool) {
     ui.horizontal(|ui| {
-        // Monogram badge — vertically centred in the row
+        // Monogram badge - vertically centred in the row
         ui.vertical(|ui| {
             let pad = (HERO_CONTENT_HEIGHT - HERO_BADGE_SIZE) / 2.0;
             ui.add_space(pad.max(0.0));
@@ -191,7 +191,7 @@ fn draw_developer(ui: &mut egui::Ui, dark: bool) {
             ui.spacing_mut().item_spacing.x = 0.0;
             ui.set_min_height(grid_side);
 
-            // Avatar — vertically centred in the row
+            // Avatar - vertically centred in the row
             ui.vertical(|ui| {
                 let pad = (grid_side - avatar_total) / 2.0;
                 ui.add_space(pad.max(0.0));
@@ -204,7 +204,7 @@ fn draw_developer(ui: &mut egui::Ui, dark: bool) {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
 
-                // Social grid — far right
+                // Social grid - far right
                 ui.allocate_ui_with_layout(
                     egui::vec2(grid_side, grid_side),
                     egui::Layout::top_down(egui::Align::Center),
@@ -222,7 +222,7 @@ fn draw_developer(ui: &mut egui::Ui, dark: bool) {
                 );
                 ui.add_space(12.0);
 
-                // Bio — remaining width, vertically centred with manual pad
+                // Bio - remaining width, vertically centred with manual pad
                 let bio_w = ui.available_width().max(0.0);
                 ui.allocate_ui_with_layout(
                     egui::vec2(bio_w, grid_side),
@@ -446,7 +446,7 @@ fn draw_contrib_banner(ui: &mut egui::Ui, dark: bool) {
 
             // Measure the text block height first so the icon rect can match it.
             // We render into a temporary vertical Ui that is laid out but not yet
-            // painted — instead we compute the text region width, then draw both
+            // painted - instead we compute the text region width, then draw both
             // icon and text in a single horizontal pass.
             //
             // Approach: draw the text block on the right with a known left

@@ -140,9 +140,9 @@ fn draw_integration(ui: &mut egui::Ui, app: &mut MagicXApp) {
                 Ok(()) => {
                     app.settings_status = Some((
                         if app.settings.auto_start {
-                            "Autostart enabled — registered in HKCU\\Run".to_owned()
+                            "Autostart enabled - registered in HKCU\\Run".to_owned()
                         } else {
-                            "Autostart disabled — removed from HKCU\\Run".to_owned()
+                            "Autostart disabled - removed from HKCU\\Run".to_owned()
                         },
                         false,
                         std::time::Instant::now(),

@@ -1,4 +1,4 @@
-//! # `MagicX` RAM Cleaner — Core Memory Cleaning Operations
+//! # `MagicX` RAM Cleaner - Core Memory Cleaning Operations
 //!
 //! This module implements all memory cleaning operations, from gentle
 //! working set trimming to aggressive full standby list purging.
@@ -35,7 +35,7 @@ impl Drop for CacheRestoreGuard {
     fn drop(&mut self) {
         if self.armed {
             // SAFETY: Restoring default cache limits with (0, 0, 0) is a safe
-            // Win32 call. Best-effort with retry — we can't propagate errors from Drop.
+            // Win32 call. Best-effort with retry - we can't propagate errors from Drop.
             for attempt in 0..3u32 {
                 // SAFETY: SetSystemFileCacheSize(0, 0, 0) restores default cache
                 // management. Safe to call multiple times.
@@ -48,7 +48,7 @@ impl Drop for CacheRestoreGuard {
                     std::thread::sleep(std::time::Duration::from_millis(50));
                 }
             }
-            // All retries failed — cache may remain degraded until reboot.
+            // All retries failed - cache may remain degraded until reboot.
             // Cannot propagate errors from Drop, so this is best-effort.
         }
     }
@@ -119,7 +119,7 @@ fn wait_for_settle(verbose: bool, mode: SettleMode) -> Result<MemorySnapshot> {
                 return MemorySnapshot::capture();
             }
         } else {
-            stable_count = 0; // reset — still changing
+            stable_count = 0; // reset - still changing
         }
         prev_available = current.available_physical;
     }
@@ -212,7 +212,7 @@ fn execute_kernel_memory_op(
         Err(status) => Ok(CleanResult::failure(
             name,
             format!(
-                "NtSetSystemInformation failed: 0x{:08X} — {}",
+                "NtSetSystemInformation failed: 0x{:08X}  -{}",
                 status as u32,
                 ntapi::ntstatus_message(status)
             ),
@@ -292,10 +292,10 @@ pub enum CleanLevel {
     /// purging them is completely safe and frees the disk-page cache.
     Gentle,
     /// Moderate: Flush modified pages to disk, then purge ALL standby.
-    /// No process working sets are touched — safe for running apps.
+    /// No process working sets are touched - safe for running apps.
     /// More thorough than Gentle because it also drains the modified list.
     Moderate,
-    /// Aggressive: File cache trim + empty working sets + flush modified + purge ALL standby.
+    /// Aggressive: File cache flush + registry flush + empty working sets + flush modified + purge ALL standby.
     /// Frees maximum RAM but may cause brief I/O spike as apps re-fault pages.
     Aggressive,
     /// Nuclear: Everything aggressive does, plus memory combining.
@@ -381,7 +381,7 @@ fn flush_file_cache_with_settle(verbose: bool, settle: SettleMode) -> Result<Cle
     if result == 0 {
         let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
 
-        // Restore is not needed on failure — cache limits were never changed
+        // Restore is not needed on failure - cache limits were never changed
         return Ok(CleanResult::failure(
             "Flush File Cache",
             format!("SetSystemFileCacheSize failed (error {err}). Need SeIncreaseQuotaPrivilege."),
@@ -395,7 +395,7 @@ fn flush_file_cache_with_settle(verbose: bool, settle: SettleMode) -> Result<Cle
     let mut guard = CacheRestoreGuard { armed: true };
 
     // Restore default cache behavior (let Windows manage it again).
-    // Retry up to 3 times with small delays — transient failures can occur
+    // Retry up to 3 times with small delays - transient failures can occur
     // if another process is manipulating cache limits simultaneously.
     let mut restore_ok = false;
     let mut last_err: u32 = 0;
@@ -413,7 +413,7 @@ fn flush_file_cache_with_settle(verbose: bool, settle: SettleMode) -> Result<Cle
         }
     }
 
-    // Disarm the guard — the restore calls have been made
+    // Disarm the guard - the restore calls have been made
     guard.armed = false;
     drop(guard);
 
@@ -446,7 +446,7 @@ fn flush_file_cache_with_settle(verbose: bool, settle: SettleMode) -> Result<Cle
 /// force all dirty registry hive pages to be written to disk. This frees
 /// modified memory occupied by cached registry data.
 ///
-/// Unique to `MagicX` — `EmptyStandbyList` cannot do this.
+/// Unique to `MagicX` - `EmptyStandbyList` cannot do this.
 pub fn flush_registry_cache(verbose: bool) -> Result<CleanResult> {
     flush_registry_cache_with_settle(verbose, SettleMode::Full)
 }
@@ -476,7 +476,7 @@ fn flush_registry_cache_with_settle(verbose: bool, settle: SettleMode) -> Result
             "Flush Registry Cache",
             format!(
                 "NtSetSystemInformation(SystemRegistryReconciliationInformation) failed: \
-                 0x{:08X} — {}",
+                 0x{:08X}  -{}",
                 status as u32,
                 ntapi::ntstatus_message(status)
             ),
@@ -506,11 +506,11 @@ pub fn empty_working_sets_kernel(verbose: bool) -> Result<CleanResult> {
 ///
 /// Iterates all processes and calls `EmptyWorkingSet` on each.
 /// Less powerful than kernel-level but provides per-process reporting.
-/// Protected/system processes may fail — that's normal.
+/// Protected/system processes may fail - that's normal.
 ///
 /// Processes whose executable name (case-insensitive) matches any entry in
 /// `exclude_names` are skipped. Names are matched with or without the `.exe`
-/// suffix — e.g. `"chrome"` matches `chrome.exe`.
+/// suffix - e.g. `"chrome"` matches `chrome.exe`.
 pub fn empty_working_sets_per_process(
     verbose: bool,
     exclude_names: &[String],
@@ -575,7 +575,7 @@ fn empty_working_sets_per_process_with_settle(
                 } else {
                     fail_count += 1;
                 }
-                // proc_handle dropped here — CloseHandle called automatically
+                // proc_handle dropped here - CloseHandle called automatically
             }
         }
     })?;
@@ -627,7 +627,7 @@ pub fn flush_modified_list(verbose: bool) -> Result<CleanResult> {
 /// **Operation 4: Purge low-priority standby pages only.**
 ///
 /// Removes only priority-0 standby pages from the standby list.
-/// This is the gentlest standby purge — it frees pages that Windows would
+/// This is the gentlest standby purge - it frees pages that Windows would
 /// reclaim first anyway, with minimal impact on cache performance.
 pub fn purge_standby_low_priority(verbose: bool) -> Result<CleanResult> {
     execute_kernel_memory_op(
@@ -639,7 +639,7 @@ pub fn purge_standby_low_priority(verbose: bool) -> Result<CleanResult> {
 
 /// **Operation 5: Purge ALL standby pages.**
 ///
-/// The most impactful single operation — removes ALL cached pages from RAM.
+/// The most impactful single operation - removes ALL cached pages from RAM.
 /// This is equivalent to `EmptyStandbyList`'s main "standbylist" command.
 ///
 /// **Warning**: After this, programs will need to re-read data from disk,
@@ -655,10 +655,10 @@ pub fn purge_standby_all(verbose: bool) -> Result<CleanResult> {
 /// **Operation 6: Memory combining (deduplication).**
 ///
 /// Scans physical memory for identical pages and combines them using
-/// copy-on-write. Only available on Windows 10+. This is unique to `MagicX` —
+/// copy-on-write. Only available on Windows 10+. This is unique to `MagicX`  -
 /// `EmptyStandbyList` doesn't support this.
 ///
-/// This is a heavier operation that scans all memory — may take several seconds.
+/// This is a heavier operation that scans all memory - may take several seconds.
 pub fn combine_memory(verbose: bool) -> Result<CleanResult> {
     combine_memory_with_settle(verbose, SettleMode::Full)
 }
@@ -687,7 +687,7 @@ fn combine_memory_with_settle(verbose: bool, settle: SettleMode) -> Result<Clean
         Err(status) => Ok(CleanResult::failure(
             "Memory Combining",
             format!(
-                "NtSetSystemInformation(SystemCombinePhysicalMemoryInformation) failed: 0x{:08X} — {}",
+                "NtSetSystemInformation(SystemCombinePhysicalMemoryInformation) failed: 0x{:08X}  -{}",
                 status as u32,
                 ntapi::ntstatus_message(status)
             ),
@@ -780,7 +780,7 @@ fn execute_nuclear_chain(verbose: bool, exclude_names: &[String]) -> Result<Vec<
     // Phase 4: Memory combining
     results.push(combine_memory_with_settle(verbose, SettleMode::Quick)?);
 
-    // Phase 5: Second pass — modified pages generated during combine.
+    // Phase 5: Second pass - modified pages generated during combine.
     // Append "(2nd pass)" to operation names so they match the dry-run labels
     // and users can distinguish first-pass from second-pass results.
     if verbose {
@@ -878,7 +878,7 @@ pub fn smart_clean(
 
     let results = match level {
         CleanLevel::Gentle => {
-            // Single operation — purge ALL standby pages (priorities 0-7).
+            // Single operation - purge ALL standby pages (priorities 0-7).
             // Standby pages are already outside every process's working set;
             // purging them is safe at any time.
             vec![execute_kernel_memory_op(
@@ -889,7 +889,7 @@ pub fn smart_clean(
         }
         CleanLevel::Moderate => {
             // Flush modified pages to disk first so they become standby,
-            // then purge all standby. No working-set eviction — running
+            // then purge all standby. No working-set eviction - running
             // processes are unaffected; only triggers an I/O spike.
             vec![
                 execute_kernel_memory_op(
@@ -1101,7 +1101,7 @@ mod tests {
 
     #[test]
     fn is_excluded_with_exe_suffix_in_list() {
-        // User passes "chrome.exe" — should still match "chrome.exe"
+        // User passes "chrome.exe" - should still match "chrome.exe"
         let raw = ["chrome.exe".to_owned()];
         let normalised: Vec<String> = raw
             .iter()

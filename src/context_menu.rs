@@ -1,4 +1,4 @@
-//! # `MagicX` RAM Cleaner — Windows Context Menu Integration
+//! # `MagicX` RAM Cleaner - Windows Context Menu Integration
 //!
 //! Installs and uninstalls right-click context menu entries so that the
 //! cleaning operations are accessible without opening a terminal.
@@ -67,7 +67,7 @@ struct MenuEntry {
 }
 
 /// All context menu entries, in display order.
-/// Nuclear is intentionally excluded — it is too destructive for a one-click action.
+/// Nuclear is intentionally excluded - it is too destructive for a one-click action.
 const ENTRIES: &[MenuEntry] = &[
     MenuEntry {
         key: "01quick",
@@ -205,7 +205,7 @@ fn delete_key_tree(parent: HKEY, sub_path: &str) -> Result<()> {
     // SAFETY: wide is a valid null-terminated UTF-16 string. HKEY_CLASSES_ROOT
     // is a predefined root key that is always valid.
     let rc = unsafe { RegDeleteTreeW(parent, wide.as_ptr()) };
-    // 2 = ERROR_FILE_NOT_FOUND — key already absent, treat as success
+    // 2 = ERROR_FILE_NOT_FOUND - key already absent, treat as success
     if rc != 0 && rc != 2 {
         bail!("RegDeleteTreeW failed for '{sub_path}': error {rc}");
     }
@@ -320,7 +320,7 @@ fn install_at(exe_path: &str, root_path: &str) -> Result<()> {
 /// Uninstall all `MagicX RAM Cleaner` context menu entries.
 ///
 /// Removes the `MagicXRAMCleaner` key from all registered roots
-/// (`DesktopBackground` and `Directory\Background`). Idempotent —
+/// (`DesktopBackground` and `Directory\Background`). Idempotent  -
 /// succeeds even if the keys do not exist.
 pub fn uninstall() -> Result<()> {
     let existed = is_installed();

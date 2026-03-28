@@ -104,7 +104,7 @@ fn pick_open_path() -> Option<PathBuf> {
     let title = to_wide(strings::gui::persistence::IMPORT_TITLE);
     let mut file_buf = vec![0u16; 512];
 
-    // SAFETY: Same contract as pick_save_path — zero-initialised C struct, all
+    // SAFETY: Same contract as pick_save_path - zero-initialised C struct, all
     // pointer fields reference local buffers live for the duration of the call.
     let mut ofn: OPENFILENAMEW = unsafe { std::mem::zeroed() };
     ofn.lStructSize = size_of::<OPENFILENAMEW>() as u32;
@@ -154,7 +154,7 @@ fn write_settings_file(path: &Path, settings: &GuiSettings) -> Result<(), String
 
 /// Central manager for all settings persistence operations.
 ///
-/// A stateless unit struct — every method takes settings by reference or
+/// A stateless unit struct - every method takes settings by reference or
 /// returns new values. This is the single place to add versioning,
 /// migration, or multi-profile logic in the future.
 pub struct SettingsManager;
@@ -177,7 +177,7 @@ impl SettingsManager {
 
     /// Save `settings` to the default exe-directory path.
     ///
-    /// I/O errors are silently discarded — a failed write must not surface
+    /// I/O errors are silently discarded - a failed write must not surface
     /// to the user during normal app shutdown.
     pub fn save(settings: &GuiSettings) {
         let path = default_settings_path();
@@ -188,9 +188,9 @@ impl SettingsManager {
 
     /// Export `settings` to a user-chosen file via a native Save dialog.
     ///
-    /// - `Ok(Some(path))` — exported successfully; `path` is where the file was written.
-    /// - `Ok(None)` — user cancelled the dialog.
-    /// - `Err(msg)` — the user confirmed a path but the write failed.
+    /// - `Ok(Some(path))` - exported successfully; `path` is where the file was written.
+    /// - `Ok(None)` - user cancelled the dialog.
+    /// - `Err(msg)` - the user confirmed a path but the write failed.
     pub fn export(settings: &GuiSettings) -> Result<Option<PathBuf>, String> {
         let Some(path) = pick_save_path("magicx-settings.json") else {
             return Ok(None);
@@ -201,9 +201,9 @@ impl SettingsManager {
 
     /// Import settings from a user-chosen file via a native Open dialog.
     ///
-    /// - `Ok(Some(settings))` — loaded successfully from the chosen file.
-    /// - `Ok(None)` — user cancelled the dialog.
-    /// - `Err(msg)` — file was chosen but could not be read or parsed.
+    /// - `Ok(Some(settings))` - loaded successfully from the chosen file.
+    /// - `Ok(None)` - user cancelled the dialog.
+    /// - `Err(msg)` - file was chosen but could not be read or parsed.
     pub fn import() -> Result<Option<GuiSettings>, String> {
         let Some(path) = pick_open_path() else {
             return Ok(None);
@@ -283,7 +283,7 @@ impl SettingsManager {
         } else {
             // SAFETY: `value_wide` is a valid null-terminated UTF-16 string.
             let w = unsafe { RegDeleteValueW(hkey, value_wide.as_ptr()) };
-            // ERROR_FILE_NOT_FOUND (2) — value was never set; treat as success.
+            // ERROR_FILE_NOT_FOUND (2) - value was never set; treat as success.
             if w == 0 || w == 2 {
                 Ok(())
             } else {

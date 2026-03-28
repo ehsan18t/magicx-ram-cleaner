@@ -176,7 +176,7 @@ pub fn memory_overview(ui: &mut egui::Ui, snap: &MemorySnapshot, dark_mode: bool
     });
 }
 
-/// Slim 6 px progress bar — flat, no text overlay, no fake depth.
+/// Slim 6 px progress bar - flat, no text overlay, no fake depth.
 fn draw_memory_bar(ui: &mut egui::Ui, load: f32, load_color: egui::Color32, dark_mode: bool) {
     let bar_height = 6.0;
     let bar_width = ui.available_width();

@@ -1,4 +1,4 @@
-//! # `MagicX` RAM Cleaner — Monitoring Mode
+//! # `MagicX` RAM Cleaner - Monitoring Mode
 //!
 //! Continuous monitoring with optional auto-clean when memory usage
 //! exceeds a configurable threshold. Uses Win32 `SetConsoleCtrlHandler`
@@ -12,7 +12,7 @@
 //! This is an inherent Win32 API limitation, not a design choice.
 //!
 //! `MONITOR_ACTIVE` is a separate guard that prevents concurrent calls to
-//! `run_monitor` — since all state is global, running two monitor loops
+//! `run_monitor` - since all state is global, running two monitor loops
 //! simultaneously would produce undefined behaviour (both polling the same
 //! `RUNNING` flag, both registering the same ctrl handler). The guard is
 //! enforced via an RAII `MonitorGuard` that clears the flag on drop.
@@ -67,9 +67,9 @@ unsafe extern "system" fn ctrl_handler(ctrl_type: u32) -> i32 {
     // CTRL_C_EVENT = 0, CTRL_BREAK_EVENT = 1, CTRL_CLOSE_EVENT = 2
     if ctrl_type <= 2 {
         RUNNING.store(false, Ordering::Release);
-        1 // TRUE — handled, prevent default process termination
+        1 // TRUE - handled, prevent default process termination
     } else {
-        0 // FALSE — not handled, pass to next handler
+        0 // FALSE - not handled, pass to next handler
     }
 }
 
@@ -77,12 +77,12 @@ unsafe extern "system" fn ctrl_handler(ctrl_type: u32) -> i32 {
 ///
 /// # Arguments
 ///
-/// * `interval_secs` — Seconds between status checks.
-/// * `threshold` — Optional memory load percentage (0–100) that triggers auto-clean.
-/// * `auto_level` — The cleaning level to use when auto-cleaning.
-/// * `cooldown_secs` — Optional override for cooldown seconds after an auto-clean.
+/// * `interval_secs` - Seconds between status checks.
+/// * `threshold` - Optional memory load percentage (0–100) that triggers auto-clean.
+/// * `auto_level` - The cleaning level to use when auto-cleaning.
+/// * `cooldown_secs` - Optional override for cooldown seconds after an auto-clean.
 ///   Defaults to `2 × interval_secs` if `None`.
-/// * `verbose` — Show detailed output during auto-clean.
+/// * `verbose` - Show detailed output during auto-clean.
 ///
 /// # Errors
 ///
@@ -96,7 +96,7 @@ pub fn run_monitor(
     cooldown_secs: Option<u64>,
     verbose: bool,
 ) -> Result<()> {
-    // Prevent concurrent monitor loops — all state is global (see module docs).
+    // Prevent concurrent monitor loops - all state is global (see module docs).
     if MONITOR_ACTIVE
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .is_err()
@@ -118,7 +118,7 @@ pub fn run_monitor(
     let handler_ok = unsafe { SetConsoleCtrlHandler(Some(ctrl_handler), 1) };
     anyhow::ensure!(
         handler_ok != 0,
-        "SetConsoleCtrlHandler failed — cannot guarantee graceful shutdown"
+        "SetConsoleCtrlHandler failed - cannot guarantee graceful shutdown"
     );
 
     // Cooldown: skip auto-clean after the last clean to avoid
@@ -148,7 +148,7 @@ pub fn run_monitor(
         let snapshot = MemorySnapshot::capture()?;
         display::print_compact_status(&snapshot);
 
-        // Auto-clean if threshold exceeded (let chain — stable since Rust 1.88)
+        // Auto-clean if threshold exceeded (let chain - stable since Rust 1.88)
         if let Some(thresh) = threshold
             && snapshot.memory_load_percent >= thresh
         {
@@ -200,7 +200,7 @@ fn handle_threshold_clean(
 
     if in_cooldown {
         println!(
-            "  {} Memory {}% >= {}% but cooldown active — skipping",
+            "  {} Memory {}% >= {}% but cooldown active - skipping",
             "⏳".yellow(),
             snapshot.memory_load_percent,
             thresh
@@ -209,7 +209,7 @@ fn handle_threshold_clean(
     }
 
     println!(
-        "\n  {} Memory load {}% >= threshold {}% — auto-cleaning...",
+        "\n  {} Memory load {}% >= threshold {}% - auto-cleaning...",
         "⚠".yellow().bold(),
         snapshot.memory_load_percent,
         thresh

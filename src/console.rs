@@ -1,4 +1,4 @@
-//! # `MagicX` RAM Cleaner — Console Utilities
+//! # `MagicX` RAM Cleaner - Console Utilities
 //!
 //! Windows console platform utilities: on-demand console attach/alloc for CLI
 //! mode, ANSI virtual terminal processing, pause-before-exit, and balloon
@@ -7,7 +7,7 @@
 //! The binary uses `SUBSYSTEM:WINDOWS` so **no** console window is created at
 //! startup. For CLI usage, `setup_cli_console()` attaches to the parent
 //! terminal (cmd / `PowerShell`) or allocates a fresh console. GUI and
-//! notification modes skip this entirely — zero-flash launches.
+//! notification modes skip this entirely - zero-flash launches.
 //!
 //! These are isolated from business logic so that platform-specific console
 //! quirks don't leak into the application layer.
@@ -34,9 +34,9 @@ pub enum ConsoleMode {
 ///
 /// With `SUBSYSTEM:WINDOWS`, the process starts with **no** console at all.
 /// This function:
-/// 1. Tries `AttachConsole(ATTACH_PARENT_PROCESS)` — succeeds when launched
+/// 1. Tries `AttachConsole(ATTACH_PARENT_PROCESS)` - succeeds when launched
 ///    from cmd / `PowerShell` / Windows Terminal.
-/// 2. Falls back to `AllocConsole()` — creates a brand-new console window
+/// 2. Falls back to `AllocConsole()` - creates a brand-new console window
 ///    (typical for standalone execution with CLI args).
 /// 3. Redirects `stdout` / `stderr` to `CONOUT$` so `println!` works.
 ///
@@ -72,8 +72,8 @@ pub fn setup_cli_console() -> ConsoleMode {
 /// After `AttachConsole` or `AllocConsole`, the process has a console but
 /// Rust's `std::io::stdout()` and `stderr()` may still return null handles
 /// (SUBSYSTEM:WINDOWS default). Opening `CONOUT$` and setting it as the
-/// standard output/error handle ensures all subsequent writes — including
-/// `println!`, `eprintln!`, and `colored` output — work correctly.
+/// standard output/error handle ensures all subsequent writes - including
+/// `println!`, `eprintln!`, and `colored` output - work correctly.
 fn redirect_std_handles() {
     use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
     use windows_sys::Win32::Storage::FileSystem::{CreateFileW, FILE_SHARE_WRITE, OPEN_EXISTING};
@@ -198,7 +198,7 @@ pub fn set_process_dark_mode(dark: bool) {
         return;
     }
 
-    // Ordinal 135 — SetPreferredAppMode(mode: i32) -> i32
+    // Ordinal 135 - SetPreferredAppMode(mode: i32) -> i32
     // SAFETY: GetProcAddress with a MAKEINTRESOURCE-style ordinal (low 16
     // bits = ordinal, high bits zero) is the documented Win32 pattern for
     // looking up exports by ordinal number.
@@ -213,7 +213,7 @@ pub fn set_process_dark_mode(dark: bool) {
         }
     }
 
-    // Ordinal 136 — FlushMenuThemes()
+    // Ordinal 136 - FlushMenuThemes()
     // Forces all menus in the process to re-evaluate their theme on next show.
     let flush_addr = unsafe { GetProcAddress(hmodule, 136_usize as *const u8) };
     if let Some(f) = flush_addr {
@@ -271,16 +271,16 @@ const NOTIFY_ICON_UID: u32 = 0xBEEF;
 const BALLOON_TIMEOUT_MS: u32 = 2000;
 
 /// Balloon info icon style (shows an "i" icon).
-/// From `shellapi.h` `NIIF_INFO` — not exposed by `windows-sys`.
+/// From `shellapi.h` `NIIF_INFO` - not exposed by `windows-sys`.
 const NIIF_INFO: u32 = 0x01;
 
 /// Suppress the notification sound.
-/// From `shellapi.h` `NIIF_NOSOUND` — not exposed by `windows-sys`.
+/// From `shellapi.h` `NIIF_NOSOUND` - not exposed by `windows-sys`.
 const NIIF_NOSOUND: u32 = 0x10;
 
 /// Encode a Rust `&str` as null-terminated UTF-16 into a fixed-size buffer.
 ///
-/// Silently truncates if `s` is longer than `buf.len() - 1`.
+/// Silently truncates if `s` is longer than `buf.len() -1`.
 fn write_wide_into(buf: &mut [u16], s: &str) {
     let mut i = 0;
     for c in s.encode_utf16() {
@@ -303,7 +303,7 @@ fn write_wide_into(buf: &mut [u16], s: &str) {
 /// A hidden message-only window is created to receive Shell callback
 /// messages, and a brief message pump runs so the balloon can render.
 ///
-/// Returns `Ok(())` on success. Errors are non-fatal — the cleaning
+/// Returns `Ok(())` on success. Errors are non-fatal - the cleaning
 /// operation has already completed, so a notification failure is harmless.
 pub fn show_balloon_notification(title: &str, body: &str) -> Result<()> {
     use windows_sys::Win32::UI::Shell::{
@@ -316,7 +316,7 @@ pub fn show_balloon_notification(title: &str, body: &str) -> Result<()> {
     let hicon = load_app_icon();
 
     // Zero-init the struct, then fill in the fields we need.
-    // SAFETY: NOTIFYICONDATAW is a POD struct — zeroing is valid initialisation.
+    // SAFETY: NOTIFYICONDATAW is a POD struct - zeroing is valid initialisation.
     let mut nid: NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
     nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
     nid.hWnd = hwnd;
@@ -392,10 +392,10 @@ fn create_notification_window() -> Result<windows_sys::Win32::Foundation::HWND> 
 
     let hinstance = get_exe_hinstance();
 
-    // Use the built-in "STATIC" control class — no custom registration needed.
+    // Use the built-in "STATIC" control class - no custom registration needed.
     let class_name = wide_literal::<7>(b"STATIC");
 
-    // HWND_MESSAGE = (HWND)-3 — creates a message-only window that has
+    // HWND_MESSAGE = (HWND)-3 - creates a message-only window that has
     // no visible representation and only receives posted/sent messages.
     let hwnd_message = std::ptr::without_provenance_mut::<std::ffi::c_void>(!2_usize);
 
@@ -429,7 +429,7 @@ fn create_notification_window() -> Result<windows_sys::Win32::Foundation::HWND> 
 ///
 /// Processes pending messages each iteration, then sleeps briefly to
 /// avoid busy-spinning. Required for `Shell_NotifyIconW` balloons to
-/// display — the Shell delivers callback messages that drive the
+/// display - the Shell delivers callback messages that drive the
 /// balloon lifecycle.
 fn pump_messages(duration_ms: u32) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -462,7 +462,7 @@ fn pump_messages(duration_ms: u32) {
 
 /// Attempt to acquire a system-wide named mutex for single-instance enforcement.
 ///
-/// If no other instance holds the mutex, returns `Some(handle)` — the caller
+/// If no other instance holds the mutex, returns `Some(handle)` - the caller
 /// **must** keep this value alive for the lifetime of the process (dropping or
 /// closing it releases the mutex, allowing a second launch).
 ///
@@ -487,7 +487,7 @@ pub fn try_acquire_single_instance() -> Option<isize> {
     let handle = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
 
     if handle.is_null() {
-        // CreateMutexW failed entirely — let the app launch anyway so
+        // CreateMutexW failed entirely - let the app launch anyway so
         // the user isn't blocked by a transient OS error.
         return Some(0);
     }
@@ -593,10 +593,10 @@ pub fn hide_window(hwnd: isize) {
 /// The approach avoids the eframe/winit CPU bug (`emilk/egui#7776`) where
 /// `ControlFlow::Poll` is used for invisible windows.  Steps:
 ///
-/// 1. `SW_HIDE` — instantly clear `WS_VISIBLE` so no animations play.
-/// 2. Add `WS_EX_TOOLWINDOW` / remove `WS_EX_APPWINDOW` — hides the
+/// 1. `SW_HIDE` - instantly clear `WS_VISIBLE` so no animations play.
+/// 2. Add `WS_EX_TOOLWINDOW` / remove `WS_EX_APPWINDOW` - hides the
 ///    window from the taskbar and Alt-Tab.
-/// 3. `SW_SHOWMINNOACTIVE` — restores `WS_VISIBLE` in the iconic
+/// 3. `SW_SHOWMINNOACTIVE` - restores `WS_VISIBLE` in the iconic
 ///    (minimized) state without stealing focus.  On modern Windows,
 ///    a minimized tool window has no on-screen representation.
 ///
@@ -632,10 +632,10 @@ pub fn cloak_window(hwnd: isize) {
 ///
 /// Steps:
 ///
-/// 1. Remove `WS_EX_TOOLWINDOW` / add `WS_EX_APPWINDOW` — taskbar and
+/// 1. Remove `WS_EX_TOOLWINDOW` / add `WS_EX_APPWINDOW` - taskbar and
 ///    Alt-Tab presence restored.
-/// 2. `SW_RESTORE` — un-minimizes to the previous size and position.
-/// 3. `SetForegroundWindow` — brings the window to the front.
+/// 2. `SW_RESTORE` - un-minimizes to the previous size and position.
+/// 3. `SetForegroundWindow` - brings the window to the front.
 ///
 /// Does nothing when `hwnd` is `0`.
 pub fn uncloak_window(hwnd: isize) {

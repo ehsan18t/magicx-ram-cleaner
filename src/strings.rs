@@ -84,10 +84,10 @@ pub mod notification {
     pub const TITLE: &str = "MagicX RAM Cleaner";
 
     /// Warning notification title.
-    pub const TITLE_WARNING: &str = "MagicX RAM Cleaner \u{2014} Warning";
+    pub const TITLE_WARNING: &str = "MagicX RAM Cleaner - Warning";
 
     /// Error notification title.
-    pub const TITLE_ERROR: &str = "MagicX RAM Cleaner \u{2014} Error";
+    pub const TITLE_ERROR: &str = "MagicX RAM Cleaner - Error";
 }
 
 // ─── Clean Levels ────────────────────────────────────────────────────────────
@@ -101,8 +101,8 @@ pub mod levels {
     pub const GENTLE_SHORT: &str = "Purge all standby pages";
 
     /// Gentle full description for tooltips.
-    pub const GENTLE_DETAIL: &str = "Purges all standby pages (priorities 0\u{2013}7). Standby pages are already \
-         outside every process\u{2019}s working set \u{2014} completely safe to run at any time.";
+    pub const GENTLE_DETAIL: &str = "Purges all standby pages (priorities 0-7). Standby pages are already \
+         outside every process's working set, so this is completely safe to run at any time.";
 
     /// Moderate level display name.
     pub const MODERATE_NAME: &str = "Moderate";
@@ -112,14 +112,14 @@ pub mod levels {
 
     /// Moderate full description for tooltips.
     pub const MODERATE_DETAIL: &str = "Flushes modified pages to disk, then purges all standby pages. No process \
-         working sets are touched \u{2014} running apps are unaffected, but expect a brief \
+         working sets are touched. Running apps are unaffected, but expect a brief \
          I/O spike.";
 
     /// Aggressive level display name.
     pub const AGGRESSIVE_NAME: &str = "Aggressive";
 
     /// Aggressive one-line summary.
-    pub const AGGRESSIVE_SHORT: &str = "Full clean \u{2014} cache, registry, working sets, standby";
+    pub const AGGRESSIVE_SHORT: &str = "Full clean: cache, registry, working sets, standby";
 
     /// Aggressive full description for tooltips.
     pub const AGGRESSIVE_DETAIL: &str = "File cache flush \u{2192} registry flush \u{2192} empty working sets \u{2192} \
@@ -414,10 +414,10 @@ pub mod gui {
     /// Persistence / file dialog strings.
     pub mod persistence {
         /// Save dialog title for exporting settings.
-        pub const EXPORT_TITLE: &str = "Export Settings \u{2014} MagicX RAM Cleaner";
+        pub const EXPORT_TITLE: &str = "Export Settings - MagicX RAM Cleaner";
 
         /// Open dialog title for importing settings.
-        pub const IMPORT_TITLE: &str = "Import Settings \u{2014} MagicX RAM Cleaner";
+        pub const IMPORT_TITLE: &str = "Import Settings - MagicX RAM Cleaner";
     }
 }
 
@@ -481,7 +481,7 @@ pub mod cli {
     pub const PAUSE_PROMPT: &str = "Press Enter to exit...";
 
     /// Box-drawn status report header.
-    pub const STATUS_HEADER: &str = "MagicX RAM Cleaner \u{2014} System Status";
+    pub const STATUS_HEADER: &str = "MagicX RAM Cleaner - System Status";
 
     /// Physical memory section header.
     pub const SECTION_PHYSICAL: &str = "Physical Memory";

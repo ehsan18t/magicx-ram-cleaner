@@ -4,7 +4,7 @@
     // Correctness
     unused_must_use,         // ignoring Result/Option is a bug
     unreachable_patterns,    // dead match arms = confusion
-    // Safety — unsafe is denied globally; modules that need FFI get #[allow(unsafe_code)]
+    // Safety - unsafe is denied globally; modules that need FFI get #[allow(unsafe_code)]
     unsafe_code,
     unsafe_op_in_unsafe_fn,  // unsafe blocks inside unsafe fn must be explicit
     // Quality
@@ -17,7 +17,7 @@
 
 //! # `MagicX` RAM Cleaner
 //!
-//! The most powerful Windows RAM cleaner — CLI + GUI in a single portable exe.
+//! The most powerful Windows RAM cleaner. CLI + GUI in a single portable exe.
 //! Surpasses `EmptyStandbyList` with granular control over every memory subsystem.
 //!
 //! Double-click the binary (or run without arguments) to launch the built-in
@@ -26,7 +26,7 @@
 //! (e.g. `clean`, `status`, `monitor`) for scriptable, terminal-based usage.
 //!
 //! This library crate exposes internal modules for benchmarking and testing.
-//! `MagicX` RAM Cleaner is a **binary crate** — this `lib.rs` exists to
+//! `MagicX` RAM Cleaner is a **binary crate** - this `lib.rs` exists to
 //! enable `criterion` benchmarks in `benches/`.
 //!
 //! **Do not depend on this as a library.** The public API is unstable and

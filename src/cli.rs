@@ -1,4 +1,4 @@
-//! # `MagicX` RAM Cleaner — CLI Definitions
+//! # `MagicX` RAM Cleaner - CLI Definitions
 //!
 //! Clap-based command-line interface: parser struct, subcommands,
 //! styling, and help text constants. Separated from `main.rs` so that
@@ -23,7 +23,7 @@ pub const STYLES: Styles = Styles::styled()
 
 /// Long description shown for `magicx-ram-cleaner --help`.
 pub const LONG_ABOUT: &str = "\
-MagicX RAM Cleaner \x1b[90m—\x1b[0m The world's most powerful Windows RAM cleaner CLI.
+MagicX RAM Cleaner \x1b[90m-\x1b[0m The most powerful Windows RAM cleaner CLI.
 
 \
 Provides unmatched control over Windows memory management, surpassing \
@@ -32,7 +32,7 @@ EmptyStandbyList with granular control over every memory subsystem.
 \
 \x1b[1;36mFEATURES:\x1b[0m
   \
-\x1b[1;32m★\x1b[0m Built-in GUI — double-click the exe or run without arguments
+\x1b[1;32m★\x1b[0m Built-in GUI - double-click the exe or run without arguments
   \
 \x1b[1;32m★\x1b[0m Smart cleaning with 4 aggressiveness levels (gentle → nuclear)
   \
@@ -55,13 +55,13 @@ EmptyStandbyList with granular control over every memory subsystem.
 \
 \x1b[1;36mCLEANING LEVELS:\x1b[0m
   \
-\x1b[32mgentle\x1b[0m      Safe — purge ALL standby pages \x1b[90m(no process impact)
+\x1b[32mgentle\x1b[0m      Safe - purge ALL standby pages \x1b[90m(no process impact)
   \
-\x1b[33mmoderate\x1b[0m    Balanced — flush modified pages + purge ALL standby
+\x1b[33mmoderate\x1b[0m    Balanced - flush modified pages + purge ALL standby
   \
 \x1b[1;33maggressive\x1b[0m  Full clean: cache + working sets + modified + standby \x1b[1;33m[DEFAULT]\x1b[0m
   \
-\x1b[1;31mnuclear\x1b[0m     Maximum — everything + memory combining + 2nd pass
+\x1b[1;31mnuclear\x1b[0m     Maximum - everything + memory combining + 2nd pass
 
 \
 \x1b[1;36mQUICK START:\x1b[0m
@@ -166,7 +166,7 @@ pub const AFTER_HELP_LONG: &str = "\
 \
 \x1b[1;36mKEY CONCEPTS:\x1b[0m
   \
-\x1b[1mStandby List\x1b[0m     Cached pages in RAM — freed first when memory is needed
+\x1b[1mStandby List\x1b[0m     Cached pages in RAM - freed first when memory is needed
   \
 \x1b[1mWorking Sets\x1b[0m     Pages actively mapped by each running process
   \
@@ -194,7 +194,7 @@ Repository:  \x1b[36mhttps://github.com/ehsan18t/magicx-ram-cleaner\x1b[0m
   \
 Run \x1b[32mmagicx-ram-cleaner <command> --help\x1b[0m for detailed command information.";
 
-/// `MagicX` RAM Cleaner — The most powerful Windows RAM cleaner.
+/// `MagicX` RAM Cleaner -the most powerful Windows RAM cleaner.
 ///
 /// Surpasses `EmptyStandbyList` with granular control, smart cleaning levels,
 /// detailed diagnostics, and monitoring with auto-clean.
@@ -205,7 +205,7 @@ Run \x1b[32mmagicx-ram-cleaner <command> --help\x1b[0m for detailed command info
     name = "magicx-ram-cleaner",
     version,
     styles = STYLES,
-    about = "MagicX RAM Cleaner — The world's most powerful Windows RAM cleaner CLI",
+    about = "MagicX RAM Cleaner -the most powerful Windows RAM cleaner CLI",
     long_about = LONG_ABOUT,
     after_help = AFTER_HELP_SHORT,
     after_long_help = AFTER_HELP_LONG,
@@ -247,16 +247,16 @@ pub struct Cli {
 /// Available CLI subcommands.
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Smart clean — the recommended way to free RAM.
+    /// Smart clean - the recommended way to free RAM.
     ///
     /// Runs multiple memory operations in optimal order based on the
     /// selected aggressiveness level. Shows before/after stats.
     ///
     /// Levels:
-    ///   gentle     — Purge ALL standby pages (safe, no process impact)
-    ///   moderate   — Flush modified pages to disk + purge ALL standby
-    ///   aggressive — Full clean: cache + working sets + modified + standby (DEFAULT)
-    ///   nuclear    — Everything + memory combining + second pass
+    ///   gentle     - Purge ALL standby pages (safe, no process impact)
+    ///   moderate   - Flush modified pages to disk + purge ALL standby
+    ///   aggressive - Full clean: cache + working sets + modified + standby (DEFAULT)
+    ///   nuclear    - Everything + memory combining + second pass
     #[command(verbatim_doc_comment)]
     Clean {
         /// Cleaning aggressiveness level [default: aggressive]
@@ -302,7 +302,7 @@ pub enum Commands {
         top: Option<usize>,
     },
 
-    /// Purge standby list — equivalent to `EmptyStandbyList` but better.
+    /// Purge standby list - equivalent to `EmptyStandbyList` but better.
     ///
     /// Removes cached pages from the standby list, making them available
     /// for new allocations. By default purges ALL priorities.
@@ -311,7 +311,7 @@ pub enum Commands {
     #[command(verbatim_doc_comment)]
     PurgeStandby {
         /// Only purge low-priority (priority 0) standby pages.
-        /// Safer — preserves frequently-accessed cached data.
+        /// Safer - preserves frequently-accessed cached data.
         #[arg(long)]
         low_priority: bool,
 
@@ -320,7 +320,7 @@ pub enum Commands {
         verbose: bool,
     },
 
-    /// Flush modified page list — write dirty pages to disk.
+    /// Flush modified page list - write dirty pages to disk.
     ///
     /// Forces all modified (dirty) pages to be written to disk/pagefile.
     /// After flushing, these pages move to the standby list where they
@@ -332,7 +332,7 @@ pub enum Commands {
         verbose: bool,
     },
 
-    /// Empty process working sets — trim all processes.
+    /// Empty process working sets - trim all processes.
     ///
     /// Forces all processes to release their working set pages.
     /// By default uses the kernel-level command which is faster and
@@ -357,12 +357,12 @@ pub enum Commands {
         verbose: bool,
     },
 
-    /// Flush file system cache — release cached file data.
+    /// Flush file system cache - release cached file data.
     ///
     /// Tells Windows to release its file system cache, freeing the
     /// RAM used to cache recently-read files. Requires `SeIncreaseQuotaPrivilege`.
     ///
-    /// This is unique to `MagicX` — `EmptyStandbyList` cannot do this.
+    /// This is unique to `MagicX` - `EmptyStandbyList` cannot do this.
     #[command(verbatim_doc_comment)]
     FlushCache {
         /// Show detailed progress.
@@ -370,13 +370,13 @@ pub enum Commands {
         verbose: bool,
     },
 
-    /// Flush registry cache — write dirty hive pages to disk.
+    /// Flush registry cache - write dirty hive pages to disk.
     ///
     /// Forces Windows to write all cached registry modifications to disk,
     /// freeing the RAM used for registry hive caching. Included automatically
     /// in aggressive and nuclear cleaning levels.
     ///
-    /// This is unique to `MagicX` — `EmptyStandbyList` cannot do this.
+    /// This is unique to `MagicX` - `EmptyStandbyList` cannot do this.
     #[command(verbatim_doc_comment)]
     FlushRegistry {
         /// Show detailed progress.
@@ -384,13 +384,13 @@ pub enum Commands {
         verbose: bool,
     },
 
-    /// Memory combining — deduplicate identical pages.
+    /// Memory combining - deduplicate identical pages.
     ///
     /// Scans physical memory for identical pages and combines them using
     /// copy-on-write, freeing duplicate pages. Windows 10+ only.
     ///
     /// This can take several seconds on systems with lots of RAM.
-    /// Unique to `MagicX` — `EmptyStandbyList` cannot do this.
+    /// Unique to `MagicX` - `EmptyStandbyList` cannot do this.
     #[command(verbatim_doc_comment)]
     Combine {
         /// Show detailed progress.
@@ -463,7 +463,7 @@ pub enum ContextMenuAction {
     /// Removes the "`MagicX` RAM Cleaner" submenu and all its entries
     /// from the Desktop and folder right-click menus.
     ///
-    /// Idempotent — succeeds even if not currently installed.
+    /// Idempotent - succeeds even if not currently installed.
     #[command(verbatim_doc_comment)]
     Uninstall,
 }

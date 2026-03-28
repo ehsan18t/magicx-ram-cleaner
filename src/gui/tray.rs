@@ -227,7 +227,7 @@ fn tray_watcher_thread(
             crate::console::uncloak_window(hwnd);
 
             if tx.send(action).is_err() {
-                return; // app receiver dropped — exit cleanly
+                return; // app receiver dropped - exit cleanly
             }
             ctx.request_repaint();
             had_event = true;

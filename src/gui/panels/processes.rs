@@ -2,7 +2,7 @@
 //!
 //! Sortable table of top memory-consuming programs, grouped by executable name.
 //! Multiple instances of the same program (e.g. `msedge.exe ×5`) are merged
-//! into a single row with summed working-set sizes — matching the style of
+//! into a single row with summed working-set sizes - matching the style of
 //! Windows Task Manager's app grouping.
 //!
 //! Click column headers to sort. Uses `egui_extras::TableBuilder`.
@@ -37,14 +37,14 @@ struct GroupedProcess {
     instance_count: usize,
     /// Sum of private working-set sizes across all instances (bytes).
     ///
-    /// This is the primary displayed metric — it matches Task Manager’s
+    /// This is the primary displayed metric - it matches Task Manager’s
     /// "Memory" column and avoids double-counting shared pages (DLLs)
     /// when multiple instances of the same program are grouped.
     private_working_set: u64,
     /// Sum of full working-set sizes across all instances (bytes).
     ///
     /// Includes shared pages (DLLs, mapped files). Shown as a tooltip
-    /// detail — not the primary column — because summing it across
+    /// detail - not the primary column - because summing it across
     /// grouped instances inflates the total relative to Task Manager.
     working_set: u64,
     /// Sum of peak working-set sizes across all instances (bytes).
@@ -291,7 +291,7 @@ fn draw_toolbar(ui: &mut egui::Ui, app: &mut MagicXApp) {
         // ── Right: search box ──────────────────────────────────────────────
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Always render the clear button so the widget tree is stable
-            // across frames — conditional widgets cause egui to drop the
+            // across frames - conditional widgets cause egui to drop the
             // TextEdit's focus after the first keystroke.
             let has_text = !app.process_search.is_empty();
             if ui
@@ -383,12 +383,12 @@ fn draw_sort_header(
 /// | Peak        | Memory       | Count     | Name        |
 ///
 /// The final name comparison uses exact-case `cmp` (not `to_lowercase`)
-/// because it only needs to be deterministic, not user-friendly — the
+/// because it only needs to be deterministic, not user-friendly - the
 /// primary name sort (col 0) already handles case-insensitivity.
 fn sort_processes(groups: &mut [GroupedProcess], col: usize, ascending: bool) {
     groups.sort_unstable_by(|a, b| {
         let ord = match col {
-            // Name — unique after grouping, no tiebreaker needed.
+            // Name - unique after grouping, no tiebreaker needed.
             0 => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
 
             // Count → Memory → Peak → Name

@@ -1,4 +1,4 @@
-//! # GUI Theme — Modern Visual Design
+//! # GUI Theme - Modern Visual Design
 //!
 //! Centralised colour palette, spacing constants, and custom [`egui::Visuals`]
 //! configuration for a polished, modern look. All panels reference this
@@ -8,7 +8,7 @@ use eframe::egui;
 
 // ─── Colour Palette ──────────────────────────────────────────────────────────
 
-/// Primary accent colour (sky blue — modern, easy on the eyes).
+/// Primary accent colour (sky blue - modern, easy on the eyes).
 pub const ACCENT: egui::Color32 = egui::Color32::from_rgb(56, 189, 248);
 
 /// Lighter accent for hover states.
@@ -91,10 +91,10 @@ pub const CARD_PADDING: i8 = 18;
 /// Corner rounding for cards.
 pub const CARD_ROUNDING: u8 = 12;
 
-/// Sidebar width in logical points — narrow icon rail, frees content area.
+/// Sidebar width in logical points - narrow icon rail, frees content area.
 pub const SIDEBAR_WIDTH: f32 = 56.0;
 
-/// Sidebar button height — square tap target for centered icons.
+/// Sidebar button height - square tap target for centered icons.
 pub const SIDEBAR_BUTTON_HEIGHT: f32 = 44.0;
 
 // ─── Theme Application ───────────────────────────────────────────────────────
@@ -104,7 +104,7 @@ pub const SIDEBAR_BUTTON_HEIGHT: f32 = 44.0;
 /// Uses [`egui::Context::set_visuals_of`] so that each [`egui::Theme`] variant
 /// carries our bespoke colours, widget styles, and shadows.  After calling this
 /// once at startup the active theme can be switched cheaply with
-/// [`set_active_theme`] — no need to rebuild the full `Visuals` struct on
+/// [`set_active_theme`] - no need to rebuild the full `Visuals` struct on
 /// every toggle.
 ///
 /// This also prevents the OS dark/light preference from silently overriding the
@@ -205,7 +205,7 @@ fn build_light_visuals() -> egui::Visuals {
     v.extreme_bg_color = egui::Color32::WHITE;
     v.code_bg_color = egui::Color32::from_rgb(234, 237, 242);
 
-    // Light-blue tint for selections — visible on white/light backgrounds.
+    // Light-blue tint for selections - visible on white/light backgrounds.
     v.selection.bg_fill = egui::Color32::from_rgb(198, 232, 252);
     v.selection.stroke = egui::Stroke::new(1.0, ACCENT_DIM);
 
@@ -229,7 +229,7 @@ fn build_light_visuals() -> egui::Visuals {
     v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, ACCENT_DIM);
     v.widgets.hovered.corner_radius = rounding;
 
-    // Active / pressed — light accent tint, legible on light backgrounds.
+    // Active / pressed - light accent tint, legible on light backgrounds.
     v.widgets.active.bg_fill = egui::Color32::from_rgb(178, 224, 250);
     v.widgets.active.fg_stroke = egui::Stroke::new(1.0, TEXT_LIGHT);
     v.widgets.active.bg_stroke = egui::Stroke::new(1.0, ACCENT_DIM);

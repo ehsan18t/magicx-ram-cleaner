@@ -201,7 +201,7 @@ pub struct MagicXApp {
     /// while the monitor is idle (memory below threshold).
     last_monitor_status_log: Option<Instant>,
 
-    /// Previous frame's `monitor_active` state — used to detect
+    /// Previous frame's `monitor_active` state - used to detect
     /// start/stop transitions and log them once.
     prev_monitor_active: bool,
 
@@ -490,7 +490,7 @@ impl MagicXApp {
         if let Some(load) = load {
             if load >= self.settings.monitor_threshold {
                 let msg = format!(
-                    "Memory load {load}% >= threshold {}% \u{2014} auto-cleaning ({})...",
+                    "Memory load {load}% >= threshold {}%, auto-cleaning ({})...",
                     self.settings.monitor_threshold,
                     self.settings.default_clean_level.title_case_name(),
                 );
@@ -506,7 +506,7 @@ impl MagicXApp {
 
                 if should_log {
                     self.monitor_log.push(format!(
-                        "Checked: memory at {load}%, below threshold {}% \u{2014} no action needed.",
+                        "Checked: memory at {load}%, below threshold {}%. No action needed.",
                         self.settings.monitor_threshold,
                     ));
                     self.last_monitor_status_log = Some(Instant::now());
@@ -549,7 +549,7 @@ impl MagicXApp {
     /// changes the relevant settings in the Settings panel.
     ///
     /// Compares live settings against the snapshot so this only acts on the
-    /// frame the toggle is flipped — it is a no-op every other frame.
+    /// frame the toggle is flipped - it is a no-op every other frame.
     fn sync_integration_settings(&mut self, ctx: &egui::Context) {
         let tray_changed =
             self.settings.minimize_to_tray != self.settings_snapshot.minimize_to_tray;
@@ -683,7 +683,7 @@ impl eframe::App for MagicXApp {
         if self.monitor_active != self.prev_monitor_active {
             if self.monitor_active {
                 self.monitor_log.push(format!(
-                    "Monitoring started \u{2014} threshold {}%, cooldown {}s, level {}",
+                    "Monitoring started: threshold {}%, cooldown {}s, level {}",
                     self.settings.monitor_threshold,
                     self.settings.monitor_cooldown_secs,
                     self.settings.default_clean_level.title_case_name(),
@@ -700,7 +700,7 @@ impl eframe::App for MagicXApp {
         self.handle_monitor_auto_clean();
 
         // ── Visibility gate ────────────────────────────────────────
-        // Use Win32 IsIconic for reliable minimized detection —
+        // Use Win32 IsIconic for reliable minimized detection  -
         // egui's ViewportInfo::minimized can return None when the
         // platform does not report the state.
         let minimized = crate::console::is_window_minimized(self.hwnd);
@@ -708,7 +708,7 @@ impl eframe::App for MagicXApp {
 
         // Tell the stats thread whether the UI needs periodic data.
         // When the window is not visible and monitoring is off, skip all
-        // work — no Win32 calls, no mutex locks, no repaints.
+        // work - no Win32 calls, no mutex locks, no repaints.
         self.needs_repaint.store(window_visible, Ordering::Release);
         self.needs_capture
             .store(window_visible || self.monitor_active, Ordering::Release);
@@ -827,7 +827,7 @@ fn stats_thread(
         // Only capture when the UI is visible or the monitor needs
         // update() to run for auto-clean threshold checks.  When the
         // window is hidden/minimized with monitoring off, skip all
-        // work — no Win32 calls, no mutex locks, no repaints.
+        // work - no Win32 calls, no mutex locks, no repaints.
         if needs_capture.load(Ordering::Acquire)
             && let Ok(snap) = MemorySnapshot::capture()
         {

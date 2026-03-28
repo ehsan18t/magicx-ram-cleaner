@@ -1,4 +1,4 @@
-//! # `MagicX` RAM Cleaner — Privilege Management
+//! # `MagicX` RAM Cleaner - Privilege Management
 //!
 //! Handles Windows security privilege elevation required for memory operations.
 //! Most memory cleaning operations require `SeProfileSingleProcessPrivilege`,
@@ -83,7 +83,7 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
 
         // AdjustTokenPrivileges can succeed but still fail to set:
         let err = get_last_error();
-        // token guard dropped here — CloseHandle called automatically
+        // token guard dropped here - CloseHandle called automatically
 
         if err == 1300 {
             // ERROR_NOT_ALL_ASSIGNED
@@ -108,7 +108,7 @@ pub fn enable_all_privileges() -> Result<()> {
     enable_privilege("SeProfileSingleProcessPrivilege")
         .context("Required for memory list operations")?;
     enable_privilege("SeIncreaseQuotaPrivilege").context("Required for file cache management")?;
-    // SeDebugPrivilege is optional — allows trimming protected processes
+    // SeDebugPrivilege is optional - allows trimming protected processes
     drop(enable_privilege("SeDebugPrivilege"));
     Ok(())
 }

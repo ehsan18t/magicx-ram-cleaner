@@ -1,6 +1,6 @@
-//! # `MagicX` RAM Cleaner — Display & Formatting
+//! # `MagicX` RAM Cleaner - Display & Formatting
 //!
-//! Beautiful terminal output for memory status and diagnostics.
+//! Terminal output helpers for memory status and cleaning diagnostics.
 
 use crate::cleaner::{CleanLevel, CleanResult};
 use crate::stats::{
@@ -54,7 +54,7 @@ pub fn print_status(
     );
     println!(
         "{}",
-        "║              MagicX RAM Cleaner — System Status              ║"
+        "║              MagicX RAM Cleaner -System Status               ║"
             .cyan()
             .bold()
     );
@@ -380,7 +380,7 @@ pub fn print_single_result(result: &CleanResult) {
 
 /// Print a ranked table of the top processes by private working set (physical RAM) usage.
 ///
-/// The "Memory" column shows private working set — the portion of physical RAM
+/// The "Memory" column shows private working set - the portion of physical RAM
 /// that belongs exclusively to the process, matching Task Manager's default
 /// "Memory" column. "Working Set" includes shared pages (DLLs, mapped files).
 pub fn print_top_processes(processes: &[ProcessMemoryInfo]) {
@@ -421,7 +421,7 @@ fn truncate_name(name: &str, max_len: usize) -> String {
     if name.len() <= max_len {
         return name.to_string();
     }
-    // Find the last char boundary that fits within (max_len - 1) bytes,
+    // Find the last char boundary that fits within (max_len -1) bytes,
     // leaving room for the '…' character.
     let boundary = name
         .char_indices()
@@ -438,7 +438,7 @@ fn truncate_name(name: &str, max_len: usize) -> String {
 /// footer hint telling the user to remove the `--dry-run` flag to execute.
 pub fn print_dry_run(level: CleanLevel, operations: &[&str]) {
     println!(
-        "\n{} Dry run — {} level ({} operations):\n",
+        "\n{} Dry run  -{} level ({} operations):\n",
         "🔍".dimmed(),
         level.title_case_name().bold(),
         operations.len()

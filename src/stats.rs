@@ -1,4 +1,4 @@
-//! # `MagicX` RAM Cleaner — Memory Statistics
+//! # `MagicX` RAM Cleaner - Memory Statistics
 //!
 //! Provides comprehensive memory usage reporting using Win32 and NT APIs.
 //! Displays physical memory, commit charge, page file, kernel pools, and more.
@@ -228,7 +228,7 @@ pub fn format_bytes(bytes: u64) -> String {
 /// This gives exact page counts for each memory list (Zeroed, Free, Modified,
 /// `ModifiedNoWrite`, Bad, Standby priorities 0-7, Repurposed priorities 0-7).
 #[derive(Debug, Clone, Serialize)]
-// Every field genuinely represents a page count — the `_pages` suffix is intentional.
+// Every field genuinely represents a page count - the `_pages` suffix is intentional.
 #[allow(clippy::struct_field_names)]
 pub struct MemoryListInfo {
     /// Pages on the zeroed-page list (already zero-filled, ready for allocation).
@@ -310,14 +310,14 @@ impl MemoryListInfo {
 
         // We need at least 22 entries to parse the base fields.
         // Guard against return_length = 0 on an otherwise-successful call
-        // (defensive — shouldn't happen but prevents reading stale zeros).
+        // (defensive - shouldn't happen but prevents reading stale zeros).
         let entry_size = std::mem::size_of::<usize>();
         let count = if return_length > 0 {
             return_length as usize / entry_size
         } else {
             bail!(
                 "NtQuerySystemInformation(SystemMemoryListInformation) succeeded but \
-                 returned 0 bytes — cannot parse memory list data"
+                 returned 0 bytes - cannot parse memory list data"
             );
         };
         if count < 22 {
@@ -422,7 +422,7 @@ pub struct ProcessMemoryInfo {
     pub working_set: u64,
     /// Peak working set size in bytes.
     pub peak_working_set: u64,
-    /// Private working set size in bytes — the portion of the working set
+    /// Private working set size in bytes - the portion of the working set
     /// that is not shared with other processes.
     ///
     /// This matches the "Memory" column shown in Windows Task Manager.
@@ -500,7 +500,7 @@ pub fn enumerate_processes(mut callback: impl FnMut(u32, &str)) -> Result<()> {
         has_entry = unsafe { Process32NextW(snapshot.raw(), &raw mut entry) } != 0;
     }
 
-    // snapshot guard dropped here — CloseHandle called automatically
+    // snapshot guard dropped here - CloseHandle called automatically
     Ok(())
 }
 
@@ -508,24 +508,24 @@ pub fn enumerate_processes(mut callback: impl FnMut(u32, &str)) -> Result<()> {
 /// cannot be opened (protected/system processes).
 ///
 /// Tries `PROCESS_MEMORY_COUNTERS_EX2` first (Windows 10 1709+) to obtain
-/// `PrivateWorkingSetSize` — the metric Task Manager shows as "Memory".
+/// `PrivateWorkingSetSize` - the metric Task Manager shows as "Memory".
 /// Falls back to `PROCESS_MEMORY_COUNTERS` on older builds, using the full
 /// working set as a proxy for the private portion.
 ///
 /// Uses a tiered `OpenProcess` strategy to maximise process visibility:
 ///
-/// 1. `PROCESS_QUERY_INFORMATION` — sufficient for `K32GetProcessMemoryInfo`
+/// 1. `PROCESS_QUERY_INFORMATION` - sufficient for `K32GetProcessMemoryInfo`
 ///    including the EX2 struct with `PrivateWorkingSetSize`.
-/// 2. `PROCESS_QUERY_LIMITED_INFORMATION` — weaker right that succeeds for
+/// 2. `PROCESS_QUERY_LIMITED_INFORMATION` - weaker right that succeeds for
 ///    Chromium/Electron sandboxed child processes (VS Code, Chrome, Edge
 ///    renderer/utility processes) and Protected Process Light (PPL) processes
 ///    whose DACLs deny full query access.
 ///
-/// `PROCESS_VM_READ` is intentionally **not** requested — it is not required
+/// `PROCESS_VM_READ` is intentionally **not** requested - it is not required
 /// by `K32GetProcessMemoryInfo` and causes `OpenProcess` to fail for
 /// sandboxed processes, leading to missing entries and inaccurate RAM totals.
 fn query_single_process(pid: u32, exe_name: &str) -> Option<ProcessMemoryInfo> {
-    // Tier 1: PROCESS_QUERY_INFORMATION — works for most processes and gives
+    // Tier 1: PROCESS_QUERY_INFORMATION - works for most processes and gives
     // full access to the EX2 counters struct.
     // SAFETY: OpenProcess with PROCESS_QUERY_INFORMATION is the documented
     // minimum for K32GetProcessMemoryInfo.
@@ -547,7 +547,7 @@ fn query_single_process(pid: u32, exe_name: &str) -> Option<ProcessMemoryInfo> {
         proc_handle
     };
 
-    // Try the extended EX2 struct first — it includes PrivateWorkingSetSize.
+    // Try the extended EX2 struct first - it includes PrivateWorkingSetSize.
     // SAFETY: PROCESS_MEMORY_COUNTERS_EX2 is zeroed, cb is set to sizeof(EX2),
     // and handle is a valid process handle from OpenProcess.
     let ex2 = unsafe {
@@ -593,7 +593,7 @@ fn query_single_process(pid: u32, exe_name: &str) -> Option<ProcessMemoryInfo> {
         name: exe_name.to_owned(),
         working_set: counters.WorkingSetSize as u64,
         peak_working_set: counters.PeakWorkingSetSize as u64,
-        // No EX2 data available — use full working set as fallback.
+        // No EX2 data available - use full working set as fallback.
         private_working_set: counters.WorkingSetSize as u64,
     })
 }
@@ -698,7 +698,7 @@ mod tests {
             total_virtual: 0,
             available_virtual: 0,
             commit_total_pages: 100,
-            commit_limit_pages: 0, // zero limit — edge case
+            commit_limit_pages: 0, // zero limit - edge case
             commit_peak_pages: 0,
             physical_available_pages: 0,
             physical_total_pages: 0,
