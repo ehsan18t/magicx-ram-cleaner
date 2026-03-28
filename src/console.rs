@@ -19,7 +19,7 @@ use colored::Colorize;
 
 /// How the process was launched.
 ///
-/// Returned by [`detect_console_mode`] so the caller can decide whether
+/// Returned by [`setup_cli_console`] so the caller can decide whether
 /// to pause before exit (standalone) or return immediately (terminal).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConsoleMode {
@@ -28,30 +28,6 @@ pub enum ConsoleMode {
     /// Own console created by the OS (double-clicked the `.exe` or started
     /// from a GUI launcher). Caller should [`pause_before_exit`].
     Standalone,
-}
-
-/// Detect whether this process was launched from a terminal or standalone.
-///
-/// Uses `GetConsoleProcessList` to count how many processes share the
-/// console. More than one → terminal; exactly one → standalone.
-///
-/// **Note:** only meaningful after a console is attached. With
-/// `SUBSYSTEM:WINDOWS`, prefer [`setup_cli_console`] which returns the
-/// mode directly based on whether `AttachConsole` succeeded.
-#[must_use]
-pub fn detect_console_mode() -> ConsoleMode {
-    use windows_sys::Win32::System::Console::GetConsoleProcessList;
-
-    let mut pids = [0u32; 4];
-    // SAFETY: GetConsoleProcessList is a standard Win32 call. We pass a
-    // valid buffer and its capacity. Returns the number of processes.
-    let count = unsafe { GetConsoleProcessList(pids.as_mut_ptr(), 4) };
-
-    if count > 1 {
-        ConsoleMode::Terminal
-    } else {
-        ConsoleMode::Standalone
-    }
 }
 
 /// Attach to the parent terminal or allocate a fresh console for CLI mode.
@@ -186,75 +162,6 @@ pub fn enable_ansi_colors() {
 /// Detect whether the Windows OS is currently using a dark theme.
 ///
 /// Reads `AppsUseLightTheme` from
-/// `HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize`.
-/// When the value is `0` the OS is dark; when `1` (or absent) the OS is light.
-///
-/// This is the **OS-level** theme, not the in-app preference. Used primarily
-/// for system-tray icon glyph colours — the tray context menu background is
-/// drawn by Windows using this theme, so icon colours must match it.
-///
-/// Returns `true` (dark) when the registry value is `0`, `false` otherwise.
-/// Falls back to `false` (light) on any registry error.
-#[must_use]
-pub fn is_system_dark_mode() -> bool {
-    use windows_sys::Win32::System::Registry::{
-        HKEY_CURRENT_USER, KEY_READ, RRF_RT_REG_DWORD, RegGetValueW, RegOpenKeyExW,
-    };
-
-    const SUBKEY: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
-    const VALUE_NAME: &str = "AppsUseLightTheme";
-
-    let subkey_wide: Vec<u16> = SUBKEY.encode_utf16().chain(Some(0u16)).collect();
-    let value_wide: Vec<u16> = VALUE_NAME.encode_utf16().chain(Some(0u16)).collect();
-
-    let mut hkey: windows_sys::Win32::System::Registry::HKEY = std::ptr::null_mut();
-
-    // SAFETY: `RegOpenKeyExW` is a standard Win32 registry call.
-    // `hkey` receives a valid handle on success. The wide-string slices are
-    // null-terminated and live for the full call duration.
-    let rc = unsafe {
-        RegOpenKeyExW(
-            HKEY_CURRENT_USER,
-            subkey_wide.as_ptr(),
-            0,
-            KEY_READ,
-            &raw mut hkey,
-        )
-    };
-    if rc != 0 {
-        return false; // Cannot read registry — assume light
-    }
-
-    let mut data: u32 = 1; // default = light theme
-    let mut data_size: u32 = std::mem::size_of::<u32>() as u32;
-
-    // SAFETY: `RegGetValueW` reads a REG_DWORD value into `data`.
-    // `data_size` is correctly set to 4 bytes and is updated by the call.
-    let rc = unsafe {
-        RegGetValueW(
-            hkey,
-            std::ptr::null(),
-            value_wide.as_ptr(),
-            RRF_RT_REG_DWORD,
-            std::ptr::null_mut(),
-            std::ptr::from_mut(&mut data).cast(),
-            &raw mut data_size,
-        )
-    };
-
-    // SAFETY: `RegCloseKey` with a valid handle opened above.
-    unsafe {
-        windows_sys::Win32::System::Registry::RegCloseKey(hkey);
-    }
-
-    if rc != 0 {
-        return false; // Read failed — assume light
-    }
-
-    // AppsUseLightTheme: 0 = dark, 1 = light
-    data == 0
-}
-
 /// Force the process's native Win32 menus to render in dark or light theme.
 ///
 /// Uses the undocumented but stable `SetPreferredAppMode` (ordinal 135) and
@@ -635,57 +542,6 @@ pub fn find_app_window(title: &str) -> isize {
     unsafe { FindWindowW(std::ptr::null(), wide.as_ptr()) as isize }
 }
 
-/// Restore a hidden window to the foreground.
-///
-/// Calls `ShowWindow(SW_SHOW)` + `SetForegroundWindow` so the window
-/// becomes visible **and** receives input focus.  This is used by the
-/// tray-watcher thread when the user selects "Open" or left-clicks the
-/// tray icon.
-///
-/// Must be called **before** `egui::Context::request_repaint()` — the
-/// repaint path (`RedrawWindow(RDW_INTERNALPAINT)`) is suppressed by
-/// Windows for windows with `WS_VISIBLE` cleared, so the window must
-/// be visible first.
-///
-/// Does nothing when `hwnd` is `0`.
-pub fn restore_window(hwnd: isize) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{SW_SHOW, SetForegroundWindow, ShowWindow};
-
-    if hwnd == 0 {
-        return;
-    }
-
-    // SAFETY: `hwnd` is our own main window, valid for the lifetime of
-    // the process.  ShowWindow + SetForegroundWindow are standard Win32
-    // calls with no preconditions beyond a valid handle.
-    unsafe {
-        ShowWindow(hwnd as *mut _, SW_SHOW);
-        SetForegroundWindow(hwnd as *mut _);
-    }
-}
-
-/// Check whether the application window is currently visible (`WS_VISIBLE` set).
-///
-/// Returns `true` when the window has the `WS_VISIBLE` style flag, which is
-/// set by `ShowWindow(SW_SHOW | SW_RESTORE)` and cleared by
-/// `ShowWindow(SW_HIDE)` or `SetWindowPos` with `SWP_HIDEWINDOW`.
-///
-/// Used to detect when an external process (e.g. a second instance) restores
-/// a window that the app thinks is still hidden to the tray.
-///
-/// Returns `false` when `hwnd` is `0`.
-#[must_use]
-pub fn is_window_visible(hwnd: isize) -> bool {
-    use windows_sys::Win32::UI::WindowsAndMessaging::IsWindowVisible;
-
-    if hwnd == 0 {
-        return false;
-    }
-
-    // SAFETY: IsWindowVisible is a read-only state check on a valid owned window.
-    unsafe { IsWindowVisible(hwnd as *mut _) != 0 }
-}
-
 /// Check whether the application window is currently minimized (iconic).
 ///
 /// Uses the Win32 `IsIconic` API for reliable minimized-state detection.
@@ -704,28 +560,6 @@ pub fn is_window_minimized(hwnd: isize) -> bool {
 
     // SAFETY: IsIconic is a read-only state check on a valid owned window.
     unsafe { IsIconic(hwnd as *mut _) != 0 }
-}
-
-/// Make a hidden window visible without activating or focusing it.
-///
-/// Calls `ShowWindow(SW_SHOWNOACTIVATE)` so the `WS_VISIBLE` flag is
-/// set (enabling eframe repaints) but the window does **not** steal
-/// focus.  Used by the tray-watcher thread for the "Quit" action: the
-/// window needs to be visible just long enough for eframe to process
-/// the close request.
-///
-/// Does nothing when `hwnd` is `0`.
-pub fn reveal_window(hwnd: isize) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{SW_SHOWNOACTIVATE, ShowWindow};
-
-    if hwnd == 0 {
-        return;
-    }
-
-    // SAFETY: ShowWindow with a valid hwnd is safe.
-    unsafe {
-        ShowWindow(hwnd as *mut _, SW_SHOWNOACTIVATE);
-    }
 }
 
 /// Immediately hide the window by calling `ShowWindow(SW_HIDE)` directly.
