@@ -545,15 +545,18 @@ impl MagicXApp {
         }
     }
 
-    /// Synchronise the tray handle and autostart registry when the user
-    /// changes the relevant settings in the Settings panel.
+    /// Synchronise the tray handle when the user changes the minimise-to-tray
+    /// setting.
     ///
     /// Compares live settings against the snapshot so this only acts on the
     /// frame the toggle is flipped - it is a no-op every other frame.
+    ///
+    /// Autostart registry writes are NOT handled here - they are done
+    /// directly by the Settings panel checkbox handler (with error rollback)
+    /// and by the import path in `draw_backup`.
     fn sync_integration_settings(&mut self, ctx: &egui::Context) {
         let tray_changed =
             self.settings.minimize_to_tray != self.settings_snapshot.minimize_to_tray;
-        let autostart_changed = self.settings.auto_start != self.settings_snapshot.auto_start;
 
         // Rebuild the tray handle when the tray toggle changes.
         // Glyph colours match the in-app theme: the process-wide menu
@@ -571,11 +574,6 @@ impl MagicXApp {
                     self.hidden_to_tray = false;
                 }
             }
-        }
-
-        if autostart_changed {
-            let _sync =
-                super::persistence::SettingsManager::set_autostart(self.settings.auto_start);
         }
     }
 

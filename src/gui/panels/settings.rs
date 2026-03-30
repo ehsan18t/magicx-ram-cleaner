@@ -395,6 +395,10 @@ fn draw_backup(ui: &mut egui::Ui, app: &mut MagicXApp) {
             {
                 match SettingsManager::import() {
                     Ok(Some(new_settings)) => {
+                        // Sync autostart registry entry to match the imported
+                        // preference (the checkbox handler only fires on
+                        // direct UI toggles, not bulk setting changes).
+                        let _sync = SettingsManager::set_autostart(new_settings.auto_start);
                         app.settings = new_settings;
                         app.settings_status = Some((
                             strings::gui::settings::MSG_IMPORT_OK.to_owned(),
