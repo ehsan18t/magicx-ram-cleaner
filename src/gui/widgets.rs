@@ -221,7 +221,7 @@ pub fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     }
 
     if ui.is_rect_visible(rect) {
-        let anim = ui.ctx().animate_bool(response.id, *on);
+        let anim = ui.animate_bool(response.id, *on);
 
         // Off-state background adapts to the current theme so the track
         // does not look jarring on light backgrounds.

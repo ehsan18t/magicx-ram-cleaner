@@ -652,7 +652,7 @@ fn view_on_github_btn(ui: &mut egui::Ui, dark: bool) {
     ui.painter().galley(text_pos, galley, text_color);
 
     if response.clicked() {
-        ui.ctx().open_url(egui::OpenUrl::new_tab(REPO_URL));
+        ui.open_url(egui::OpenUrl::new_tab(REPO_URL));
     }
 }
 
@@ -695,6 +695,6 @@ fn social_icon_btn(ui: &mut egui::Ui, icon: &str, label: &str, url: &str, color:
     );
 
     if response.clicked() {
-        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+        ui.open_url(egui::OpenUrl::new_tab(url));
     }
 }
