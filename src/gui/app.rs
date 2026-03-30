@@ -1016,16 +1016,14 @@ fn draw_main_panel(ui: &mut egui::Ui, app: &mut MagicXApp) {
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(theme::bg_color(dark)))
         .show_inside(ui, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(20))
-                    .show(ui, |ui| match app.active_panel {
-                        Panel::Dashboard => panels::dashboard::draw(ui, app),
-                        Panel::Monitor => panels::monitor::draw(ui, app),
-                        Panel::Processes => panels::processes::draw(ui, app),
-                        Panel::Settings => panels::settings::draw(ui, app),
-                        Panel::About => panels::about::draw(ui, app),
-                    });
-            });
+            egui::ScrollArea::vertical()
+                .content_margin(egui::Margin::same(20))
+                .show(ui, |ui| match app.active_panel {
+                    Panel::Dashboard => panels::dashboard::draw(ui, app),
+                    Panel::Monitor => panels::monitor::draw(ui, app),
+                    Panel::Processes => panels::processes::draw(ui, app),
+                    Panel::Settings => panels::settings::draw(ui, app),
+                    Panel::About => panels::about::draw(ui, app),
+                });
         });
 }
