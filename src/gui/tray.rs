@@ -14,7 +14,7 @@
 //! 1. Decodes it into a [`TrayAction`].
 //! 2. Sends it through our own [`std::sync::mpsc`] channel.
 //! 3. Calls [`egui::Context::request_repaint`] so eframe wakes up and calls
-//!    `update()` even while the window is hidden.
+//!    `logic()` even while the window is hidden.
 //!
 //! [`TrayHandle::poll`] drains our channel and returns at most one action per
 //! call; it never touches the global tray channels.
@@ -105,7 +105,7 @@ impl TrayHandle {
     /// (obtained via [`crate::console::find_app_window`]).  The watcher
     /// thread calls [`crate::console::uncloak_window`] before dispatching
     /// an action so that the event loop can deliver `RedrawRequested` and
-    /// the main thread's `update()` runs to process the action.
+    /// the main thread's `logic()` runs to process the action.
     ///
     /// `dark` controls the glyph colour in menu icons: white glyphs for
     /// dark menus, charcoal for light menus.  The caller should pass the
@@ -150,7 +150,7 @@ impl TrayHandle {
 
     /// Return the next pending [`TrayAction`] without blocking, or [`None`].
     ///
-    /// Always call this from the egui `update()` callback; the action is
+    /// Always call this from the egui `logic()` callback; the action is
     /// delivered by the background watcher thread via an internal channel.
     pub fn poll(&self) -> Option<TrayAction> {
         self.rx.try_recv().ok()
@@ -176,9 +176,9 @@ impl Drop for TrayHandle {
 ///
 /// 1. Uncloaks the window via [`crate::console::uncloak_window`] so that
 ///    the event loop can deliver `RedrawRequested` (minimized windows may
-///    not receive `WM_PAINT`, which would prevent `update()` from running).
+///    not receive `WM_PAINT`, which would prevent `logic()` from running).
 /// 2. Sends a [`TrayAction`] through the channel.
-/// 3. Calls [`egui::Context::request_repaint`] to guarantee `update()` runs.
+/// 3. Calls [`egui::Context::request_repaint`] to guarantee `logic()` runs.
 fn tray_watcher_thread(
     ids: &MenuIds,
     tx: &Sender<TrayAction>,
@@ -220,7 +220,7 @@ fn tray_watcher_thread(
             };
 
             // Uncloak the window so eframe can deliver RedrawRequested
-            // and our update() runs to process the action.  For a cloaked
+            // and our logic() runs to process the action.  For a cloaked
             // (minimized tool) window, request_repaint() alone may not
             // wake the event loop because WM_PAINT is not delivered to
             // minimized windows.

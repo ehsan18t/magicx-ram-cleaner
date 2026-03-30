@@ -29,9 +29,11 @@
 //! ```text
 //! ┌────────────────────────────────────────────┐
 //! │  eframe (winit + glow)                     │
-//! │  ├─ MagicXApp::update()  (UI thread)       │
+//! │  ├─ MagicXApp::logic()   (UI thread)       │
 //! │  │  ├─ polls channels for clean results    │
 //! │  │  └─ polls tray icon event queue         │
+//! │  ├─ MagicXApp::ui()     (UI thread)        │
+//! │  │  └─ renders sidebar + active panel      │
 //! │  ├─ stats_thread   (background, 1 Hz)      │
 //! │  │  └─ captures MemorySnapshot             │
 //! │  └─ clean_thread   (on demand)             │

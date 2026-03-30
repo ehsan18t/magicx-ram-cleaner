@@ -9,6 +9,38 @@ use crate::stats::{
 use crate::strings;
 use colored::{ColoredString, Colorize};
 
+/// Total display width for section dividers (matches the status box width).
+const SECTION_WIDTH: usize = 40;
+
+/// Build a `"─── Title ───..."` section divider from a title string.
+///
+/// The divider is always [`SECTION_WIDTH`] characters wide.  The title is
+/// placed after a 4-char prefix (`"─── "`) and followed by enough `─`
+/// characters to pad to the total width.
+fn section_divider(title: &str) -> String {
+    let prefix = "─── ";
+    let body = format!("{prefix}{title} ");
+    let padding = SECTION_WIDTH.saturating_sub(body.chars().count());
+    format!("{body}{}", "─".repeat(padding))
+}
+
+/// Build a centred box header line (`║ ... ║`) for the status report.
+///
+/// The inner content is centred within a 62-character field (matching the
+/// 64-char box border: `╔` + 62×`═` + `╗`).
+fn box_header_line(title: &str) -> String {
+    const INNER_WIDTH: usize = 62;
+    let pad_total = INNER_WIDTH.saturating_sub(title.len());
+    let pad_left = pad_total / 2;
+    let pad_right = pad_total - pad_left;
+    format!(
+        "║{}{}{}║",
+        " ".repeat(pad_left),
+        title,
+        " ".repeat(pad_right)
+    )
+}
+
 /// Colour a memory load percentage: red (>85%), yellow (>60%), green (≤60%).
 fn coloured_load(percent: u32) -> ColoredString {
     let text = format!("{percent}%");
@@ -54,9 +86,7 @@ pub fn print_status(
     );
     println!(
         "{}",
-        "║              MagicX RAM Cleaner -System Status               ║"
-            .cyan()
-            .bold()
+        box_header_line(strings::cli::STATUS_HEADER).cyan().bold()
     );
     println!(
         "{}",
@@ -83,7 +113,10 @@ pub fn print_status(
 
 /// Print the physical memory section.
 fn print_physical_memory(snapshot: &MemorySnapshot) {
-    println!("{}", "─── Physical Memory ────────────────────".dimmed());
+    println!(
+        "{}",
+        section_divider(strings::cli::SECTION_PHYSICAL).dimmed()
+    );
     println!(
         "  Memory Load:    {}",
         coloured_load(snapshot.memory_load_percent)
@@ -105,7 +138,10 @@ fn print_physical_memory(snapshot: &MemorySnapshot) {
 /// Print memory page lists and standby priority breakdown.
 fn print_memory_lists(info: &MemoryListInfo, page_size: u64) {
     println!();
-    println!("{}", "─── Memory Page Lists ──────────────────".dimmed());
+    println!(
+        "{}",
+        section_divider(strings::cli::SECTION_PAGE_LISTS).dimmed()
+    );
     println!(
         "  Zeroed:         {}  ({} pages)",
         format_bytes(info.zeroed_pages * page_size).dimmed(),
@@ -135,7 +171,10 @@ fn print_memory_lists(info: &MemoryListInfo, page_size: u64) {
     }
 
     println!();
-    println!("{}", "─── Standby List (by priority) ─────────".dimmed());
+    println!(
+        "{}",
+        section_divider(strings::cli::SECTION_STANDBY).dimmed()
+    );
     let total_standby = info.total_standby_pages();
     let total_standby_bytes = total_standby * page_size;
     println!(
@@ -172,7 +211,10 @@ fn print_memory_lists(info: &MemoryListInfo, page_size: u64) {
 /// Print file system cache information.
 fn print_file_cache(fc: &FileCacheSnapshot) {
     println!();
-    println!("{}", "─── File System Cache ──────────────────".dimmed());
+    println!(
+        "{}",
+        section_divider(strings::cli::SECTION_FILE_CACHE).dimmed()
+    );
     println!(
         "  Current:        {}",
         format_bytes(fc.current_size).white().bold()
@@ -195,7 +237,7 @@ fn print_file_cache(fc: &FileCacheSnapshot) {
 /// Print commit charge and page file sections.
 fn print_commit_and_pagefile(snapshot: &MemorySnapshot, page_size: u64) {
     println!();
-    println!("{}", "─── Commit Charge ──────────────────────".dimmed());
+    println!("{}", section_divider(strings::cli::SECTION_COMMIT).dimmed());
     println!(
         "  Current:        {}  ({} pages)",
         format_bytes(snapshot.commit_total_pages * page_size)
@@ -219,7 +261,10 @@ fn print_commit_and_pagefile(snapshot: &MemorySnapshot, page_size: u64) {
     );
 
     println!();
-    println!("{}", "─── Page File ──────────────────────────".dimmed());
+    println!(
+        "{}",
+        section_divider(strings::cli::SECTION_PAGE_FILE).dimmed()
+    );
     println!(
         "  Total:          {}",
         format_bytes(snapshot.total_page_file).white()
@@ -242,7 +287,7 @@ fn print_commit_and_pagefile(snapshot: &MemorySnapshot, page_size: u64) {
 /// Print kernel memory pools and system counters.
 fn print_kernel_and_system(snapshot: &MemorySnapshot, page_size: u64) {
     println!();
-    println!("{}", "─── Kernel Memory Pools ────────────────".dimmed());
+    println!("{}", section_divider(strings::cli::SECTION_KERNEL).dimmed());
     println!(
         "  Paged Pool:     {}",
         format_bytes(snapshot.kernel_paged_pages * page_size).white()
@@ -253,7 +298,7 @@ fn print_kernel_and_system(snapshot: &MemorySnapshot, page_size: u64) {
     );
 
     println!();
-    println!("{}", "─── System Counters ────────────────────".dimmed());
+    println!("{}", section_divider(strings::cli::SECTION_SYSTEM).dimmed());
     println!(
         "  Processes:      {}",
         snapshot.process_count.to_string().dimmed()
@@ -389,7 +434,10 @@ pub fn print_top_processes(processes: &[ProcessMemoryInfo]) {
     }
 
     println!();
-    println!("{}", "─── Top Processes by Memory ────────────".dimmed());
+    println!(
+        "{}",
+        section_divider(strings::cli::SECTION_TOP_PROCESSES).dimmed()
+    );
     let header = format!(
         "  {:<6} {:<30} {:>12} {:>12} {:>12}",
         "PID", "Process", "Memory", "Working Set", "Peak WS"
@@ -462,7 +510,10 @@ pub fn print_clean_summary(
     total_freed: i64,
     total_elapsed_secs: f64,
 ) {
-    println!("{}", "─── Cleaning Summary ───────────────────".dimmed());
+    println!(
+        "{}",
+        section_divider(strings::cli::SECTION_CLEAN_SUMMARY).dimmed()
+    );
     println!();
 
     for r in results {
@@ -501,7 +552,10 @@ pub fn print_clean_summary(
     }
 
     println!();
-    println!("{}", "─── Memory Before/After ────────────────".dimmed());
+    println!(
+        "{}",
+        section_divider(strings::cli::SECTION_BEFORE_AFTER).dimmed()
+    );
     println!(
         "  {} Used:      {} → {}",
         "▸".cyan(),
@@ -604,5 +658,52 @@ mod tests {
 
         let high = coloured_load(86);
         assert!(format!("{high}").contains("86%"));
+    }
+
+    #[test]
+    fn section_divider_width() {
+        let div = section_divider("Physical Memory");
+        assert_eq!(
+            div.chars().count(),
+            SECTION_WIDTH,
+            "divider should be {SECTION_WIDTH} chars wide, got {}",
+            div.chars().count()
+        );
+    }
+
+    #[test]
+    fn section_divider_contains_title() {
+        let div = section_divider("Commit Charge");
+        assert!(
+            div.contains("Commit Charge"),
+            "divider should contain the title"
+        );
+    }
+
+    #[test]
+    fn section_divider_long_title_does_not_panic() {
+        // Title longer than SECTION_WIDTH should not panic (padding saturates to 0)
+        let long = "A".repeat(SECTION_WIDTH + 10);
+        let div = section_divider(&long);
+        assert!(div.contains(&long), "long title should still appear");
+    }
+
+    #[test]
+    fn box_header_line_centred() {
+        let line = box_header_line("Test");
+        assert!(line.starts_with('║'), "line should start with ║");
+        assert!(line.ends_with('║'), "line should end with ║");
+        // Inner content: 62 chars between the borders
+        let inner = &line[3..line.len() - 3]; // ║ is 3 bytes UTF-8
+        assert_eq!(inner.len(), 62, "inner content should be 62 bytes");
+    }
+
+    #[test]
+    fn box_header_line_uses_status_header_constant() {
+        let line = box_header_line(crate::strings::cli::STATUS_HEADER);
+        assert!(
+            line.contains("MagicX RAM Cleaner - System Status"),
+            "box header should contain the correct title with space after dash"
+        );
     }
 }

@@ -171,10 +171,13 @@ fn draw_table_card(
                     let g = &groups[idx];
                     row.col(|ui| {
                         ui.add_space(2.0);
-                        ui.label(
-                            egui::RichText::new(&g.name)
-                                .size(12.0)
-                                .color(theme::text_color(dark)),
+                        let name = egui::RichText::new(&g.name)
+                            .size(12.0)
+                            .color(theme::text_color(dark));
+                        ui.add(
+                            egui::Label::new(name)
+                                .truncate()
+                                .show_tooltip_when_elided(true),
                         );
                     });
                     row.col(|ui| {

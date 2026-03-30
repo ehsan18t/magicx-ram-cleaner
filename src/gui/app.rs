@@ -157,7 +157,7 @@ pub struct MagicXApp {
 
     /// Shared flag: `true` when the UI needs periodic repaints.
     ///
-    /// Set every frame in [`update()`] based on window visibility.
+    /// Set every frame in [`logic()`] based on window visibility.
     /// The background stats thread reads this to decide whether to call
     /// [`egui::Context::request_repaint`].  When `false` the app goes
     /// truly idle (zero CPU / GPU) unless the monitor is collecting data.
@@ -418,7 +418,7 @@ impl MagicXApp {
     /// Poll for completed cleaning results.
     ///
     /// When monitoring is active the result is also logged to the
-    /// activity log exactly once (here, not in `update()`).
+    /// activity log exactly once (here, not in `logic()`).
     fn poll_clean_results(&mut self) {
         if let Ok(msg) = self.clean_rx.try_recv() {
             self.cleaning_in_progress = false;
@@ -517,7 +517,7 @@ impl MagicXApp {
 
     /// Poll the tray icon event queues and dispatch any pending [`TrayAction`].
     ///
-    /// Called every frame from [`eframe::App::update`].
+    /// Called every frame from [`eframe::App::logic`].
     fn poll_tray_events(&mut self, ctx: &egui::Context) {
         let Some(action) = self.tray_handle.as_ref().and_then(tray::TrayHandle::poll) else {
             return;
@@ -545,15 +545,18 @@ impl MagicXApp {
         }
     }
 
-    /// Synchronise the tray handle and autostart registry when the user
-    /// changes the relevant settings in the Settings panel.
+    /// Synchronise the tray handle when the user changes the minimise-to-tray
+    /// setting.
     ///
     /// Compares live settings against the snapshot so this only acts on the
     /// frame the toggle is flipped - it is a no-op every other frame.
+    ///
+    /// Autostart registry writes are NOT handled here - they are done
+    /// directly by the Settings panel checkbox handler (with error rollback)
+    /// and by the import path in `draw_backup`.
     fn sync_integration_settings(&mut self, ctx: &egui::Context) {
         let tray_changed =
             self.settings.minimize_to_tray != self.settings_snapshot.minimize_to_tray;
-        let autostart_changed = self.settings.auto_start != self.settings_snapshot.auto_start;
 
         // Rebuild the tray handle when the tray toggle changes.
         // Glyph colours match the in-app theme: the process-wide menu
@@ -572,20 +575,15 @@ impl MagicXApp {
                 }
             }
         }
-
-        if autostart_changed {
-            let _sync =
-                super::persistence::SettingsManager::set_autostart(self.settings.auto_start);
-        }
     }
 
     /// Run the parts of the UI that are only needed when the window is
     /// actually visible (not minimized, not hidden to tray).
     ///
-    /// Splitting this out of [`eframe::App::update`] keeps both
+    /// Splitting this out of [`eframe::App::ui`] keeps both
     /// functions below the `too_many_lines` lint threshold and makes the
     /// visibility gate explicit.
-    fn update_visible_ui(&mut self, ctx: &egui::Context) {
+    fn draw_visible_ui(&mut self, ui: &mut egui::Ui) {
         // Refresh processes only when the panel is shown.
         if self.active_panel == Panel::Processes {
             self.maybe_refresh_processes();
@@ -593,7 +591,7 @@ impl MagicXApp {
 
         // Switch theme when the user toggles the preference.
         if self.settings.dark_mode != self.last_applied_dark {
-            theme::set_active_theme(ctx, self.settings.dark_mode);
+            theme::set_active_theme(ui, self.settings.dark_mode);
             self.last_applied_dark = self.settings.dark_mode;
 
             crate::console::set_process_dark_mode(self.settings.dark_mode);
@@ -601,7 +599,8 @@ impl MagicXApp {
 
             if self.settings.minimize_to_tray {
                 self.tray_handle =
-                    tray::TrayHandle::new(ctx.clone(), self.hwnd, self.settings.dark_mode).ok();
+                    tray::TrayHandle::new(ui.ctx().clone(), self.hwnd, self.settings.dark_mode)
+                        .ok();
             }
         }
 
@@ -613,18 +612,18 @@ impl MagicXApp {
         } else {
             egui::Theme::Light
         };
-        if ctx.theme() != desired {
-            theme::set_active_theme(ctx, self.settings.dark_mode);
+        if ui.theme() != desired {
+            theme::set_active_theme(ui, self.settings.dark_mode);
         }
 
         // ── Layout ───────────────────────────────────────────
-        draw_sidebar(ctx, self);
-        draw_main_panel(ctx, self);
+        draw_sidebar(ui, self);
+        draw_main_panel(ui, self);
     }
 }
 
 impl eframe::App for MagicXApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Reveal the window on the first frame (anti-flash).
         if !self.window_revealed {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
@@ -713,14 +712,9 @@ impl eframe::App for MagicXApp {
         self.needs_capture
             .store(window_visible || self.monitor_active, Ordering::Release);
 
-        // Skip ALL rendering when the window is not visible.  This
-        // prevents widgets like spinners and toggle animations from
-        // calling request_repaint() which would otherwise create a
-        // perpetual layout → repaint → layout loop even while
-        // minimized or hidden to tray.
-        if window_visible {
-            self.update_visible_ui(ctx);
-        } else if self.hidden_to_tray {
+        // When the window is hidden to tray or minimized, schedule
+        // low-frequency wake-ups instead of rendering.
+        if self.hidden_to_tray {
             // The window is cloaked (minimized tool window with
             // WS_VISIBLE), so eframe's event loop stays in
             // ControlFlow::Wait instead of the buggy ControlFlow::Poll
@@ -746,6 +740,19 @@ impl eframe::App for MagicXApp {
         if self.settings != self.settings_snapshot {
             super::persistence::SettingsManager::save(&self.settings);
             self.settings_snapshot = self.settings.clone();
+        }
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // Skip ALL rendering when the window is not visible.  This
+        // prevents widgets like spinners and toggle animations from
+        // calling request_repaint() which would otherwise create a
+        // perpetual layout → repaint → layout loop even while
+        // minimized or hidden to tray.
+        let minimized = crate::console::is_window_minimized(self.hwnd);
+        let window_visible = !self.hidden_to_tray && !minimized;
+        if window_visible {
+            self.draw_visible_ui(ui);
         }
     }
 
@@ -775,12 +782,12 @@ fn configure_themes(ctx: &egui::Context, dark_mode: bool) {
     theme::register_themes(ctx);
     theme::set_active_theme(ctx, dark_mode);
 
-    // `set_style` only modifies the *active* theme's style, so we
+    // `set_global_style` only modifies the *active* theme's style, so we
     // temporarily activate each variant, clone-and-patch it, then
     // restore the user's saved preference.
     for variant in [egui::Theme::Dark, egui::Theme::Light] {
         ctx.set_theme(variant);
-        let mut style = (*ctx.style()).clone();
+        let mut style = (*ctx.global_style()).clone();
         style.spacing.item_spacing = egui::vec2(6.0, 4.0);
         style.spacing.button_padding = egui::vec2(8.0, 4.0);
         style.spacing.window_margin = egui::Margin::same(10);
@@ -805,7 +812,7 @@ fn configure_themes(ctx: &egui::Context, dark_mode: bool) {
             FontId::new(12.0, FontFamily::Monospace),
         );
 
-        ctx.set_style(style);
+        ctx.set_global_style(style);
     }
 
     theme::set_active_theme(ctx, dark_mode);
@@ -825,7 +832,7 @@ fn stats_thread(
 ) {
     while running.load(Ordering::Acquire) {
         // Only capture when the UI is visible or the monitor needs
-        // update() to run for auto-clean threshold checks.  When the
+        // logic() to run for auto-clean threshold checks.  When the
         // window is hidden/minimized with monitoring off, skip all
         // work - no Win32 calls, no mutex locks, no repaints.
         if needs_capture.load(Ordering::Acquire)
@@ -874,19 +881,19 @@ const NAV_ITEMS: [(Panel, &str, &str); 4] = [
 ];
 
 /// Draw the sidebar with navigation and branding.
-fn draw_sidebar(ctx: &egui::Context, app: &mut MagicXApp) {
+fn draw_sidebar(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
 
-    egui::SidePanel::left("sidebar")
+    egui::Panel::left("sidebar")
         .resizable(false)
-        .exact_width(theme::SIDEBAR_WIDTH)
+        .exact_size(theme::SIDEBAR_WIDTH)
         .frame(
             egui::Frame::new()
                 .fill(theme::sidebar_bg(dark))
                 .inner_margin(egui::Margin::symmetric(8, 10))
                 .stroke(egui::Stroke::new(0.5, theme::border_color(dark))),
         )
-        .show(ctx, |ui| {
+        .show_inside(ui, |ui| {
             draw_sidebar_brand(ui);
             ui.add_space(8.0);
             draw_sidebar_nav(ui, app);
@@ -1002,21 +1009,19 @@ fn draw_nav_button(
 // ─── Main Content ────────────────────────────────────────────────────────────
 
 /// Draw the main content area based on the active panel.
-fn draw_main_panel(ctx: &egui::Context, app: &mut MagicXApp) {
+fn draw_main_panel(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(theme::bg_color(dark)))
-        .show(ctx, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(20))
-                    .show(ui, |ui| match app.active_panel {
-                        Panel::Dashboard => panels::dashboard::draw(ui, app),
-                        Panel::Monitor => panels::monitor::draw(ui, app),
-                        Panel::Processes => panels::processes::draw(ui, app),
-                        Panel::Settings => panels::settings::draw(ui, app),
-                        Panel::About => panels::about::draw(ui, app),
-                    });
-            });
+        .show_inside(ui, |ui| {
+            egui::ScrollArea::vertical()
+                .content_margin(egui::Margin::same(20))
+                .show(ui, |ui| match app.active_panel {
+                    Panel::Dashboard => panels::dashboard::draw(ui, app),
+                    Panel::Monitor => panels::monitor::draw(ui, app),
+                    Panel::Processes => panels::processes::draw(ui, app),
+                    Panel::Settings => panels::settings::draw(ui, app),
+                    Panel::About => panels::about::draw(ui, app),
+                });
         });
 }
