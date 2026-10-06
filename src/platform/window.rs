@@ -1,22 +1,45 @@
 //! Main-window helpers: lookup, minimise state, cloaking to the tray, and
 //! dark/light theming of the title bar and native menus.
 
-/// Return the `HWND` of the first top-level window whose title equals `title`.
+/// Return the `HWND` of a top-level window titled `title` that belongs to a
+/// process running this same executable, or `0` if there is none.
 ///
-/// Returns `0` when no matching window is found.  Because we look up our
-/// **own** window we do not have to worry about the inherent race between
-/// `FindWindowW` and the window closing.
+/// Matching on the title alone is not enough: any program, or an Explorer
+/// folder window named after the app, can show the same title.
 #[must_use]
 pub fn find_app_window(title: &str) -> isize {
-    use windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{FindWindowExW, GetWindowThreadProcessId};
 
-    let wide: Vec<u16> = title.encode_utf16().chain(Some(0u16)).collect();
-
-    // SAFETY: `FindWindowW` is called with a valid null-terminated wide
-    // string allocated on this stack frame.  The return value is an `HWND`
-    // pointer valid for the lifetime of the target window; we immediately
-    // cast it to `isize` for `Send`-safe storage.
-    unsafe { FindWindowW(std::ptr::null(), wide.as_ptr()) as isize }
+    let Ok(own_exe) = std::env::current_exe() else {
+        return 0;
+    };
+    let wide = super::wide::to_wide(title);
+    let mut previous = std::ptr::null_mut();
+    loop {
+        // SAFETY: `wide` is a valid null-terminated wide string; `previous`
+        // is null or a window returned by the previous iteration. Iterates
+        // top-level windows with this exact title.
+        let hwnd = unsafe {
+            FindWindowExW(
+                std::ptr::null_mut(),
+                previous,
+                std::ptr::null(),
+                wide.as_ptr(),
+            )
+        };
+        if hwnd.is_null() {
+            return 0;
+        }
+        let mut pid = 0u32;
+        // SAFETY: `hwnd` is a window handle and `pid` a valid out pointer.
+        unsafe { GetWindowThreadProcessId(hwnd, &raw mut pid) };
+        let same_exe = super::process::image_path(pid)
+            .is_some_and(|path| path.as_os_str().eq_ignore_ascii_case(own_exe.as_os_str()));
+        if same_exe {
+            return hwnd as isize;
+        }
+        previous = hwnd;
+    }
 }
 
 /// Check whether the application window is currently minimized (iconic).

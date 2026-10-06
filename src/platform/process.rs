@@ -9,8 +9,8 @@ use windows_sys::Win32::System::ProcessStatus::{
     PROCESS_MEMORY_COUNTERS_EX2,
 };
 use windows_sys::Win32::System::Threading::{
-    OpenProcess, PROCESS_ACCESS_RIGHTS, PROCESS_QUERY_INFORMATION,
-    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA,
+    OpenProcess, PROCESS_ACCESS_RIGHTS, PROCESS_NAME_WIN32, PROCESS_QUERY_INFORMATION,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA, QueryFullProcessImageNameW,
 };
 
 use std::os::windows::io::{AsRawHandle, OwnedHandle};
@@ -167,4 +167,26 @@ pub fn empty_working_set(pid: u32) -> bool {
     open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SET_QUOTA)
         // SAFETY: The handle is a valid process handle with the required rights.
         .is_some_and(|handle| unsafe { K32EmptyWorkingSet(handle.as_raw_handle()) } != 0)
+}
+
+/// Full path of the executable that process `pid` is running, or `None` if
+/// the process cannot be opened or queried.
+#[must_use]
+pub fn image_path(pid: u32) -> Option<std::path::PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+
+    let handle = open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION)?;
+    let mut buf = [0u16; 1024];
+    let mut len = buf.len() as u32;
+    // SAFETY: `buf` is writable for `len` UTF-16 units and `len` is a valid
+    // in/out pointer; the handle has the required query right.
+    let ok = unsafe {
+        QueryFullProcessImageNameW(
+            handle.as_raw_handle(),
+            PROCESS_NAME_WIN32,
+            buf.as_mut_ptr(),
+            &raw mut len,
+        )
+    };
+    (ok != 0).then(|| std::ffi::OsString::from_wide(&buf[..len as usize]).into())
 }
