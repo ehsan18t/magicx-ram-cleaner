@@ -31,7 +31,7 @@ pub(super) fn draw_sidebar(ui: &mut egui::Ui, app: &mut MagicXApp) {
                 .inner_margin(egui::Margin::symmetric(8, 10))
                 .stroke(egui::Stroke::new(0.5_f32, theme::border_color(dark))),
         )
-        .show_inside(ui, |ui| {
+        .show(ui, |ui| {
             draw_sidebar_brand(ui);
             ui.add_space(8.0);
             draw_sidebar_nav(ui, app);
@@ -149,7 +149,7 @@ pub(super) fn draw_main_panel(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let dark = app.settings.dark_mode;
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(theme::bg_color(dark)))
-        .show_inside(ui, |ui| {
+        .show(ui, |ui| {
             egui::ScrollArea::vertical()
                 .content_margin(egui::Margin::same(20))
                 .show(ui, |ui| match app.active_panel {

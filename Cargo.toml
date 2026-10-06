@@ -58,10 +58,12 @@ anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# GUI framework (egui + eframe with glow renderer for smaller binary)
-eframe = { version = "0.34", default-features = false, features = ["glow", "default_fonts"] }
-egui_extras = "0.34"
-egui-phosphor = { version = "0.12", features = ["regular"] }
+# GUI framework (egui + eframe with glow renderer for smaller binary).
+# 0.36.2 at minimum: 0.36.0 and 0.36.1 busy-loop the event loop while waiting for a redraw.
+# "links" makes ui.open_url work; it is the browser fallback in the About panel.
+eframe = { version = "0.36.2", default-features = false, features = ["glow", "default_fonts", "links"] }
+egui_extras = "0.36.2"
+egui-phosphor = { version = "0.14", features = ["regular"] }
 tray-icon = "0.21"
 image = { version = "0.25", default-features = false, features = ["png", "ico"] }
 ab_glyph = "0.2"
@@ -81,7 +83,7 @@ Comments = "Frees Windows RAM: standby, modified, working-set, file-cache, regis
 embed-manifest = "1"
 winresource = "0.1"
 ab_glyph = "0.2"
-egui-phosphor = { version = "0.12", features = ["regular"] }
+egui-phosphor = { version = "0.14", features = ["regular"] }
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
