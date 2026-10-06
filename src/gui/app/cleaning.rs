@@ -106,7 +106,12 @@ impl MagicXApp {
                 level,
                 auto,
                 step: 0,
-                total: engine::dry_run_plan(level, false).len(),
+                // The sweep only runs when needed, so the count must not
+                // wait for it; while it runs, the last step stays current.
+                total: engine::dry_run_plan(level, false)
+                    .iter()
+                    .filter(|step| !step.operation.is_optional())
+                    .count(),
                 label: "",
                 started: Instant::now(),
             });
@@ -123,12 +128,19 @@ impl MagicXApp {
                 // `panic = "abort"`, where a panic ends the process instead.
                 let result = std::panic::catch_unwind(|| {
                     engine::Cleaner::new(&engine::WindowsMemory, |event| {
-                        if let Progress::Started { label } = event
-                            && let Ok(mut lock) = progress.lock()
+                        if let Ok(mut lock) = progress.lock()
                             && let Some(p) = lock.as_mut()
                         {
-                            p.step += 1;
-                            p.label = label;
+                            match event {
+                                Progress::Started { label } => {
+                                    p.step = (p.step + 1).min(p.total);
+                                    p.label = label;
+                                }
+                                Progress::Sweep { .. } => {
+                                    p.label = engine::Operation::LeftoverSweep.progress_label();
+                                }
+                                _ => {}
+                            }
                         }
                     })
                     .smart_clean(level, &[])

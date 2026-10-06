@@ -6,7 +6,7 @@
 //! so a refactor cannot change cleaning behaviour silently.
 
 use super::fake::{Call, FakeSystem, GIB_PAGES, Model, PAGE};
-use super::smart::{MAX_SWEEP_PASSES, SWEEP_PLAN_LABEL};
+use super::smart::MAX_SWEEP_PASSES;
 use super::{CleanLevel, Cleaner, Progress, SmartCleanResult, dry_run_plan};
 use crate::platform::nt::MemoryListCommand::{
     EmptyWorkingSets, FlushModifiedList, PurgeStandbyList,
@@ -36,11 +36,12 @@ fn operation_names(result: &SmartCleanResult) -> Vec<&str> {
         .collect()
 }
 
-/// The dry-run plan without the sweep entry, which only runs when needed.
-fn plan_without_sweep(level: CleanLevel, has_excludes: bool) -> Vec<&'static str> {
+/// The dry-run plan's labels without the sweep, which only runs when needed.
+fn plan_without_sweep(level: CleanLevel, has_excludes: bool) -> Vec<String> {
     dry_run_plan(level, has_excludes)
         .into_iter()
-        .filter(|op| *op != SWEEP_PLAN_LABEL)
+        .filter(|step| !step.operation.is_optional())
+        .map(super::PlannedStep::label)
         .collect()
 }
 
@@ -114,12 +115,7 @@ fn executed_operations_match_the_dry_run_plan() {
         for excludes in [&[][..], &["chrome"][..]] {
             let sys = FakeSystem::default();
             let (result, _) = run(&sys, level, excludes);
-            // The plan's per-process label adds a ", with exclusions" note
-            // that the executed operation's name does not carry.
-            let plan: Vec<String> = plan_without_sweep(level, !excludes.is_empty())
-                .into_iter()
-                .map(|op| op.replace("(Per-Process, with exclusions)", "(Per-Process)"))
-                .collect();
+            let plan = plan_without_sweep(level, !excludes.is_empty());
             assert_eq!(
                 operation_names(&result),
                 plan,

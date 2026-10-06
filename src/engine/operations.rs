@@ -3,36 +3,20 @@
 use anyhow::Result;
 
 use super::Cleaner;
+use super::operation::Operation;
 use super::progress::Progress;
 use super::report::CleanResult;
 use super::settle::SettleMode;
 use crate::platform::nt::{self, MemoryListCommand, NtStatus};
 use crate::platform::process::TrimOutcome;
 
-/// Display strings for a memory-list command:
-/// `(operation_name, success_message, progress_label)`.
-const fn command_labels(command: MemoryListCommand) -> (&'static str, &'static str, &'static str) {
+/// Result message of a memory-list command that succeeded.
+const fn command_success_message(command: MemoryListCommand) -> &'static str {
     match command {
-        MemoryListCommand::EmptyWorkingSets => (
-            "Empty Working Sets (Kernel)",
-            "All process working sets emptied via kernel",
-            "Emptying working sets (kernel-level)...",
-        ),
-        MemoryListCommand::FlushModifiedList => (
-            "Flush Modified List",
-            "Modified pages flushed to disk",
-            "Flushing modified page list...",
-        ),
-        MemoryListCommand::PurgeLowPriorityStandbyList => (
-            "Purge Low-Priority Standby",
-            "Low-priority standby pages purged",
-            "Purging low-priority standby pages...",
-        ),
-        MemoryListCommand::PurgeStandbyList => (
-            "Purge All Standby",
-            "All standby pages purged",
-            "Purging all standby pages...",
-        ),
+        MemoryListCommand::EmptyWorkingSets => "All process working sets emptied via kernel",
+        MemoryListCommand::FlushModifiedList => "Modified pages flushed to disk",
+        MemoryListCommand::PurgeLowPriorityStandbyList => "Low-priority standby pages purged",
+        MemoryListCommand::PurgeStandbyList => "All standby pages purged",
     }
 }
 
@@ -67,8 +51,11 @@ impl Cleaner<'_> {
         command: MemoryListCommand,
         settle: SettleMode,
     ) -> Result<CleanResult> {
-        let (name, success_msg, label) = command_labels(command);
-        self.report(Progress::Started { label });
+        let op = Operation::for_command(command);
+        let name = op.name();
+        self.report(Progress::Started {
+            label: op.progress_label(),
+        });
 
         let before = self.sys.snapshot()?;
         let start = std::time::Instant::now();
@@ -78,7 +65,7 @@ impl Cleaner<'_> {
                 let after = self.wait_for_settle(settle)?;
                 Ok(CleanResult::success(
                     name,
-                    success_msg,
+                    command_success_message(command),
                     &before,
                     &after,
                     start.elapsed(),
@@ -143,8 +130,9 @@ impl Cleaner<'_> {
         exclude_names: &[String],
         settle: SettleMode,
     ) -> Result<CleanResult> {
+        let op = Operation::EmptyWorkingSetsPerProcess;
         self.report(Progress::Started {
-            label: "Emptying working sets per-process...",
+            label: op.progress_label(),
         });
 
         let before = self.sys.snapshot()?;
@@ -187,7 +175,7 @@ impl Cleaner<'_> {
         }
 
         Ok(CleanResult::success(
-            "Empty Working Sets (Per-Process)",
+            op.name(),
             message,
             &before,
             &after,
@@ -205,8 +193,9 @@ impl Cleaner<'_> {
 
     /// File cache trim with a configurable settle mode.
     pub(super) fn file_cache_op(&mut self, settle: SettleMode) -> Result<CleanResult> {
+        let op = Operation::FlushFileCache;
         self.report(Progress::Started {
-            label: "Flushing file system cache...",
+            label: op.progress_label(),
         });
 
         let before = self.sys.snapshot()?;
@@ -214,7 +203,7 @@ impl Cleaner<'_> {
 
         if let Err(err) = self.sys.flush_file_cache() {
             return Ok(CleanResult::failure(
-                "Flush File Cache",
+                op.name(),
                 format!(
                     "SetSystemFileCacheSize failed (error {err}). Need SeIncreaseQuotaPrivilege."
                 ),
@@ -224,7 +213,7 @@ impl Cleaner<'_> {
 
         let after = self.wait_for_settle(settle)?;
         Ok(CleanResult::success(
-            "Flush File Cache",
+            op.name(),
             "File system cache flushed successfully",
             &before,
             &after,
@@ -240,8 +229,9 @@ impl Cleaner<'_> {
 
     /// Registry flush with a configurable settle mode.
     pub(super) fn registry_op(&mut self, settle: SettleMode) -> Result<CleanResult> {
+        let op = Operation::FlushRegistry;
         self.report(Progress::Started {
-            label: "Flushing registry cache to disk...",
+            label: op.progress_label(),
         });
 
         let before = self.sys.snapshot()?;
@@ -251,7 +241,7 @@ impl Cleaner<'_> {
             Ok(()) => {
                 let after = self.wait_for_settle(settle)?;
                 Ok(CleanResult::success(
-                    "Flush Registry Cache",
+                    op.name(),
                     "Registry hive cache flushed to disk",
                     &before,
                     &after,
@@ -259,7 +249,7 @@ impl Cleaner<'_> {
                 ))
             }
             Err(status) => Ok(CleanResult::failure(
-                "Flush Registry Cache",
+                op.name(),
                 ntstatus_failure(
                     "NtSetSystemInformation(SystemRegistryReconciliationInformation)",
                     status,
@@ -277,8 +267,9 @@ impl Cleaner<'_> {
 
     /// Page combining with a configurable settle mode.
     pub(super) fn combine_op(&mut self, settle: SettleMode) -> Result<CleanResult> {
+        let op = Operation::CombinePages;
         self.report(Progress::Started {
-            label: "Running memory page combining...",
+            label: op.progress_label(),
         });
 
         let before = self.sys.snapshot()?;
@@ -288,7 +279,7 @@ impl Cleaner<'_> {
             Ok(pages_combined) => {
                 let after = self.wait_for_settle(settle)?;
                 Ok(CleanResult::success(
-                    "Memory Combining",
+                    op.name(),
                     format!("Pages combined: {pages_combined}"),
                     &before,
                     &after,
@@ -296,7 +287,7 @@ impl Cleaner<'_> {
                 ))
             }
             Err(status) => Ok(CleanResult::failure(
-                "Memory Combining",
+                op.name(),
                 ntstatus_failure(
                     "NtSetSystemInformation(SystemCombinePhysicalMemoryInformation)",
                     status,

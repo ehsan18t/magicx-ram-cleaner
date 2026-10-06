@@ -2,7 +2,7 @@
 //!
 //! Terminal output helpers for memory status and cleaning diagnostics.
 
-use crate::engine::{CleanLevel, CleanResult, Progress, SmartCleanResult};
+use crate::engine::{CleanLevel, CleanResult, PlannedStep, Progress, SmartCleanResult};
 
 use crate::memory::{
     FileCacheSnapshot, MemoryListInfo, MemorySnapshot, ProcessMemoryInfo, format_bytes,
@@ -470,15 +470,19 @@ fn truncate_name(name: &str, max_len: usize) -> String {
 ///
 /// Shows the [`CleanLevel`] name, a numbered list of operations, and a
 /// footer hint telling the user to remove the `--dry-run` flag to execute.
-pub fn print_dry_run(level: CleanLevel, operations: &[&str]) {
+pub fn print_dry_run(level: CleanLevel, plan: &[PlannedStep]) {
     println!(
         "\n{} Dry run  -{} level ({} operations):\n",
         "🔍".dimmed(),
         level.title_case_name().bold(),
-        operations.len()
+        plan.len()
     );
-    for (i, op) in operations.iter().enumerate() {
-        println!("  {}. {}", (i + 1).to_string().cyan(), op.white().bold());
+    for (i, step) in plan.iter().enumerate() {
+        println!(
+            "  {}. {}",
+            (i + 1).to_string().cyan(),
+            step.label().white().bold()
+        );
     }
     println!("\n  {}", strings::cli::DRY_RUN_FOOTER.yellow());
     println!();

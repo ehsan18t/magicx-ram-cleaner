@@ -13,6 +13,7 @@
 
 pub mod auto_clean;
 mod level;
+mod operation;
 mod operations;
 mod progress;
 mod report;
@@ -27,6 +28,7 @@ mod fake;
 mod tests;
 
 pub use self::level::{CleanLevel, ReclaimEstimate};
+pub use self::operation::{Operation, PlannedStep};
 pub use self::progress::Progress;
 pub use self::report::{CleanResult, SmartCleanResult};
 pub use self::smart::dry_run_plan;

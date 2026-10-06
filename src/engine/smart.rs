@@ -5,6 +5,7 @@ use anyhow::Result;
 
 use super::Cleaner;
 use super::level::CleanLevel;
+use super::operation::{Operation, PlannedStep, SECOND_PASS_SUFFIX};
 use super::operations::ntstatus_failure;
 use super::progress::Progress;
 use super::report::{CleanResult, SmartCleanResult, free_delta};
@@ -14,9 +15,6 @@ use crate::platform::nt::MemoryListCommand;
 
 /// Maximum number of adaptive leftover sweeps after a chain's final purge.
 pub(super) const MAX_SWEEP_PASSES: u32 = 2;
-
-/// Plan label for the adaptive leftover sweep shown by `--dry-run`.
-pub(super) const SWEEP_PLAN_LABEL: &str = "Leftover Sweep (only if needed)";
 
 /// Standby plus pagefile-backed modified memory in bytes: what another
 /// flush + purge could still reclaim. `None` when the page lists are unknown.
@@ -46,42 +44,52 @@ pub(super) fn should_sweep(leftover: u64, previous: Option<u64>, total_physical:
         && previous.is_none_or(|prev| leftover.saturating_mul(4) < prev.saturating_mul(3))
 }
 
-/// Return the ordered list of operation names that would run for a given level.
+/// The steps `level` runs, in order: the plan `--dry-run` previews and the
+/// GUI counts progress against.
 ///
-/// This is used by `--dry-run` to preview the cleaning plan without executing
-/// any kernel operations. `has_excludes` only affects the working-set label
-/// for `Aggressive` and `Nuclear` (the only levels that empty working sets).
+/// `has_excludes` picks the per-process working-set trim for `Aggressive`
+/// and `Nuclear` (the only levels that empty working sets). The final
+/// leftover sweep is listed but only runs when needed (see
+/// [`Operation::is_optional`]).
 #[must_use]
-pub fn dry_run_plan(level: CleanLevel, has_excludes: bool) -> Vec<&'static str> {
-    let ws_label = if has_excludes {
-        "Empty Working Sets (Per-Process, with exclusions)"
-    } else {
-        "Empty Working Sets (Kernel)"
+pub fn dry_run_plan(level: CleanLevel, has_excludes: bool) -> Vec<PlannedStep> {
+    use Operation::{
+        CombinePages, EmptyWorkingSetsKernel, EmptyWorkingSetsPerProcess, FlushFileCache,
+        FlushModified, FlushRegistry, LeftoverSweep, PurgeStandby,
     };
 
+    let working_sets = if has_excludes {
+        EmptyWorkingSetsPerProcess
+    } else {
+        EmptyWorkingSetsKernel
+    };
+    let first: &[Operation] = match level {
+        CleanLevel::Gentle => &[PurgeStandby],
+        CleanLevel::Moderate => &[FlushModified, PurgeStandby, LeftoverSweep],
+        CleanLevel::Aggressive | CleanLevel::Nuclear => &[
+            FlushFileCache,
+            FlushRegistry,
+            working_sets,
+            FlushModified,
+            PurgeStandby,
+        ],
+    };
+    let step = |operation, second_pass| PlannedStep {
+        operation,
+        second_pass,
+    };
+    let mut plan: Vec<PlannedStep> = first.iter().map(|&op| step(op, false)).collect();
     match level {
-        CleanLevel::Gentle => vec!["Purge All Standby"],
-        CleanLevel::Moderate => vec!["Flush Modified List", "Purge All Standby", SWEEP_PLAN_LABEL],
-        CleanLevel::Aggressive => vec![
-            "Flush File Cache",
-            "Flush Registry Cache",
-            ws_label,
-            "Flush Modified List",
-            "Purge All Standby",
-            SWEEP_PLAN_LABEL,
-        ],
-        CleanLevel::Nuclear => vec![
-            "Flush File Cache",
-            "Flush Registry Cache",
-            ws_label,
-            "Flush Modified List",
-            "Purge All Standby",
-            "Memory Combining",
-            "Flush Modified List (2nd pass)",
-            "Purge All Standby (2nd pass)",
-            SWEEP_PLAN_LABEL,
-        ],
+        CleanLevel::Gentle | CleanLevel::Moderate => {}
+        CleanLevel::Aggressive => plan.push(step(LeftoverSweep, false)),
+        CleanLevel::Nuclear => plan.extend([
+            step(CombinePages, false),
+            step(FlushModified, true),
+            step(PurgeStandby, true),
+            step(LeftoverSweep, false),
+        ]),
     }
+    plan
 }
 
 impl Cleaner<'_> {
@@ -177,7 +185,7 @@ impl Cleaner<'_> {
         // Label the second pass so it matches the dry-run plan and users can
         // tell the passes apart.
         for result in &mut results[second_pass_start..] {
-            result.operation.push_str(" (2nd pass)");
+            result.operation.push_str(SECOND_PASS_SUFFIX);
         }
         Ok(results)
     }
@@ -201,7 +209,7 @@ impl Cleaner<'_> {
                 pass,
                 leftover_bytes: leftover,
             });
-            let name = format!("Leftover Sweep (pass {pass})");
+            let name = format!("{} (pass {pass})", Operation::LeftoverSweep.name());
             let start = std::time::Instant::now();
 
             // A failed flush is not fatal: the purge still reclaims the standby part.
@@ -261,19 +269,28 @@ mod tests {
 
     #[test]
     fn dry_run_plan_with_excludes_shows_per_process() {
-        let plan = dry_run_plan(CleanLevel::Aggressive, true);
-        assert!(plan.iter().any(|op| op.contains("Per-Process")));
-        assert!(!plan.contains(&"Empty Working Sets (Kernel)"));
+        let ops: Vec<Operation> = dry_run_plan(CleanLevel::Aggressive, true)
+            .iter()
+            .map(|step| step.operation)
+            .collect();
+        assert!(ops.contains(&Operation::EmptyWorkingSetsPerProcess));
+        assert!(!ops.contains(&Operation::EmptyWorkingSetsKernel));
     }
 
     #[test]
     fn dry_run_plan_moderate_ops() {
-        let plan = dry_run_plan(CleanLevel::Moderate, false);
+        let labels: Vec<String> = dry_run_plan(CleanLevel::Moderate, false)
+            .into_iter()
+            .map(PlannedStep::label)
+            .collect();
         assert_eq!(
-            plan,
-            vec!["Flush Modified List", "Purge All Standby", SWEEP_PLAN_LABEL]
+            labels,
+            [
+                "Flush Modified List",
+                "Purge All Standby",
+                "Leftover Sweep (only if needed)"
+            ]
         );
-        assert!(!plan.iter().any(|op| op.contains("Working Set")));
     }
 
     #[test]
