@@ -482,3 +482,68 @@ pub fn dropdown<T: PartialEq + Copy>(
     focus_ring(ui, &response, response.rect, &p);
     response
 }
+
+/// A Windows 11 checkbox with its label; clicking either toggles it.
+/// `changed()` is set on the response when the user flips it.
+pub fn checkbox(ui: &mut egui::Ui, checked: &mut bool, label: &str) -> egui::Response {
+    let p = theme::palette();
+    let galley = ui.painter().layout_job(single_line_job(
+        label,
+        theme::BODY,
+        p.text,
+        400.0,
+        f32::INFINITY,
+    ));
+    let box_size = 20.0;
+    let gap = 8.0;
+    let size = egui::vec2(box_size + gap + galley.size().x, theme::CONTROL_HEIGHT);
+    let (rect, mut response) = ui.allocate_exact_size(size, egui::Sense::click());
+    if response.clicked() {
+        *checked = !*checked;
+        response.mark_changed();
+    }
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, *checked, label)
+    });
+
+    let square = egui::Rect::from_min_size(
+        egui::pos2(rect.left(), rect.center().y - box_size / 2.0),
+        egui::vec2(box_size, box_size),
+    );
+    let radius = egui::CornerRadius::same(theme::CONTROL_RADIUS);
+    let hovered = response.hovered();
+    let painter = ui.painter();
+    if *checked {
+        let fill = if hovered { p.accent_hover } else { p.accent };
+        painter.rect_filled(square, radius, fill);
+        // The check mark.
+        let c = square.center();
+        painter.line(
+            vec![
+                egui::pos2(c.x - 4.5, c.y + 0.5),
+                egui::pos2(c.x - 1.5, c.y + 3.5),
+                egui::pos2(c.x + 4.5, c.y - 3.5),
+            ],
+            egui::Stroke::new(1.8_f32, p.on_accent),
+        );
+    } else {
+        let fill = if hovered { p.control_hover } else { p.control };
+        painter.rect_filled(square, radius, fill);
+        painter.rect_stroke(
+            square,
+            radius,
+            egui::Stroke::new(1.0_f32, p.text_secondary),
+            egui::StrokeKind::Inside,
+        );
+    }
+    painter.galley(
+        egui::pos2(
+            square.right() + gap,
+            rect.center().y - galley.size().y / 2.0,
+        ),
+        galley,
+        p.text,
+    );
+    focus_ring(ui, &response, rect, &p);
+    response
+}

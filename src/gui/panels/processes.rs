@@ -48,8 +48,13 @@ const RESULT_SECS: f32 = 6.0;
 struct GroupedProcess {
     /// Executable name shared by all instances (e.g. `msedge.exe`).
     name: String,
-    /// Lower-case name, the grouping and trim key.
+    /// Lower-case name, for search and sorting.
+    lower: String,
+    /// Unique key for the group and its trims: the lower-case name, marked
+    /// when the program is not part of Windows.
     key: String,
+    /// Whether the program is part of Windows.
+    windows: bool,
     /// Process IDs of the instances.
     pids: Vec<u32>,
     /// Sum of private working sets: Task Manager's "Memory" column, which
@@ -62,10 +67,19 @@ struct GroupedProcess {
 }
 
 /// Collapse a flat process list into one entry per program.
+///
+/// A copy of a program running from outside Windows gets its own entry even
+/// when it shares a name with a Windows process (an `svchost.exe` in a user
+/// folder, say), so it can never hide inside the real one.
 fn group_processes(procs: &[memory::ProcessMemoryInfo]) -> Vec<GroupedProcess> {
     let mut map: HashMap<String, GroupedProcess> = HashMap::new();
     for p in procs {
-        let key = p.name.to_lowercase();
+        let lower = p.name.to_lowercase();
+        let key = if p.windows_process {
+            lower.clone()
+        } else {
+            format!("{lower}|outside-windows")
+        };
         map.entry(key.clone())
             .and_modify(|g| {
                 g.pids.push(p.pid);
@@ -75,7 +89,9 @@ fn group_processes(procs: &[memory::ProcessMemoryInfo]) -> Vec<GroupedProcess> {
             })
             .or_insert_with(|| GroupedProcess {
                 name: p.name.clone(),
+                lower,
                 key,
+                windows: p.windows_process,
                 pids: vec![p.pid],
                 private_working_set: p.private_working_set,
                 working_set: p.working_set,
@@ -102,22 +118,28 @@ pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     };
 
     let mut groups = group_processes(&procs);
+    let show_windows = app.settings.show_windows_processes;
+    if !show_windows {
+        groups.retain(|g| !g.windows);
+    }
     let program_count = groups.len();
     let query = app.process_search.trim().to_lowercase();
     if !query.is_empty() {
-        groups.retain(|g| g.key.contains(&query));
+        groups.retain(|g| g.lower.contains(&query));
     }
     sort_processes(&mut groups, app.process_sort_col, app.process_sort_asc);
     groups.truncate(app.settings.top_process_count);
 
     if groups.is_empty() {
-        ui.label(
-            egui::RichText::new(format!(
+        let message = if query.is_empty() {
+            text::EMPTY_FILTERED.to_owned()
+        } else {
+            format!(
                 "No programs match \u{201c}{}\u{201d}.",
                 app.process_search.trim()
-            ))
-            .color(p.text_secondary),
-        );
+            )
+        };
+        ui.label(egui::RichText::new(message).color(p.text_secondary));
         return;
     }
 
@@ -127,31 +149,61 @@ pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     ui.add_space(8.0);
     ui.label(
         egui::RichText::new(format!(
-            "Showing {} of {program_count} programs ({instances} instances), sorted by {}",
+            "Showing {} of {program_count} programs ({instances} instances), sorted by {}{}",
             groups.len(),
             text::COL_NAMES[app.process_sort_col.min(3)],
+            if show_windows {
+                ""
+            } else {
+                text::FOOTER_WINDOWS_HIDDEN
+            },
         ))
         .size(theme::CAPTION)
         .color(p.text_secondary),
     );
 }
 
-/// The Top N choice on the left, search on the right.
+/// The program count and the Windows filter on the left, search on the
+/// right. On narrow windows the filter moves to a second line.
 fn draw_toolbar(ui: &mut egui::Ui, app: &mut MagicXApp, p: &Palette) {
+    let one_line = ui.available_width() >= 720.0;
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(text::LABEL_SHOW_TOP).color(p.text_secondary));
-        widgets::number_box(
-            ui,
-            "process-count",
-            &mut app.settings.top_process_count,
-            TOP_PROCESSES_RANGE,
-        )
-        .on_hover_text(text::TOOLTIP_SHOW_TOP);
-        ui.label(egui::RichText::new(text::LABEL_PROGRAMS).color(p.text_secondary));
+        draw_count(ui, app, p);
+        if one_line {
+            ui.add_space(16.0);
+            draw_windows_filter(ui, app);
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             search_box(ui, app, p);
         });
     });
+    if !one_line {
+        ui.add_space(4.0);
+        draw_windows_filter(ui, app);
+    }
+}
+
+/// "Show top [N] programs".
+fn draw_count(ui: &mut egui::Ui, app: &mut MagicXApp, p: &Palette) {
+    ui.label(egui::RichText::new(text::LABEL_SHOW_TOP).color(p.text_secondary));
+    widgets::number_box(
+        ui,
+        "process-count",
+        &mut app.settings.top_process_count,
+        TOP_PROCESSES_RANGE,
+    )
+    .on_hover_text(text::TOOLTIP_SHOW_TOP);
+    ui.label(egui::RichText::new(text::LABEL_PROGRAMS).color(p.text_secondary));
+}
+
+/// The checkbox that shows or hides Windows processes.
+fn draw_windows_filter(ui: &mut egui::Ui, app: &mut MagicXApp) {
+    widgets::checkbox(
+        ui,
+        &mut app.settings.show_windows_processes,
+        text::LABEL_SHOW_WINDOWS,
+    )
+    .on_hover_text(text::TOOLTIP_SHOW_WINDOWS);
 }
 
 /// A search field with a magnifier inside and a clear button once it has text.
@@ -404,8 +456,13 @@ fn draw_name_cell(
         egui::Sense::hover(),
     )
     .on_hover_text(format!(
-        "{}\nPrivate working set: {}\nFull working set: {}",
+        "{}\n{}\nPrivate working set: {}\nFull working set: {}",
         group.name,
+        if group.windows {
+            text::ORIGIN_WINDOWS
+        } else {
+            text::ORIGIN_OUTSIDE
+        },
         memory::format_bytes(group.private_working_set),
         memory::format_bytes(group.working_set),
     ));
@@ -590,7 +647,7 @@ fn paint_text(
 fn sort_processes(groups: &mut [GroupedProcess], col: usize, ascending: bool) {
     groups.sort_unstable_by(|a, b| {
         let ord = match col {
-            0 => a.key.cmp(&b.key),
+            0 => a.lower.cmp(&b.lower).then_with(|| a.key.cmp(&b.key)),
             1 => a
                 .pids
                 .len()
@@ -626,7 +683,25 @@ mod tests {
             working_set: private * 2,
             peak_working_set: private * 3,
             private_working_set: private,
+            windows_process: false,
         }
+    }
+
+    #[test]
+    fn a_copy_outside_windows_never_merges_with_the_windows_program() {
+        let real = memory::ProcessMemoryInfo {
+            windows_process: true,
+            ..info(1, "svchost.exe", 100)
+        };
+        let impostor = info(2, "svchost.exe", 40);
+        let groups = group_processes(&[real, impostor]);
+        assert_eq!(groups.len(), 2);
+        let outside = groups.iter().find(|g| !g.windows).expect("separate group");
+        assert_eq!(outside.private_working_set, 40);
+        assert_ne!(
+            outside.key,
+            groups.iter().find(|g| g.windows).expect("real").key
+        );
     }
 
     #[test]
@@ -638,7 +713,7 @@ mod tests {
         ]);
         let edge = groups
             .iter()
-            .find(|g| g.key == "msedge.exe")
+            .find(|g| g.lower == "msedge.exe")
             .expect("grouped");
         assert_eq!(edge.pids.len(), 2);
         assert_eq!(edge.private_working_set, 150);

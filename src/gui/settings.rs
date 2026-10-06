@@ -88,6 +88,8 @@ pub struct GuiSettings {
     pub manual_clean_level: CleanLevel,
     /// Number of top processes to show.
     pub top_process_count: usize,
+    /// Whether the Processes page lists Windows processes too.
+    pub show_windows_processes: bool,
     /// Theme preference.
     ///
     /// Files written before this field existed stored a `dark_mode` flag
@@ -130,6 +132,7 @@ impl Default for GuiSettings {
             default_clean_level: DEFAULT_CLEAN_LEVEL,
             manual_clean_level: DEFAULT_MANUAL_CLEAN_LEVEL,
             top_process_count: DEFAULT_TOP_PROCESSES,
+            show_windows_processes: true,
             theme: ThemeMode::System,
             nav_expanded: true,
             auto_clean_enabled: false,
