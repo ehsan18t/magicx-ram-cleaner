@@ -205,11 +205,15 @@ fn clean(options: &CleanOptions<'_>, reporting: Reporting) -> Result<Outcome> {
     if !reporting.notify {
         display::print_clean_summary(&output);
     }
-    if let Some(path) = options.report {
-        write_report(path, &output, reporting.quiet || reporting.notify)?;
-    }
+    // The clean already ran, so a report that cannot be written is a
+    // failure to report (exit 1), not a fatal error that hides the result.
+    let report_failed = options.report.is_some_and(|path| {
+        write_report(path, &output, reporting.quiet || reporting.notify)
+            .map_err(|e| eprintln!("{} {e:#}", "error:".red().bold()))
+            .is_err()
+    });
     Ok(Outcome {
-        had_failure: output.failed_count() > 0,
+        had_failure: output.failed_count() > 0 || report_failed,
         notification: if reporting.notify {
             notification::clean_summary(&output)
         } else {
@@ -221,11 +225,15 @@ fn clean(options: &CleanOptions<'_>, reporting: Reporting) -> Result<Outcome> {
 /// Run the `status` command: capture and display memory information.
 fn status(detailed: bool, json: bool, top: Option<usize>) -> Result<()> {
     let snapshot = MemorySnapshot::capture()?;
+    // The snapshot already read the page lists; reuse that reading.
     let list_info = if detailed {
-        warn_on_error(
-            memory::MemoryListInfo::query(),
-            "Could not query memory list details",
-        )
+        if snapshot.lists.is_none() {
+            eprintln!(
+                "{} Could not query memory list details",
+                "warning:".yellow()
+            );
+        }
+        snapshot.lists.clone()
     } else {
         None
     };
