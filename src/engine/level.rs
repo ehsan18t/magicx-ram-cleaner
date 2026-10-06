@@ -3,9 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Cleaning aggressiveness level.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum CleanLevel {
     /// Gentle: Purge ALL standby pages (priorities 0-7).
     /// Standby pages are already outside every process's working set;

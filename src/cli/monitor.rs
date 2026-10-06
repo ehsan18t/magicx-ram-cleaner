@@ -15,7 +15,7 @@ use std::time::Instant;
 use anyhow::Result;
 use colored::Colorize;
 
-use crate::display;
+use super::display;
 use crate::engine::auto_clean::{AutoCleanPolicy, Decision};
 use crate::engine::{self, CleanLevel};
 use crate::memory::MemorySnapshot;

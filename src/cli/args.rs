@@ -7,6 +7,8 @@
 use clap::builder::styling::{AnsiColor, Styles};
 use clap::{Parser, Subcommand};
 
+use clap::ValueEnum;
+
 use crate::engine::CleanLevel;
 
 // ─── Clap styling ────────────────────────────────────────────────────────────
@@ -261,7 +263,7 @@ pub enum Commands {
     Clean {
         /// Cleaning aggressiveness level [default: aggressive]
         #[arg(short, long, value_enum, default_value = "aggressive")]
-        level: CleanLevel,
+        level: LevelArg,
 
         /// Show detailed progress of each operation.
         #[arg(short, long)]
@@ -422,7 +424,7 @@ pub enum Commands {
 
         /// Cleaning level for auto-clean [default: aggressive]
         #[arg(short, long, value_enum, default_value = "aggressive")]
-        level: CleanLevel,
+        level: LevelArg,
 
         /// Cooldown in seconds after auto-clean before cleaning again [default: 2×interval]
         #[arg(short, long)]
@@ -471,4 +473,57 @@ pub enum ContextMenuAction {
     /// Idempotent - succeeds even if not currently installed.
     #[command(verbatim_doc_comment)]
     Uninstall,
+}
+
+/// Cleaning level as accepted on the command line.
+///
+/// Mirrors [`CleanLevel`]; kept separate so the engine does not depend on
+/// the argument parser. The doc comments become the `--help` text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum LevelArg {
+    /// Gentle: Purge ALL standby pages (priorities 0-7).
+    /// Standby pages are already outside every process's working set;
+    /// purging them is completely safe and frees the disk-page cache.
+    Gentle,
+    /// Moderate: Flush modified pages to disk, then purge ALL standby.
+    /// No process working sets are touched - safe for running apps.
+    /// More thorough than Gentle because it also drains the modified list.
+    Moderate,
+    /// Aggressive: File cache flush + registry flush + empty working sets + flush modified + purge ALL standby.
+    /// Frees maximum RAM but may cause brief I/O spike as apps re-fault pages.
+    Aggressive,
+    /// Nuclear: Everything aggressive does, plus memory combining.
+    /// Use when you need every last byte freed. May cause temporary slowdown.
+    Nuclear,
+}
+
+impl From<LevelArg> for CleanLevel {
+    fn from(level: LevelArg) -> Self {
+        match level {
+            LevelArg::Gentle => Self::Gentle,
+            LevelArg::Moderate => Self::Moderate,
+            LevelArg::Aggressive => Self::Aggressive,
+            LevelArg::Nuclear => Self::Nuclear,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::CommandFactory;
+
+    use super::*;
+
+    #[test]
+    fn cli_definition_is_valid() {
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn level_names_match_the_engine_display_names() {
+        for arg in LevelArg::value_variants() {
+            let name = arg.to_possible_value().map(|v| v.get_name().to_owned());
+            assert_eq!(name, Some(CleanLevel::from(*arg).to_string()));
+        }
+    }
 }

@@ -89,17 +89,14 @@ pub mod engine;
 /// Centralised user-facing text constants for CLI and GUI.
 pub mod strings;
 
-/// Command-line interface definitions (clap parser, subcommands, help text).
+/// Application launcher: chooses GUI or CLI, console setup, exit codes.
+pub mod app;
+
+/// Command-line interface: arguments, dispatch, output and the monitor.
 pub mod cli;
 
 /// Windows context menu integration (install/uninstall registry entries).
 pub mod context_menu;
-
-/// Terminal display and formatting (banner, status, clean output, box drawing).
-pub mod display;
-
-/// Continuous monitoring loop with auto-clean and Ctrl+C handling.
-pub mod monitor;
 
 /// Memory domain types: system snapshots, per-process usage, byte formatting.
 pub mod memory;
