@@ -26,17 +26,26 @@ pub const fn wide_literal<const N: usize>(src: &[u8]) -> [u16; N] {
 
 /// Encode a Rust `&str` as null-terminated UTF-16 into a fixed-size buffer.
 ///
-/// Silently truncates if `s` is longer than `buf.len() -1`.
+/// Silently truncates if `s` is longer than `buf.len() - 1`, never splitting
+/// a surrogate pair (a character outside the Basic Multilingual Plane, such
+/// as an emoji). An empty `buf` is left untouched.
 pub fn write_wide_into(buf: &mut [u16], s: &str) {
-    let mut i = 0;
+    let Some(capacity) = buf.len().checked_sub(1) else {
+        return;
+    };
+    let mut len = 0;
     for c in s.encode_utf16() {
-        if i >= buf.len() - 1 {
+        if len == capacity {
+            // Cut before a high surrogate whose low half did not fit.
+            if len > 0 && (0xD800..=0xDBFF).contains(&buf[len - 1]) {
+                len -= 1;
+            }
             break;
         }
-        buf[i] = c;
-        i += 1;
+        buf[len] = c;
+        len += 1;
     }
-    buf[i] = 0;
+    buf[len] = 0;
 }
 
 /// Extract a UTF-8 process name from a null-terminated UTF-16 `szExeFile` buffer.
@@ -89,5 +98,27 @@ mod tests {
         let mut buf = [0xFFFFu16; 4];
         write_wide_into(&mut buf, "abcdef");
         assert_eq!(buf, [u16::from(b'a'), u16::from(b'b'), u16::from(b'c'), 0]);
+    }
+
+    #[test]
+    fn write_wide_into_ignores_an_empty_buffer() {
+        write_wide_into(&mut [], "abc");
+    }
+
+    #[test]
+    fn write_wide_into_never_splits_a_surrogate_pair() {
+        // "ab" plus an emoji (two UTF-16 units) needs 5 units with the
+        // terminator; with room for 4, the whole emoji is dropped.
+        let mut buf = [0xFFFFu16; 4];
+        write_wide_into(&mut buf, "ab\u{1F600}");
+        assert_eq!(buf[..3], [u16::from(b'a'), u16::from(b'b'), 0]);
+    }
+
+    #[test]
+    fn write_wide_into_keeps_a_pair_that_fits() {
+        let mut buf = [0xFFFFu16; 4];
+        write_wide_into(&mut buf, "a\u{1F600}");
+        assert_eq!(String::from_utf16(&buf[..3]).unwrap(), "a\u{1F600}");
+        assert_eq!(buf[3], 0);
     }
 }
