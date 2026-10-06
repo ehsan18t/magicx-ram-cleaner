@@ -152,9 +152,10 @@ pub fn run_monitor(
         let iteration_start = Instant::now();
 
         // A transient query failure should not end a long-running monitor;
-        // it counts towards the same error budget as failed cleans.
+        // only an unbroken run of them does.
         match MemorySnapshot::capture() {
             Ok(snapshot) => {
+                state.snapshot_errors = 0;
                 display::print_compact_status(&snapshot);
                 if let Some(thresh) = threshold {
                     if snapshot.memory_load_percent >= thresh {
@@ -166,7 +167,7 @@ pub fn run_monitor(
                     }
                 }
             }
-            Err(e) => state.record_error(&e)?,
+            Err(e) => record_error(&mut state.snapshot_errors, &e)?,
         }
 
         sleep_until(iteration_start + interval);
@@ -196,8 +197,12 @@ fn sleep_until(deadline: Instant) {
 struct AutoCleanState {
     /// When the last auto-clean finished.
     last_clean: Option<Instant>,
-    /// Consecutive failed cleans or status queries.
-    consecutive_errors: u32,
+    /// Consecutive failed status queries (reset by a successful query).
+    snapshot_errors: u32,
+    /// Consecutive failed cleans (reset by a successful clean). Kept apart
+    /// from `snapshot_errors` so the good status queries between cleans
+    /// cannot mask a clean that keeps failing.
+    clean_errors: u32,
     /// Cooldown multiplier: doubles (up to [`MAX_COOLDOWN_MULTIPLIER`]) after
     /// a clean that leaves memory load at or above the threshold, and resets
     /// to 1 once load drops below it. Stops futile back-to-back cleans when
@@ -209,30 +214,30 @@ impl Default for AutoCleanState {
     fn default() -> Self {
         Self {
             last_clean: None,
-            consecutive_errors: 0,
+            snapshot_errors: 0,
+            clean_errors: 0,
             cooldown_multiplier: 1,
         }
     }
 }
 
-impl AutoCleanState {
-    /// Count an error and abort the monitor once the error budget is spent.
-    fn record_error(&mut self, error: &anyhow::Error) -> Result<()> {
-        self.consecutive_errors += 1;
-        eprintln!("  {} Monitor error: {error}", "✗".red().bold());
-        if self.consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
-            anyhow::bail!(
-                "Monitor aborted: {MAX_CONSECUTIVE_ERRORS} consecutive failures. \
+/// Count an error in `streak` and abort the monitor once
+/// [`MAX_CONSECUTIVE_ERRORS`] happen in a row.
+fn record_error(streak: &mut u32, error: &anyhow::Error) -> Result<()> {
+    *streak += 1;
+    eprintln!("  {} Monitor error: {error}", "✗".red().bold());
+    if *streak >= MAX_CONSECUTIVE_ERRORS {
+        anyhow::bail!(
+            "Monitor aborted: {MAX_CONSECUTIVE_ERRORS} consecutive failures. \
                  Last error: {error}"
-            );
-        }
-        eprintln!(
-            "  {} ({}/{MAX_CONSECUTIVE_ERRORS} consecutive failures before abort)",
-            "⚠".yellow(),
-            self.consecutive_errors,
         );
-        Ok(())
     }
+    eprintln!(
+        "  {} ({}/{MAX_CONSECUTIVE_ERRORS} consecutive failures before abort)",
+        "⚠".yellow(),
+        *streak,
+    );
+    Ok(())
 }
 
 /// Handle threshold-triggered auto-cleaning for a single monitor iteration.
@@ -280,7 +285,7 @@ fn handle_threshold_clean(
     match outcome {
         Ok(output) => {
             // Reset error streak on any successful execution
-            state.consecutive_errors = 0;
+            state.clean_errors = 0;
             display::print_clean_summary(&output);
             if output.overall_after.memory_load_percent >= thresh {
                 state.cooldown_multiplier =
@@ -294,7 +299,7 @@ fn handle_threshold_clean(
                 state.cooldown_multiplier = 1;
             }
         }
-        Err(e) => state.record_error(&e)?,
+        Err(e) => record_error(&mut state.clean_errors, &e)?,
     }
 
     Ok(())
