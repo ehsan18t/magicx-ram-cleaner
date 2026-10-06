@@ -363,7 +363,7 @@ impl MemoryListInfo {
         };
         if written < ENTRIES {
             bail!(
-                "NtQuerySystemInformation(SystemMemoryListInformation) returned {return_length}                  bytes, need at least {}",
+                "NtQuerySystemInformation(SystemMemoryListInformation) returned {return_length} bytes, need at least {}",
                 ENTRIES * std::mem::size_of::<usize>()
             );
         }
