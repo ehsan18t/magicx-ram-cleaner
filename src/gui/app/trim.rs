@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use super::MagicXApp;
-use crate::engine::{self, TrimReport};
+use crate::engine::{self, TrimReport, TrimTarget};
 
 /// Where a program's trim stands.
 #[derive(Debug, Clone, Copy)]
@@ -32,10 +32,10 @@ pub struct TrimLog {
 pub type SharedTrimLog = Arc<Mutex<TrimLog>>;
 
 impl MagicXApp {
-    /// Trim the working sets of `pids`, all instances of the program `name`
-    /// (`key` is its lower-case form). Does nothing while that program is
+    /// Trim the working sets of `targets`, all instances of the program
+    /// `name` (`key` is its group key). Does nothing while that program is
     /// already being trimmed.
-    pub fn trim_program(&self, key: &str, name: &str, pids: Vec<u32>) {
+    pub fn trim_program(&self, key: &str, name: &str, targets: Vec<TrimTarget>) {
         let Ok(mut log) = self.trim_log.lock() else {
             return;
         };
@@ -52,9 +52,7 @@ impl MagicXApp {
         let spawned = std::thread::Builder::new()
             .name("gui-trim".into())
             .spawn(move || {
-                let report = engine::trim_processes(&engine::WindowsMemory, &pids, |pid| {
-                    crate::platform::process::memory_counters(pid).map(|c| c.working_set)
-                });
+                let report = engine::trim_processes(&engine::WindowsMemory, &targets);
                 let now = Instant::now();
                 if let Ok(mut log) = log.lock() {
                     log.by_program

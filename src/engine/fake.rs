@@ -14,7 +14,7 @@ use anyhow::{Result, bail};
 use super::system::MemorySystem;
 use crate::memory::{MemoryListInfo, MemorySnapshot, QuickMemoryReading};
 use crate::platform::nt::{MemoryListCommand, NtStatus};
-use crate::platform::process::ProcessEntry;
+use crate::platform::process::{ProcessEntry, TrimOutcome};
 
 /// Page size used by the model.
 pub const PAGE: u64 = 4096;
@@ -69,6 +69,10 @@ pub struct Model {
     pub processes: Vec<ProcessEntry>,
     /// PIDs that cannot be trimmed (protected processes).
     pub protected: Vec<u32>,
+    /// PIDs whose process has exited since it was listed.
+    pub exited: Vec<u32>,
+    /// Bytes each process gives back when trimmed (0 if not listed).
+    pub trim_freed: Vec<(u32, u64)>,
 }
 
 impl Default for Model {
@@ -93,6 +97,8 @@ impl Default for Model {
                 entry(4000, "protected.exe"),
             ],
             protected: vec![4000],
+            exited: Vec::new(),
+            trim_freed: Vec::new(),
         }
     }
 }
@@ -256,9 +262,21 @@ impl MemorySystem for FakeSystem {
         Ok(m.processes.clone())
     }
 
-    fn trim_process(&self, pid: u32) -> bool {
+    fn trim_process(&self, pid: u32, _started: Option<u64>) -> TrimOutcome {
         self.calls.borrow_mut().push(Call::Trim(pid));
-        !self.model.borrow().protected.contains(&pid)
+        let m = self.model.borrow();
+        if m.exited.contains(&pid) {
+            TrimOutcome::Exited
+        } else if m.protected.contains(&pid) {
+            TrimOutcome::Denied
+        } else {
+            let freed_bytes = m
+                .trim_freed
+                .iter()
+                .find(|&&(p, _)| p == pid)
+                .map_or(0, |&(_, bytes)| bytes);
+            TrimOutcome::Trimmed { freed_bytes }
+        }
     }
 
     fn own_pid(&self) -> u32 {

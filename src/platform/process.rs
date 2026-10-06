@@ -9,8 +9,8 @@ use windows_sys::Win32::System::ProcessStatus::{
     PROCESS_MEMORY_COUNTERS_EX2,
 };
 use windows_sys::Win32::System::Threading::{
-    OpenProcess, PROCESS_ACCESS_RIGHTS, PROCESS_NAME_WIN32, PROCESS_QUERY_INFORMATION,
-    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA, QueryFullProcessImageNameW,
+    OpenProcess, PROCESS_ACCESS_RIGHTS, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+    PROCESS_SET_QUOTA, QueryFullProcessImageNameW,
 };
 
 use std::os::windows::io::{AsRawHandle, OwnedHandle};
@@ -91,102 +91,255 @@ pub struct MemoryCounters {
     pub private_working_set: u64,
 }
 
-/// Open `pid` with `access`, or `None` if access is denied or it has exited.
-fn open_process(pid: u32, access: PROCESS_ACCESS_RIGHTS) -> Option<OwnedHandle> {
-    // SAFETY: OpenProcess returns null or a new handle that we own.
-    unsafe { owned_or_null(OpenProcess(access, 0, pid)) }
+/// What [`trim`] did to a process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrimOutcome {
+    /// The working set was emptied; `freed_bytes` is how much it shrank.
+    Trimmed {
+        /// Working-set bytes given back (0 if it could not be measured).
+        freed_bytes: u64,
+    },
+    /// Windows refused: a protected process, or one the app may not touch.
+    Denied,
+    /// The process has exited (or its PID now belongs to another process).
+    Exited,
 }
 
-/// Query the memory counters of process `pid`. Returns `None` if the process
-/// cannot be opened (protected/system processes) or queried.
-///
-/// Tries `PROCESS_MEMORY_COUNTERS_EX2` first (Windows 10 1709+) to obtain
-/// `PrivateWorkingSetSize`, the metric Task Manager shows as "Memory", and
-/// falls back to `PROCESS_MEMORY_COUNTERS` on older builds.
-///
-/// Uses a tiered `OpenProcess` strategy to maximise process visibility:
-///
-/// 1. `PROCESS_QUERY_INFORMATION` - sufficient for `K32GetProcessMemoryInfo`
-///    including the EX2 struct with `PrivateWorkingSetSize`.
-/// 2. `PROCESS_QUERY_LIMITED_INFORMATION` - weaker right that succeeds for
-///    Chromium/Electron sandboxed child processes and Protected Process Light
-///    (PPL) processes whose DACLs deny full query access.
-///
-/// `PROCESS_VM_READ` is intentionally **not** requested: it is not required
-/// by `K32GetProcessMemoryInfo` and makes `OpenProcess` fail for sandboxed
-/// processes, leading to missing entries and inaccurate RAM totals.
-#[must_use]
-pub fn memory_counters(pid: u32) -> Option<MemoryCounters> {
-    let handle = open_process(pid, PROCESS_QUERY_INFORMATION)
-        .or_else(|| open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION))?;
+/// Why a process could not be opened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenError {
+    /// No process with that PID exists any more.
+    Exited,
+    /// The process exists but Windows denied the requested access.
+    Denied,
+}
 
-    // SAFETY: PROCESS_MEMORY_COUNTERS_EX2 is zeroed, cb is set to its size,
-    // and the handle is a valid process handle.
-    let ex2 = unsafe {
-        let mut counters: PROCESS_MEMORY_COUNTERS_EX2 = std::mem::zeroed();
-        counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX2>() as u32;
-        let ok = K32GetProcessMemoryInfo(
-            handle.as_raw_handle(),
-            std::ptr::from_mut(&mut counters).cast::<PROCESS_MEMORY_COUNTERS>(),
-            counters.cb,
-        );
-        (ok != 0).then_some(counters)
-    };
-    if let Some(c) = ex2 {
-        return Some(MemoryCounters {
-            working_set: c.WorkingSetSize as u64,
-            peak_working_set: c.PeakWorkingSetSize as u64,
-            private_working_set: c.PrivateWorkingSetSize as u64,
-        });
+/// An open handle to one process. Every query on a process goes through a
+/// single handle, so a refresh opens each process once and all of its
+/// figures describe the same process.
+pub struct ProcessHandle(OwnedHandle);
+
+impl ProcessHandle {
+    /// Open `pid` for queries.
+    ///
+    /// `PROCESS_QUERY_LIMITED_INFORMATION` is enough for every query here
+    /// (memory counters including `PROCESS_MEMORY_COUNTERS_EX2`, the image
+    /// path and the start time) and, unlike `PROCESS_QUERY_INFORMATION`, it
+    /// is granted for Chromium/Electron sandboxed children and Protected
+    /// Process Light processes. `PROCESS_VM_READ` is deliberately not
+    /// requested: nothing needs it and it would make those opens fail.
+    pub fn open(pid: u32) -> Result<Self, OpenError> {
+        Self::open_with(pid, PROCESS_QUERY_LIMITED_INFORMATION)
     }
 
-    // SAFETY: PROCESS_MEMORY_COUNTERS is zeroed, cb is set to its size, and
-    // the handle is a valid process handle.
-    let base = unsafe {
-        let mut counters: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
-        counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
-        let ok = K32GetProcessMemoryInfo(handle.as_raw_handle(), &raw mut counters, counters.cb);
-        (ok != 0).then_some(counters)
-    }?;
-    Some(MemoryCounters {
-        working_set: base.WorkingSetSize as u64,
-        peak_working_set: base.PeakWorkingSetSize as u64,
-        // No EX2 data available: use the full working set as the fallback.
-        private_working_set: base.WorkingSetSize as u64,
-    })
+    /// Open `pid` for queries plus trimming (`PROCESS_SET_QUOTA`).
+    pub fn open_for_trim(pid: u32) -> Result<Self, OpenError> {
+        Self::open_with(pid, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SET_QUOTA)
+    }
+
+    /// Open `pid` with `access`.
+    fn open_with(pid: u32, access: PROCESS_ACCESS_RIGHTS) -> Result<Self, OpenError> {
+        use windows_sys::Win32::Foundation::{ERROR_INVALID_PARAMETER, GetLastError};
+
+        // SAFETY: OpenProcess returns null or a new handle that we own.
+        if let Some(handle) = unsafe { owned_or_null(OpenProcess(access, 0, pid)) } {
+            return Ok(Self(handle));
+        }
+        // SAFETY: Reads the calling thread's last-error value, set by the
+        // failed OpenProcess just above.
+        let error = unsafe { GetLastError() };
+        // OpenProcess reports a PID that no longer exists as an invalid
+        // parameter; everything else (mostly access denied) is a refusal.
+        Err(if error == ERROR_INVALID_PARAMETER {
+            OpenError::Exited
+        } else {
+            OpenError::Denied
+        })
+    }
+
+    /// The process's physical-memory counters, or `None` if the query fails.
+    ///
+    /// Tries `PROCESS_MEMORY_COUNTERS_EX2` first (Windows 10 1709+) to obtain
+    /// `PrivateWorkingSetSize`, the metric Task Manager shows as "Memory", and
+    /// falls back to `PROCESS_MEMORY_COUNTERS` on older builds.
+    #[must_use]
+    pub fn memory_counters(&self) -> Option<MemoryCounters> {
+        let handle = self.0.as_raw_handle();
+        // SAFETY: PROCESS_MEMORY_COUNTERS_EX2 is zeroed, cb is set to its size,
+        // and the handle is a valid process handle with a query right.
+        let ex2 = unsafe {
+            let mut counters: PROCESS_MEMORY_COUNTERS_EX2 = std::mem::zeroed();
+            counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX2>() as u32;
+            let ok = K32GetProcessMemoryInfo(
+                handle,
+                std::ptr::from_mut(&mut counters).cast::<PROCESS_MEMORY_COUNTERS>(),
+                counters.cb,
+            );
+            (ok != 0).then_some(counters)
+        };
+        if let Some(c) = ex2 {
+            return Some(MemoryCounters {
+                working_set: c.WorkingSetSize as u64,
+                peak_working_set: c.PeakWorkingSetSize as u64,
+                private_working_set: c.PrivateWorkingSetSize as u64,
+            });
+        }
+
+        // SAFETY: PROCESS_MEMORY_COUNTERS is zeroed, cb is set to its size, and
+        // the handle is a valid process handle with a query right.
+        let base = unsafe {
+            let mut counters: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
+            counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+            let ok = K32GetProcessMemoryInfo(handle, &raw mut counters, counters.cb);
+            (ok != 0).then_some(counters)
+        }?;
+        Some(MemoryCounters {
+            working_set: base.WorkingSetSize as u64,
+            peak_working_set: base.PeakWorkingSetSize as u64,
+            // No EX2 data available: use the full working set as the fallback.
+            private_working_set: base.WorkingSetSize as u64,
+        })
+    }
+
+    /// Full path of the executable the process is running, or `None` if it
+    /// cannot be queried. Paths longer than the first buffer (long-path
+    /// builds) are handled by retrying with the largest path Windows allows.
+    #[must_use]
+    pub fn image_path(&self) -> Option<std::path::PathBuf> {
+        use std::os::windows::ffi::OsStringExt;
+        use windows_sys::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, GetLastError};
+
+        /// The longest path Windows supports, in UTF-16 units.
+        const MAX_LONG_PATH: usize = 32_768;
+
+        let mut buf = vec![0u16; 1024];
+        loop {
+            let mut len = buf.len() as u32;
+            // SAFETY: `buf` is writable for `len` UTF-16 units and `len` is a
+            // valid in/out pointer; the handle has a query right.
+            let ok = unsafe {
+                QueryFullProcessImageNameW(
+                    self.0.as_raw_handle(),
+                    PROCESS_NAME_WIN32,
+                    buf.as_mut_ptr(),
+                    &raw mut len,
+                )
+            };
+            if ok != 0 {
+                return Some(std::ffi::OsString::from_wide(&buf[..len as usize]).into());
+            }
+            // SAFETY: Reads the last-error value of the failed call above.
+            let error = unsafe { GetLastError() };
+            if error != ERROR_INSUFFICIENT_BUFFER || buf.len() >= MAX_LONG_PATH {
+                return None;
+            }
+            buf = vec![0u16; MAX_LONG_PATH];
+        }
+    }
+
+    /// When the process started, as a `FILETIME` tick count (100 ns units
+    /// since 1601). Together with the PID it identifies a process uniquely,
+    /// because Windows reuses PIDs.
+    #[must_use]
+    pub fn start_time(&self) -> Option<u64> {
+        use windows_sys::Win32::Foundation::FILETIME;
+        use windows_sys::Win32::System::Threading::GetProcessTimes;
+
+        let zero = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        let (mut creation, mut exit, mut kernel, mut user) = (zero, zero, zero, zero);
+        // SAFETY: The four FILETIME out-pointers are valid for writes and the
+        // handle has the limited query right GetProcessTimes needs.
+        let ok = unsafe {
+            GetProcessTimes(
+                self.0.as_raw_handle(),
+                &raw mut creation,
+                &raw mut exit,
+                &raw mut kernel,
+                &raw mut user,
+            )
+        };
+        (ok != 0)
+            .then(|| (u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime))
+    }
+
+    /// Remove as many pages as possible from the working set. Needs a handle
+    /// from [`Self::open_for_trim`].
+    fn empty_working_set(&self) -> bool {
+        // SAFETY: The handle is a valid process handle with PROCESS_SET_QUOTA
+        // and a query right, which is what EmptyWorkingSet requires.
+        unsafe { K32EmptyWorkingSet(self.0.as_raw_handle()) != 0 }
+    }
 }
 
-/// Remove as many pages as possible from the working set of process `pid`.
+/// Trim the working set of process `pid`, measuring how much it gave back.
 ///
-/// Returns `false` if the process cannot be opened (protected or system
-/// processes) or the trim fails. `EmptyWorkingSet` needs `PROCESS_SET_QUOTA`
-/// plus either query right; the limited one is granted to far more processes
-/// (sandboxed browser children, services), so more of them get trimmed.
+/// When `started` is given (from [`ProcessHandle::start_time`] at the time
+/// the process was listed), a process whose start time differs is treated
+/// as [`TrimOutcome::Exited`]: its PID was reused by an unrelated process.
+///
+/// `EmptyWorkingSet` needs `PROCESS_SET_QUOTA` plus either query right; the
+/// limited one is granted to far more processes (sandboxed browser children,
+/// services), so more of them get trimmed.
 #[must_use]
-pub fn empty_working_set(pid: u32) -> bool {
-    open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SET_QUOTA)
-        // SAFETY: The handle is a valid process handle with the required rights.
-        .is_some_and(|handle| unsafe { K32EmptyWorkingSet(handle.as_raw_handle()) } != 0)
+pub fn trim(pid: u32, started: Option<u64>) -> TrimOutcome {
+    let handle = match ProcessHandle::open_for_trim(pid) {
+        Ok(handle) => handle,
+        Err(OpenError::Exited) => return TrimOutcome::Exited,
+        Err(OpenError::Denied) => return TrimOutcome::Denied,
+    };
+    if started.is_some() && handle.start_time() != started {
+        return TrimOutcome::Exited;
+    }
+    let before = handle.memory_counters().map(|c| c.working_set);
+    if !handle.empty_working_set() {
+        return TrimOutcome::Denied;
+    }
+    let after = handle.memory_counters().map(|c| c.working_set);
+    let freed_bytes = match (before, after) {
+        (Some(before), Some(after)) => before.saturating_sub(after),
+        _ => 0,
+    };
+    TrimOutcome::Trimmed { freed_bytes }
 }
 
 /// Full path of the executable that process `pid` is running, or `None` if
 /// the process cannot be opened or queried.
 #[must_use]
 pub fn image_path(pid: u32) -> Option<std::path::PathBuf> {
-    use std::os::windows::ffi::OsStringExt;
+    ProcessHandle::open(pid).ok()?.image_path()
+}
 
-    let handle = open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION)?;
-    let mut buf = [0u16; 1024];
-    let mut len = buf.len() as u32;
-    // SAFETY: `buf` is writable for `len` UTF-16 units and `len` is a valid
-    // in/out pointer; the handle has the required query right.
-    let ok = unsafe {
-        QueryFullProcessImageNameW(
-            handle.as_raw_handle(),
-            PROCESS_NAME_WIN32,
-            buf.as_mut_ptr(),
-            &raw mut len,
-        )
-    };
-    (ok != 0).then(|| std::ffi::OsString::from_wide(&buf[..len as usize]).into())
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_handle_answers_every_query_for_this_process() {
+        let handle = ProcessHandle::open(std::process::id()).expect("own process opens");
+        let counters = handle.memory_counters().expect("counters");
+        assert!(counters.working_set > 0);
+        let path = handle.image_path().expect("image path");
+        assert!(path.is_absolute());
+        assert!(handle.start_time().is_some());
+    }
+
+    #[test]
+    fn a_reused_pid_is_reported_as_exited() {
+        let own = std::process::id();
+        let started = ProcessHandle::open(own).unwrap().start_time().unwrap();
+        assert_eq!(trim(own, Some(started + 1)), TrimOutcome::Exited);
+    }
+
+    #[test]
+    fn a_missing_pid_is_reported_as_exited() {
+        // PIDs are multiples of 4, so this one can never exist.
+        assert_eq!(trim(0xFFFF_FFF1, None), TrimOutcome::Exited);
+        assert!(matches!(
+            ProcessHandle::open(0xFFFF_FFF1),
+            Err(OpenError::Exited)
+        ));
+    }
 }

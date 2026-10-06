@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use eframe::egui;
 
+use crate::engine::TrimTarget;
 use crate::gui::icons::regular as ph;
 use crate::memory;
 use crate::strings::gui::processes as text;
@@ -55,8 +56,8 @@ struct GroupedProcess {
     key: String,
     /// Whether the program is part of Windows.
     windows: bool,
-    /// Process IDs of the instances.
-    pids: Vec<u32>,
+    /// The instances, as listed (PID plus start time).
+    targets: Vec<TrimTarget>,
     /// Sum of private working sets: Task Manager's "Memory" column, which
     /// does not double-count pages shared between instances.
     private_working_set: u64,
@@ -82,7 +83,10 @@ fn group_processes(procs: &[memory::ProcessMemoryInfo]) -> Vec<GroupedProcess> {
         };
         map.entry(key.clone())
             .and_modify(|g| {
-                g.pids.push(p.pid);
+                g.targets.push(TrimTarget {
+                    pid: p.pid,
+                    started: p.started,
+                });
                 g.private_working_set += p.private_working_set;
                 g.working_set += p.working_set;
                 g.peak_working_set += p.peak_working_set;
@@ -92,7 +96,10 @@ fn group_processes(procs: &[memory::ProcessMemoryInfo]) -> Vec<GroupedProcess> {
                 lower,
                 key,
                 windows: p.windows_process,
-                pids: vec![p.pid],
+                targets: vec![TrimTarget {
+                    pid: p.pid,
+                    started: p.started,
+                }],
                 private_working_set: p.private_working_set,
                 working_set: p.working_set,
                 peak_working_set: p.peak_working_set,
@@ -145,7 +152,7 @@ pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
 
     widgets::card_with_padding(ui, 0, |ui| draw_list(ui, app, &p, &groups));
 
-    let instances: usize = groups.iter().map(|g| g.pids.len()).sum();
+    let instances: usize = groups.iter().map(|g| g.targets.len()).sum();
     ui.add_space(8.0);
     ui.label(
         egui::RichText::new(format!(
@@ -330,8 +337,8 @@ fn draw_list(ui: &mut egui::Ui, app: &mut MagicXApp, p: &Palette, groups: &[Grou
         .map(|log| log.by_program.clone())
         .unwrap_or_default();
     for group in groups {
-        if let Some(pids) = draw_row(ui, p, group, max, trims.get(&group.key)) {
-            app.trim_program(&group.key, &group.name, pids);
+        if let Some(targets) = draw_row(ui, p, group, max, trims.get(&group.key)) {
+            app.trim_program(&group.key, &group.name, targets);
         }
     }
 }
@@ -406,14 +413,15 @@ fn draw_header(ui: &mut egui::Ui, app: &mut MagicXApp, p: &Palette) {
     }
 }
 
-/// One program row. Returns the PIDs to trim when its Trim button is clicked.
+/// One program row. Returns the processes to trim when its Trim button is
+/// clicked.
 fn draw_row(
     ui: &mut egui::Ui,
     p: &Palette,
     group: &GroupedProcess,
     max: u64,
     trim: Option<&TrimState>,
-) -> Option<Vec<u32>> {
+) -> Option<Vec<TrimTarget>> {
     // Rows take keyboard focus so Trim works without a mouse: a focused row
     // shows the Trim button, and Enter or Space runs it.
     let (rect, row) = ui.allocate_exact_size(
@@ -438,7 +446,7 @@ fn draw_row(
     paint_text(
         ui,
         cols.count,
-        &group.pids.len().to_string(),
+        &group.targets.len().to_string(),
         (theme::BODY, 400.0),
         p.text_secondary,
         egui::Align::Max,
@@ -454,7 +462,7 @@ fn draw_row(
     );
     let clicked = draw_action(ui, p, cols.action, active, trim);
     let running = matches!(trim, Some(TrimState::Running));
-    ((clicked || key_trim) && !running).then(|| group.pids.clone())
+    ((clicked || key_trim) && !running).then(|| group.targets.clone())
 }
 
 /// The program name, with the hover details, and a second line while a trim
@@ -665,9 +673,9 @@ fn sort_processes(groups: &mut [GroupedProcess], col: usize, ascending: bool) {
         let ord = match col {
             0 => a.lower.cmp(&b.lower).then_with(|| a.key.cmp(&b.key)),
             1 => a
-                .pids
+                .targets
                 .len()
-                .cmp(&b.pids.len())
+                .cmp(&b.targets.len())
                 .then_with(|| a.private_working_set.cmp(&b.private_working_set))
                 .then_with(|| a.peak_working_set.cmp(&b.peak_working_set))
                 .then_with(|| a.name.cmp(&b.name)),
@@ -675,13 +683,13 @@ fn sort_processes(groups: &mut [GroupedProcess], col: usize, ascending: bool) {
                 .peak_working_set
                 .cmp(&b.peak_working_set)
                 .then_with(|| a.private_working_set.cmp(&b.private_working_set))
-                .then_with(|| a.pids.len().cmp(&b.pids.len()))
+                .then_with(|| a.targets.len().cmp(&b.targets.len()))
                 .then_with(|| a.name.cmp(&b.name)),
             _ => a
                 .private_working_set
                 .cmp(&b.private_working_set)
                 .then_with(|| a.peak_working_set.cmp(&b.peak_working_set))
-                .then_with(|| a.pids.len().cmp(&b.pids.len()))
+                .then_with(|| a.targets.len().cmp(&b.targets.len()))
                 .then_with(|| a.name.cmp(&b.name)),
         };
         if ascending { ord } else { ord.reverse() }
@@ -700,6 +708,7 @@ mod tests {
             peak_working_set: private * 3,
             private_working_set: private,
             windows_process: false,
+            started: None,
         }
     }
 
@@ -731,7 +740,7 @@ mod tests {
             .iter()
             .find(|g| g.lower == "msedge.exe")
             .expect("grouped");
-        assert_eq!(edge.pids.len(), 2);
+        assert_eq!(edge.targets.len(), 2);
         assert_eq!(edge.private_working_set, 150);
         assert_eq!(edge.peak_working_set, 450);
     }

@@ -7,6 +7,7 @@ use super::progress::Progress;
 use super::report::CleanResult;
 use super::settle::SettleMode;
 use crate::platform::nt::{self, MemoryListCommand, NtStatus};
+use crate::platform::process::TrimOutcome;
 
 /// Display strings for a memory-list command:
 /// `(operation_name, success_message, progress_label)`.
@@ -165,10 +166,13 @@ impl Cleaner<'_> {
                     name: entry.name,
                     pid: entry.pid,
                 });
-            } else if self.sys.trim_process(entry.pid) {
-                trimmed += 1;
             } else {
-                skipped += 1;
+                match self.sys.trim_process(entry.pid, None) {
+                    TrimOutcome::Trimmed { .. } => trimmed += 1,
+                    TrimOutcome::Denied => skipped += 1,
+                    // Gone between the snapshot and the trim: nothing to do.
+                    TrimOutcome::Exited => {}
+                }
             }
         }
 

@@ -31,7 +31,7 @@ pub use self::progress::Progress;
 pub use self::report::{CleanResult, SmartCleanResult};
 pub use self::smart::dry_run_plan;
 pub use self::system::{MemorySystem, WindowsMemory};
-pub use self::trim::{TrimReport, trim_processes};
+pub use self::trim::{TrimReport, TrimTarget, trim_processes};
 
 /// Runs cleaning operations against a [`MemorySystem`], reporting
 /// [`Progress`] to a caller-supplied callback.

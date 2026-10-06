@@ -7,7 +7,7 @@ use anyhow::Result;
 use crate::memory::{MemorySnapshot, QuickMemoryReading};
 use crate::platform::memory;
 use crate::platform::nt::{self, MemoryListCommand, NtStatus};
-use crate::platform::process::{self, ProcessEntry};
+use crate::platform::process::{self, ProcessEntry, TrimOutcome};
 
 /// Everything the cleaning engine needs from the operating system.
 ///
@@ -37,8 +37,9 @@ pub trait MemorySystem {
     /// List running processes (without System Idle and System).
     fn processes(&self) -> Result<Vec<ProcessEntry>>;
 
-    /// Empty one process's working set; `false` if it cannot be trimmed.
-    fn trim_process(&self, pid: u32) -> bool;
+    /// Empty one process's working set. `started` is the process's start
+    /// time when it was listed (if known), so a reused PID is not trimmed.
+    fn trim_process(&self, pid: u32, started: Option<u64>) -> TrimOutcome;
 
     /// The ID of the process running the engine (never trimmed).
     fn own_pid(&self) -> u32;
@@ -80,8 +81,8 @@ impl MemorySystem for WindowsMemory {
         process::processes()
     }
 
-    fn trim_process(&self, pid: u32) -> bool {
-        process::empty_working_set(pid)
+    fn trim_process(&self, pid: u32, started: Option<u64>) -> TrimOutcome {
+        process::trim(pid, started)
     }
 
     fn own_pid(&self) -> u32 {

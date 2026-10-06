@@ -28,6 +28,9 @@ pub struct ProcessMemoryInfo {
     pub private_working_set: u64,
     /// Whether this is a Windows process (see [`is_windows_process`]).
     pub windows_process: bool,
+    /// When the process started (`FILETIME` ticks), used to recognise it
+    /// again later even if Windows reuses its PID.
+    pub started: Option<u64>,
 }
 
 /// Enumerate running processes and return the top `count` by working set size.
@@ -50,8 +53,9 @@ pub fn query_all_processes() -> Result<Vec<ProcessMemoryInfo>> {
     let mut processes: Vec<ProcessMemoryInfo> = process::processes()?
         .into_iter()
         .filter_map(|entry| {
-            let counters = process::memory_counters(entry.pid)?;
-            let image = process::image_path(entry.pid);
+            let handle = process::ProcessHandle::open(entry.pid).ok()?;
+            let counters = handle.memory_counters()?;
+            let image = handle.image_path();
             Some(ProcessMemoryInfo {
                 pid: entry.pid,
                 name: entry.name,
@@ -59,6 +63,7 @@ pub fn query_all_processes() -> Result<Vec<ProcessMemoryInfo>> {
                 peak_working_set: counters.peak_working_set,
                 private_working_set: counters.private_working_set,
                 windows_process: is_windows_process(image.as_deref(), windows_dir.as_deref()),
+                started: handle.start_time(),
             })
         })
         .collect();
