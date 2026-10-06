@@ -444,17 +444,19 @@ impl Drop for PrivateTempDir {
 
 /// Delete the autostart logon task. A missing task counts as success.
 fn delete_autostart_task() -> Result<(), String> {
-    // Query first so "task does not exist" is detected by exit status
-    // rather than by parsing localised `schtasks` error text.
-    if !SettingsManager::is_autostart_enabled() {
-        return Ok(());
-    }
-    run_schtasks(&[
+    let deleted = run_schtasks(&[
         "/Delete".as_ref(),
         "/TN".as_ref(),
         AUTOSTART_TASK_NAME.as_ref(),
         "/F".as_ref(),
-    ])
+    ]);
+    // A failed delete is only fine when the task is really gone. Checking
+    // with a query (exit status) avoids parsing localised schtasks text, and
+    // a delete is always attempted, so a failing query cannot hide a task.
+    match deleted {
+        Err(_) if !SettingsManager::is_autostart_enabled() => Ok(()),
+        other => other,
+    }
 }
 
 /// Owned registry key handle that is closed on drop.
@@ -590,19 +592,23 @@ impl SettingsManager {
     /// When `enabled` is `false`, deletes that task if it exists.
     ///
     /// In both cases the legacy `HKCU\...\Run` value written by older versions
-    /// is removed, since Windows never honours it for this elevated app.
+    /// is removed on a best-effort basis. Windows never honours it for this
+    /// elevated app, so failing to remove it must not make the call fail
+    /// (the caller would then show a state that contradicts the real task).
     ///
     /// # Errors
     ///
     /// Returns an error string (including `schtasks` output) if the task
-    /// cannot be created or deleted, or the legacy value cannot be removed.
+    /// cannot be created or deleted.
     pub fn set_autostart(enabled: bool) -> Result<(), String> {
         if enabled {
             create_autostart_task()?;
         } else {
             delete_autostart_task()?;
         }
-        remove_legacy_run_entry()
+        // Named binding avoids `let_underscore_drop`; removal is best-effort.
+        let _legacy = remove_legacy_run_entry();
+        Ok(())
     }
 
     /// Whether the autostart logon task currently exists.
