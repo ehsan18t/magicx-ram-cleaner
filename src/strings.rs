@@ -265,11 +265,11 @@ pub mod gui {
             "Any whole number from 1 to 9999. Up and Down change it by one.";
 
         /// The checkbox that shows or hides Windows processes.
-        pub const LABEL_SHOW_WINDOWS: &str = "Show Windows processes";
+        pub const LABEL_SHOW_WINDOWS: &str = "Windows processes";
 
         /// Tooltip of the Windows processes checkbox.
-        pub const TOOLTIP_SHOW_WINDOWS: &str = "Untick to see only programs that aren\u{2019}t part of \
-             Windows: anything installed outside the Windows folder.";
+        pub const TOOLTIP_SHOW_WINDOWS: &str = "Include processes that are part of Windows. Untick to \
+             see only programs from outside the Windows folder.";
 
         /// Added to the footer while Windows processes are hidden.
         pub const FOOTER_WINDOWS_HIDDEN: &str = ", Windows processes hidden";

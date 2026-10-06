@@ -483,6 +483,25 @@ pub fn dropdown<T: PartialEq + Copy>(
     response
 }
 
+/// The width [`checkbox`] takes for `label`.
+#[must_use]
+pub fn checkbox_width(ui: &egui::Ui, label: &str) -> f32 {
+    let galley = ui.painter().layout_job(single_line_job(
+        label,
+        theme::BODY,
+        egui::Color32::PLACEHOLDER,
+        400.0,
+        f32::INFINITY,
+    ));
+    CHECKBOX_BOX + CHECKBOX_GAP + galley.size().x
+}
+
+/// Side of the checkbox square.
+const CHECKBOX_BOX: f32 = 20.0;
+
+/// Space between the checkbox square and its label.
+const CHECKBOX_GAP: f32 = 8.0;
+
 /// A Windows 11 checkbox with its label; clicking either toggles it.
 /// `changed()` is set on the response when the user flips it.
 pub fn checkbox(ui: &mut egui::Ui, checked: &mut bool, label: &str) -> egui::Response {
@@ -494,8 +513,7 @@ pub fn checkbox(ui: &mut egui::Ui, checked: &mut bool, label: &str) -> egui::Res
         400.0,
         f32::INFINITY,
     ));
-    let box_size = 20.0;
-    let gap = 8.0;
+    let (box_size, gap) = (CHECKBOX_BOX, CHECKBOX_GAP);
     let size = egui::vec2(box_size + gap + galley.size().x, theme::CONTROL_HEIGHT);
     let (rect, mut response) = ui.allocate_exact_size(size, egui::Sense::click());
     if response.clicked() {

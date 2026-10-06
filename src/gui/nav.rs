@@ -253,8 +253,11 @@ pub(super) fn draw_page(ui: &mut egui::Ui, app: &mut MagicXApp) {
                 egui::StrokeKind::Inside,
             );
             // Each page keeps its own scroll position.
+            // Full width, so the scrollbar sits at the window edge even when
+            // the content stops at its maximum width.
             egui::ScrollArea::vertical()
                 .id_salt(app.active_panel)
+                .auto_shrink([false, false])
                 .content_margin(egui::Margin {
                     left: 28,
                     right: 28,

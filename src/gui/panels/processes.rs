@@ -163,21 +163,37 @@ pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     );
 }
 
-/// The program count and the Windows filter on the left, search on the
-/// right. On narrow windows the filter moves to a second line.
+/// One toolbar row: the program count on the left; the Windows filter and
+/// search on the right, both of which narrow the list. Only on windows too
+/// narrow for one row does the filter move to a line of its own.
 fn draw_toolbar(ui: &mut egui::Ui, app: &mut MagicXApp, p: &Palette) {
-    let one_line = ui.available_width() >= 720.0;
+    const SEARCH_WIDTH: std::ops::RangeInclusive<f32> = 140.0..=220.0;
+    const GAPS: f32 = 16.0 + 12.0;
+
+    let filter_width = widgets::checkbox_width(ui, text::LABEL_SHOW_WINDOWS);
+    let mut filter_on_own_line = false;
     ui.horizontal(|ui| {
         draw_count(ui, app, p);
-        if one_line {
-            ui.add_space(16.0);
-            draw_windows_filter(ui, app);
-        }
+        // What is left after the count is shared by the filter and search;
+        // search gives up width first, and the filter only drops to its own
+        // line when even the narrowest search box would not fit beside it.
+        let left = ui.available_width();
+        let beside = left - filter_width - GAPS;
+        filter_on_own_line = beside < *SEARCH_WIDTH.start();
+        let search_width = if filter_on_own_line {
+            (left - 16.0).clamp(*SEARCH_WIDTH.start(), *SEARCH_WIDTH.end())
+        } else {
+            beside.min(*SEARCH_WIDTH.end())
+        };
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            search_box(ui, app, p);
+            search_box(ui, app, p, search_width);
+            if !filter_on_own_line {
+                ui.add_space(12.0);
+                draw_windows_filter(ui, app);
+            }
         });
     });
-    if !one_line {
+    if filter_on_own_line {
         ui.add_space(4.0);
         draw_windows_filter(ui, app);
     }
@@ -207,12 +223,12 @@ fn draw_windows_filter(ui: &mut egui::Ui, app: &mut MagicXApp) {
 }
 
 /// A search field with a magnifier inside and a clear button once it has text.
-fn search_box(ui: &mut egui::Ui, app: &mut MagicXApp, p: &Palette) {
+fn search_box(ui: &mut egui::Ui, app: &mut MagicXApp, p: &Palette, width: f32) {
     let response = ui.add(
         egui::TextEdit::singleline(&mut app.process_search)
             .id_salt("process-search")
             .hint_text(text::SEARCH_HINT)
-            .desired_width(240.0)
+            .desired_width(width)
             .margin(egui::Margin {
                 left: 30,
                 right: 28,
