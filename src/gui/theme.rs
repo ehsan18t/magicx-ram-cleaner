@@ -146,10 +146,12 @@ impl Palette {
         if dark {
             let bg = hex(0x20, 0x20, 0x20);
             let accent_fill = rgb(accent[1]);
+            let card = hex(0x2B, 0x2B, 0x2B);
+            let text = hex(0xFF, 0xFF, 0xFF);
             Self {
                 dark,
                 bg,
-                card: hex(0x2B, 0x2B, 0x2B),
+                card,
                 card_stroke: hex(0x1C, 0x1C, 0x1C),
                 divider: hex(0x38, 0x38, 0x38),
                 control: hex(0x2D, 0x2D, 0x2D),
@@ -158,14 +160,18 @@ impl Palette {
                 control_stroke: hex(0x3A, 0x3A, 0x3A),
                 subtle: hex(0x2D, 0x2D, 0x2D),
                 well: hex(0x1E, 0x1E, 0x1E),
-                text: hex(0xFF, 0xFF, 0xFF),
+                text,
                 text_secondary: hex(0xC8, 0xC8, 0xC8),
                 text_tertiary: hex(0x9E, 0x9E, 0x9E),
                 text_disabled: hex(0x6E, 0x6E, 0x6E),
                 accent: accent_fill,
                 accent_hover: mix(accent_fill, bg, 0.12),
-                on_accent: hex(0x00, 0x00, 0x00),
-                accent_text: rgb(accent[0]),
+                on_accent: text_on(accent_fill),
+                accent_text: readable(
+                    &[rgb(accent[0]), rgb(accent[1]), rgb(accent[2])],
+                    card,
+                    text,
+                ),
                 success: hex(0x6C, 0xCB, 0x5F),
                 caution: hex(0xFC, 0xE1, 0x00),
                 critical: hex(0xFF, 0x99, 0xA4),
@@ -177,10 +183,12 @@ impl Palette {
         } else {
             let bg = hex(0xF3, 0xF3, 0xF3);
             let accent_fill = rgb(accent[4]);
+            let card = hex(0xFB, 0xFB, 0xFB);
+            let text = hex(0x1B, 0x1B, 0x1B);
             Self {
                 dark,
                 bg,
-                card: hex(0xFB, 0xFB, 0xFB),
+                card,
                 card_stroke: hex(0xE5, 0xE5, 0xE5),
                 divider: hex(0xEA, 0xEA, 0xEA),
                 control: hex(0xFD, 0xFD, 0xFD),
@@ -189,14 +197,18 @@ impl Palette {
                 control_stroke: hex(0xDC, 0xDC, 0xDC),
                 subtle: hex(0xE9, 0xE9, 0xE9),
                 well: hex(0xE6, 0xE6, 0xE6),
-                text: hex(0x1B, 0x1B, 0x1B),
+                text,
                 text_secondary: hex(0x5D, 0x5D, 0x5D),
                 text_tertiary: hex(0x66, 0x66, 0x66),
                 text_disabled: hex(0xA0, 0xA0, 0xA0),
                 accent: accent_fill,
                 accent_hover: mix(accent_fill, bg, 0.12),
-                on_accent: hex(0xFF, 0xFF, 0xFF),
-                accent_text: rgb(accent[5]),
+                on_accent: text_on(accent_fill),
+                accent_text: readable(
+                    &[rgb(accent[5]), rgb(accent[6]), rgb(accent[4])],
+                    card,
+                    text,
+                ),
                 success: hex(0x0F, 0x7B, 0x0F),
                 caution: hex(0x9D, 0x5D, 0x00),
                 critical: hex(0xC4, 0x2B, 0x1C),
@@ -387,6 +399,55 @@ pub fn mix(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
     )
 }
 
+/// WCAG relative luminance of a colour.
+fn luminance(c: egui::Color32) -> f32 {
+    let channel = |v: u8| {
+        let s = f32::from(v) / 255.0;
+        if s <= 0.039_28 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.0722f32.mul_add(
+        channel(c.b()),
+        0.2126f32.mul_add(channel(c.r()), 0.7152 * channel(c.g())),
+    )
+}
+
+/// WCAG contrast ratio between two colours (1 to 21).
+#[must_use]
+pub fn contrast(a: egui::Color32, b: egui::Color32) -> f32 {
+    let (la, lb) = (luminance(a), luminance(b));
+    let (hi, lo) = if la > lb { (la, lb) } else { (lb, la) };
+    (hi + 0.05) / (lo + 0.05)
+}
+
+/// Black or white, whichever reads better on `fill`. The better of the two
+/// always reaches at least 4.58:1, so any accent gets AA-level text.
+fn text_on(fill: egui::Color32) -> egui::Color32 {
+    let (black, white) = (egui::Color32::BLACK, egui::Color32::WHITE);
+    if contrast(black, fill) >= contrast(white, fill) {
+        black
+    } else {
+        white
+    }
+}
+
+/// The first of `candidates` with AA contrast (4.5:1) on `surface`, or
+/// `fallback` when none has it.
+fn readable(
+    candidates: &[egui::Color32],
+    surface: egui::Color32,
+    fallback: egui::Color32,
+) -> egui::Color32 {
+    candidates
+        .iter()
+        .copied()
+        .find(|c| contrast(*c, surface) >= 4.5)
+        .unwrap_or(fallback)
+}
+
 /// Linear interpolation between two `u8` values.
 pub(crate) fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
     let t = t.clamp(0.0, 1.0);
@@ -458,31 +519,6 @@ pub fn yellow() -> egui::Color32 {
 mod tests {
     use super::*;
 
-    /// WCAG relative luminance of a colour.
-    fn luminance(c: egui::Color32) -> f32 {
-        let channel = |v: u8| {
-            let s = f32::from(v) / 255.0;
-            if s <= 0.039_28 {
-                s / 12.92
-            } else {
-                ((s + 0.055) / 1.055).powf(2.4)
-            }
-        };
-        0.0722f32.mul_add(
-            channel(c.b()),
-            0.2126f32.mul_add(channel(c.r()), 0.7152 * channel(c.g())),
-        )
-    }
-
-    /// WCAG contrast ratio between two colours.
-    fn contrast(a: egui::Color32, b: egui::Color32) -> f32 {
-        let (hi, lo) = {
-            let (la, lb) = (luminance(a), luminance(b));
-            if la > lb { (la, lb) } else { (lb, la) }
-        };
-        (hi + 0.05) / (lo + 0.05)
-    }
-
     #[test]
     fn text_meets_wcag_aa_on_every_surface() {
         for dark in [true, false] {
@@ -496,18 +532,53 @@ mod tests {
                     );
                 }
             }
-            assert!(
-                contrast(p.on_accent, p.accent) >= 4.5,
-                "dark={dark}: text on accent"
-            );
-            assert!(
-                contrast(p.accent_text, p.bg) >= 4.5,
-                "dark={dark}: accent text"
-            );
-            assert!(
-                contrast(p.critical, p.card) >= 4.5,
-                "dark={dark}: critical text"
-            );
+            for colour in [p.critical, p.success] {
+                assert!(contrast(colour, p.card) >= 4.5, "dark={dark}: {colour:?}");
+            }
+        }
+    }
+
+    /// An accent palette shaded from `base` the way Windows does: lighter
+    /// shades mixed with white, darker ones with black.
+    fn shades(base: egui::Color32) -> AccentPalette {
+        let to_rgb = |c: egui::Color32| [c.r(), c.g(), c.b()];
+        let (white, black) = (egui::Color32::WHITE, egui::Color32::BLACK);
+        [
+            to_rgb(mix(base, white, 0.7)),
+            to_rgb(mix(base, white, 0.5)),
+            to_rgb(mix(base, white, 0.25)),
+            to_rgb(base),
+            to_rgb(mix(base, black, 0.2)),
+            to_rgb(mix(base, black, 0.45)),
+            to_rgb(mix(base, black, 0.7)),
+        ]
+    }
+
+    #[test]
+    fn accent_text_and_text_on_accent_stay_readable_for_any_accent() {
+        let bases = [
+            hex(0xFF, 0xB9, 0x00), // yellow
+            hex(0x10, 0x7C, 0x10), // green
+            hex(0xE8, 0x11, 0x23), // red
+            hex(0xA9, 0x4D, 0xC1), // purple
+            hex(0x00, 0xB7, 0xC3), // teal
+            hex(0x7A, 0x75, 0x74), // grey
+            hex(0x00, 0x78, 0xD4), // Windows blue
+        ];
+        for base in bases {
+            for dark in [true, false] {
+                let p = Palette::new(dark, &shades(base));
+                assert!(
+                    contrast(p.on_accent, p.accent) >= 4.5,
+                    "dark={dark}, accent {base:?}: text on accent"
+                );
+                for surface in [p.card, p.bg] {
+                    assert!(
+                        contrast(p.accent_text, surface) >= 4.5,
+                        "dark={dark}, accent {base:?}: accent text on {surface:?}"
+                    );
+                }
+            }
         }
     }
 
