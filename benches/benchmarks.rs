@@ -162,6 +162,7 @@ fn bench_snapshot_calculations(c: &mut Criterion) {
         handle_count: 85_000,
         process_count: 300,
         thread_count: 4000,
+        lists: None,
     };
 
     group.bench_function("commit_percent", |b| {

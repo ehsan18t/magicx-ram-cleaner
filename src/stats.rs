@@ -95,6 +95,12 @@ pub struct MemorySnapshot {
     pub process_count: u32,
     /// Total threads.
     pub thread_count: u32,
+    /// Kernel page-list breakdown (free, standby, modified) at the same instant.
+    ///
+    /// `None` when `NtQuerySystemInformation(SystemMemoryListInformation)` is
+    /// unavailable, which happens when `SeProfileSingleProcessPrivilege` is not
+    /// enabled (e.g. a non-elevated `status` call).
+    pub lists: Option<MemoryListInfo>,
 }
 
 impl MemorySnapshot {
@@ -137,7 +143,36 @@ impl MemorySnapshot {
             handle_count: pi.HandleCount,
             process_count: pi.ProcessCount,
             thread_count: pi.ThreadCount,
+            lists: MemoryListInfo::query().ok(),
         })
+    }
+
+    /// Truly unused RAM in bytes (zeroed + free page lists), if known.
+    ///
+    /// Unlike [`available_physical`](Self::available_physical), this excludes
+    /// the standby cache, so it is the figure that rises when standby pages
+    /// are purged.
+    #[must_use]
+    pub fn free_bytes(&self) -> Option<u64> {
+        self.lists
+            .as_ref()
+            .map(|l| l.free_and_zeroed_pages().saturating_mul(self.page_size))
+    }
+
+    /// Standby cache size in bytes (all priorities), if known.
+    #[must_use]
+    pub fn standby_bytes(&self) -> Option<u64> {
+        self.lists
+            .as_ref()
+            .map(|l| l.total_standby_pages().saturating_mul(self.page_size))
+    }
+
+    /// Modified (dirty, awaiting write-back) page list size in bytes, if known.
+    #[must_use]
+    pub fn modified_bytes(&self) -> Option<u64> {
+        self.lists
+            .as_ref()
+            .map(|l| l.modified_pages.saturating_mul(self.page_size))
     }
 
     /// Get commit charge as a percentage.
@@ -223,6 +258,18 @@ pub fn format_bytes(bytes: u64) -> String {
     }
 }
 
+/// Format a signed byte delta with an explicit sign (e.g. "+1.50 GB", "-12.00 MB").
+///
+/// Zero is rendered without a sign ("0 B").
+#[must_use]
+pub fn format_signed_bytes(bytes: i64) -> String {
+    match bytes.cmp(&0) {
+        std::cmp::Ordering::Greater => format!("+{}", format_bytes(bytes.unsigned_abs())),
+        std::cmp::Ordering::Less => format!("-{}", format_bytes(bytes.unsigned_abs())),
+        std::cmp::Ordering::Equal => format_bytes(0),
+    }
+}
+
 /// Detailed memory list information from the kernel (undocumented API).
 ///
 /// This gives exact page counts for each memory list (Zeroed, Free, Modified,
@@ -252,21 +299,22 @@ pub struct MemoryListInfo {
 impl MemoryListInfo {
     /// Query the kernel for detailed memory list information.
     ///
-    /// The struct layout varies by Windows version:
-    /// - Base: 5 + 8 + 8 + 1 = 22 `ULONG_PTR` entries
-    /// - Newer builds add `StandbyRepurposedByPriority`\[8\], making it 30 entries
+    /// Maps `SYSTEM_MEMORY_LIST_INFORMATION`: 22 `ULONG_PTR` entries
+    /// (5 list counters, 8 standby priorities, 8 repurposed priorities and the
+    /// pagefile-backed modified count). The exact size is requested first; if a
+    /// future kernel reports a larger structure, the query is retried with a
+    /// heap buffer of the size it asks for and only the known prefix is parsed.
     ///
-    /// Uses a fixed-size stack buffer (30 entries = 240 bytes on x86-64) which
-    /// covers all known Windows versions. Falls back to a heap-allocated buffer
-    /// only if the kernel reports a larger size than expected.
+    /// Requires `SeProfileSingleProcessPrivilege` to be enabled.
     pub fn query() -> Result<Self> {
         use crate::ntapi::{STATUS_INFO_LENGTH_MISMATCH, SYSTEM_MEMORY_LIST_INFORMATION};
 
-        // Stack buffer covers the largest known layout (30 × 8 = 240 bytes)
-        let mut stack_buf = [0usize; 30];
+        const ENTRIES: usize = 22;
+
+        let mut stack_buf = [0usize; ENTRIES];
         let mut return_length: u32 = 0;
 
-        // SAFETY: stack_buf is a valid, zero-initialized array with correct size.
+        // SAFETY: stack_buf is a valid, zero-initialized array of the stated size.
         // return_length is a valid stack-allocated u32.
         let mut status = unsafe {
             crate::ntapi::nt_query_system_information(
@@ -277,59 +325,48 @@ impl MemoryListInfo {
             )
         };
 
-        // If the kernel needs more than 30 entries (unlikely but defensive),
-        // fall back to a heap allocation with the exact size requested.
-        let heap_buf: Option<Vec<usize>> = if status == STATUS_INFO_LENGTH_MISMATCH
-            && return_length > 0
+        let mut heap_buf: Vec<usize> = Vec::new();
+        if status == STATUS_INFO_LENGTH_MISMATCH
+            && return_length as usize > std::mem::size_of_val(&stack_buf)
         {
-            let needed_entries = (return_length as usize).div_ceil(std::mem::size_of::<usize>());
-            let mut buf = vec![0usize; needed_entries];
-            // SAFETY: buf was just allocated with exactly `needed_entries`
-            // elements. return_length matches the kernel's required size.
+            heap_buf =
+                vec![0usize; (return_length as usize).div_ceil(std::mem::size_of::<usize>())];
+            // SAFETY: heap_buf holds at least `return_length` bytes, the size the
+            // kernel asked for.
             status = unsafe {
                 crate::ntapi::nt_query_system_information(
                     SYSTEM_MEMORY_LIST_INFORMATION,
-                    buf.as_mut_ptr().cast(),
+                    heap_buf.as_mut_ptr().cast(),
                     return_length,
                     &raw mut return_length,
                 )
             };
-            Some(buf)
-        } else {
-            None
-        };
+        }
 
-        // Use the heap buffer if it was allocated, otherwise the stack buffer
-        let buf: &[usize] = heap_buf.as_deref().unwrap_or(&stack_buf);
-
-        if status != 0 {
+        if status != crate::ntapi::STATUS_SUCCESS {
             bail!(
                 "NtQuerySystemInformation(SystemMemoryListInformation) failed: NTSTATUS 0x{status:08X}"
             );
         }
 
-        // We need at least 22 entries to parse the base fields.
-        // Guard against return_length = 0 on an otherwise-successful call
-        // (defensive - shouldn't happen but prevents reading stale zeros).
-        let entry_size = std::mem::size_of::<usize>();
-        let count = if return_length > 0 {
-            return_length as usize / entry_size
+        let buf: &[usize] = if heap_buf.is_empty() {
+            &stack_buf
         } else {
-            bail!(
-                "NtQuerySystemInformation(SystemMemoryListInformation) succeeded but \
-                 returned 0 bytes - cannot parse memory list data"
-            );
+            &heap_buf
         };
-        if count < 22 {
+        // Only trust what the kernel says it wrote. Some builds report 0 on
+        // success when the buffer is exactly the structure size.
+        let written = if return_length == 0 {
+            buf.len()
+        } else {
+            (return_length as usize / std::mem::size_of::<usize>()).min(buf.len())
+        };
+        if written < ENTRIES {
             bail!(
-                "NtQuerySystemInformation returned only {} bytes, need at least {} for base fields",
-                return_length,
-                22 * entry_size
+                "NtQuerySystemInformation(SystemMemoryListInformation) returned {return_length}                  bytes, need at least {}",
+                ENTRIES * std::mem::size_of::<usize>()
             );
         }
-
-        // Ensure we only read within the bounds reported by the kernel
-        let buf = &buf[..count];
 
         let mut standby = [0u64; 8];
         let mut repurposed = [0u64; 8];
@@ -348,6 +385,12 @@ impl MemoryListInfo {
             repurposed_pages: repurposed,
             modified_pagefile_pages: buf[21] as u64,
         })
+    }
+
+    /// Pages on the zeroed and free lists combined (truly unused RAM).
+    #[must_use]
+    pub const fn free_and_zeroed_pages(&self) -> u64 {
+        self.zeroed_pages + self.free_pages
     }
 
     /// Total standby pages across all priority levels.
@@ -459,7 +502,7 @@ pub fn query_all_processes() -> Result<Vec<ProcessMemoryInfo>> {
     })?;
 
     // Sort descending by working set size
-    processes.sort_unstable_by(|a, b| b.working_set.cmp(&a.working_set));
+    processes.sort_unstable_by_key(|p| std::cmp::Reverse(p.working_set));
 
     Ok(processes)
 }
@@ -639,6 +682,14 @@ mod tests {
     }
 
     #[test]
+    fn format_signed_bytes_sign_handling() {
+        assert_eq!(format_signed_bytes(0), "0 B");
+        assert_eq!(format_signed_bytes(1536), "+1.50 KB");
+        assert_eq!(format_signed_bytes(-1024 * 1024), "-1.00 MB");
+        assert_eq!(format_signed_bytes(i64::MIN).chars().next(), Some('-'));
+    }
+
+    #[test]
     fn format_bytes_terabytes() {
         assert_eq!(format_bytes(1024 * 1024 * 1024 * 1024), "1.00 TB");
     }
@@ -678,6 +729,7 @@ mod tests {
             handle_count: 0,
             process_count: 0,
             thread_count: 0,
+            lists: None,
         };
         let pct = snap.commit_percent();
         assert!(
@@ -708,6 +760,7 @@ mod tests {
             handle_count: 0,
             process_count: 0,
             thread_count: 0,
+            lists: None,
         };
         assert!(
             snap.commit_percent().abs() < f64::EPSILON,

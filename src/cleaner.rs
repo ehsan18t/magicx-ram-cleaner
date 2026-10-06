@@ -10,49 +10,13 @@ use serde::{Deserialize, Serialize};
 use windows_sys::Win32::System::Memory::SetSystemFileCacheSize;
 use windows_sys::Win32::System::ProcessStatus::K32EmptyWorkingSet;
 use windows_sys::Win32::System::Threading::{
-    OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_SET_QUOTA,
+    OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA,
 };
 
 use crate::ntapi::{self, MemoryListCommand};
-use crate::stats::{HandleGuard, MemorySnapshot, QuickMemoryReading, enumerate_processes};
-
-// ─── File Cache Safety Guard ─────────────────────────────────────────────────
-
-/// RAII guard that restores default file cache limits on drop.
-///
-/// If anything panics between `SetSystemFileCacheSize(MAX, MAX, 0)` (purge) and
-/// the explicit restore call, this guard ensures `SetSystemFileCacheSize(0, 0, 0)`
-/// is still called so the system file cache doesn't stay degraded until reboot.
-///
-/// The drop implementation retries up to 3 times with small delays to handle
-/// transient failures, since leaving the cache degraded is worse than a brief
-/// spin.
-struct CacheRestoreGuard {
-    armed: bool,
-}
-
-impl Drop for CacheRestoreGuard {
-    fn drop(&mut self) {
-        if self.armed {
-            // SAFETY: Restoring default cache limits with (0, 0, 0) is a safe
-            // Win32 call. Best-effort with retry - we can't propagate errors from Drop.
-            for attempt in 0..3u32 {
-                // SAFETY: SetSystemFileCacheSize(0, 0, 0) restores default cache
-                // management. Safe to call multiple times.
-                let ok = unsafe { SetSystemFileCacheSize(0, 0, 0) };
-                if ok != 0 {
-                    return;
-                }
-                // Brief delay before retry (except on last attempt)
-                if attempt < 2 {
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-                }
-            }
-            // All retries failed - cache may remain degraded until reboot.
-            // Cannot propagate errors from Drop, so this is best-effort.
-        }
-    }
-}
+use crate::stats::{
+    HandleGuard, MemorySnapshot, QuickMemoryReading, enumerate_processes, format_bytes,
+};
 
 // ─── Kernel Settle Detection ─────────────────────────────────────────────────
 
@@ -212,7 +176,7 @@ fn execute_kernel_memory_op(
         Err(status) => Ok(CleanResult::failure(
             name,
             format!(
-                "NtSetSystemInformation failed: 0x{:08X}  -{}",
+                "NtSetSystemInformation failed: 0x{:08X}: {}",
                 status as u32,
                 ntapi::ntstatus_message(status)
             ),
@@ -228,8 +192,18 @@ pub struct CleanResult {
     pub operation: String,
     /// Whether the operation completed successfully.
     pub success: bool,
-    /// Net bytes freed (can be negative if memory increased during clean).
+    /// Net change in *available* memory in bytes (free + zeroed + standby).
+    ///
+    /// Grows when pages leave working sets or the modified list. Purging the
+    /// standby list barely moves it, because standby pages already count as
+    /// available; see [`free_delta_bytes`](Self::free_delta_bytes) for that.
+    /// Can be negative if other processes allocated memory meanwhile.
     pub freed_bytes: i64,
+    /// Net change in *free* memory in bytes (zeroed + free page lists only).
+    ///
+    /// This is what purging the standby list increases. `None` when the
+    /// kernel page-list query was unavailable before or after the operation.
+    pub free_delta_bytes: Option<i64>,
     /// Human-readable status or error message.
     pub message: String,
     /// Available physical memory before the operation (bytes).
@@ -257,6 +231,7 @@ impl CleanResult {
             operation: operation.into(),
             success: true,
             freed_bytes: after.available_physical as i64 - before.available_physical as i64,
+            free_delta_bytes: free_delta(before, after),
             message: message.into(),
             available_before: before.available_physical,
             available_after: after.available_physical,
@@ -272,6 +247,7 @@ impl CleanResult {
             operation: operation.into(),
             success: false,
             freed_bytes: 0,
+            free_delta_bytes: None,
             message,
             available_before: before.available_physical,
             available_after: before.available_physical,
@@ -280,6 +256,23 @@ impl CleanResult {
             elapsed_secs: 0.0,
         }
     }
+
+    /// Bytes this operation reclaimed: the larger of the available and free
+    /// deltas.
+    ///
+    /// Each operation moves pages in only one of these measures (trimming
+    /// working sets or flushing modified pages grows Available, purging
+    /// standby grows Free), so the larger one is what the operation achieved.
+    #[must_use]
+    pub fn reclaimed_bytes(&self) -> i64 {
+        self.free_delta_bytes
+            .map_or(self.freed_bytes, |free| free.max(self.freed_bytes))
+    }
+}
+
+/// Signed change in free (zeroed + free list) memory between two snapshots.
+fn free_delta(before: &MemorySnapshot, after: &MemorySnapshot) -> Option<i64> {
+    Some(after.free_bytes()? as i64 - before.free_bytes()? as i64)
 }
 
 /// Cleaning aggressiveness level.
@@ -344,10 +337,32 @@ pub struct SmartCleanResult {
     pub overall_before: MemorySnapshot,
     /// Memory state after all cleaning completed.
     pub overall_after: MemorySnapshot,
-    /// Net bytes freed (positive = more available memory after cleaning).
+    /// Net change in available memory (positive = more available after cleaning).
     pub total_freed: i64,
+    /// Net change in free (zeroed + free list) memory, when known.
+    pub total_free_delta: Option<i64>,
     /// Total wall-clock time for all operations (seconds).
     pub total_elapsed_secs: f64,
+}
+
+impl SmartCleanResult {
+    /// Bytes the whole run reclaimed: the larger of the available and free
+    /// deltas (see [`CleanResult::reclaimed_bytes`]).
+    ///
+    /// Every level ends with a standby purge, so the free delta is normally
+    /// the larger one; the available delta is the fallback when the kernel
+    /// page-list query is unavailable.
+    #[must_use]
+    pub fn reclaimed_bytes(&self) -> i64 {
+        self.total_free_delta
+            .map_or(self.total_freed, |free| free.max(self.total_freed))
+    }
+
+    /// Number of operations that reported failure.
+    #[must_use]
+    pub fn failed_count(&self) -> usize {
+        self.results.iter().filter(|r| !r.success).count()
+    }
 }
 
 // ─── Individual Operations ───────────────────────────────────────────────────
@@ -372,58 +387,19 @@ fn flush_file_cache_with_settle(verbose: bool, settle: SettleMode) -> Result<Cle
     let before = MemorySnapshot::capture()?;
     let start = std::time::Instant::now();
 
-    // Pass (usize::MAX, usize::MAX, 0) to purge all cached pages,
-    // then restore default limits so Windows resumes normal cache management.
-    // SAFETY: SetSystemFileCacheSize with (MAX, MAX, 0) is the documented way to
-    // purge the file system cache. Requires SeIncreaseQuotaPrivilege.
-    let result = unsafe { SetSystemFileCacheSize(usize::MAX, usize::MAX, 0) };
-
-    if result == 0 {
+    // (SIZE_T)-1 for both limits is the documented one-shot "flush the cache"
+    // request: it trims the system cache working set without changing the
+    // configured limits, so there is nothing to restore afterwards. (Calling
+    // SetSystemFileCacheSize(0, 0, 0) to "restore" would instead overwrite any
+    // limits the administrator configured.)
+    // SAFETY: Plain Win32 call with value arguments. Requires
+    // SeIncreaseQuotaPrivilege, which `enable_all_privileges` enables.
+    if unsafe { SetSystemFileCacheSize(usize::MAX, usize::MAX, 0) } == 0 {
+        // SAFETY: Reads the calling thread's last-error value.
         let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
-
-        // Restore is not needed on failure - cache limits were never changed
         return Ok(CleanResult::failure(
             "Flush File Cache",
             format!("SetSystemFileCacheSize failed (error {err}). Need SeIncreaseQuotaPrivilege."),
-            &before,
-        ));
-    }
-
-    // RAII guard: if anything panics between purge and restore, the drop
-    // impl ensures `SetSystemFileCacheSize(0, 0, 0)` is always called so
-    // the system file cache doesn't stay in a degraded state until reboot.
-    let mut guard = CacheRestoreGuard { armed: true };
-
-    // Restore default cache behavior (let Windows manage it again).
-    // Retry up to 3 times with small delays - transient failures can occur
-    // if another process is manipulating cache limits simultaneously.
-    let mut restore_ok = false;
-    let mut last_err: u32 = 0;
-    for attempt in 0..3u32 {
-        // SAFETY: SetSystemFileCacheSize(0, 0, 0) tells Windows to resume
-        // default cache management. Safe to retry.
-        let restore = unsafe { SetSystemFileCacheSize(0, 0, 0) };
-        if restore != 0 {
-            restore_ok = true;
-            break;
-        }
-        last_err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
-        if attempt < 2 {
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
-    }
-
-    // Disarm the guard - the restore calls have been made
-    guard.armed = false;
-    drop(guard);
-
-    if !restore_ok {
-        return Ok(CleanResult::failure(
-            "Flush File Cache",
-            format!(
-                "Cache purged but restore to default failed after 3 attempts (error {last_err}). \
-                 System file cache may be in a degraded state until next reboot."
-            ),
             &before,
         ));
     }
@@ -476,7 +452,7 @@ fn flush_registry_cache_with_settle(verbose: bool, settle: SettleMode) -> Result
             "Flush Registry Cache",
             format!(
                 "NtSetSystemInformation(SystemRegistryReconciliationInformation) failed: \
-                 0x{:08X}  -{}",
+                 0x{:08X}: {}",
                 status as u32,
                 ntapi::ntstatus_message(status)
             ),
@@ -561,8 +537,17 @@ fn empty_working_sets_per_process_with_settle(
             }
             excluded_count += 1;
         } else {
+            // EmptyWorkingSet needs PROCESS_SET_QUOTA plus either query right.
+            // The limited query right is granted to far more processes
+            // (sandboxed browser children, services), so more of them get trimmed.
+            // SAFETY: OpenProcess has no memory-safety preconditions; the
+            // returned handle (or null) is owned by the guard.
             let proc_handle = HandleGuard::new(unsafe {
-                OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_SET_QUOTA, 0, pid)
+                OpenProcess(
+                    PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SET_QUOTA,
+                    0,
+                    pid,
+                )
             });
 
             if proc_handle.raw().is_null() {
@@ -687,7 +672,7 @@ fn combine_memory_with_settle(verbose: bool, settle: SettleMode) -> Result<Clean
         Err(status) => Ok(CleanResult::failure(
             "Memory Combining",
             format!(
-                "NtSetSystemInformation(SystemCombinePhysicalMemoryInformation) failed: 0x{:08X}  -{}",
+                "NtSetSystemInformation(SystemCombinePhysicalMemoryInformation) failed: 0x{:08X}: {}",
                 status as u32,
                 ntapi::ntstatus_message(status)
             ),
@@ -697,6 +682,12 @@ fn combine_memory_with_settle(verbose: bool, settle: SettleMode) -> Result<Clean
 }
 
 // ─── Smart Cleaning Engine ───────────────────────────────────────────────────
+
+/// Maximum number of adaptive leftover sweeps after a chain's final purge.
+const MAX_SWEEP_PASSES: u32 = 2;
+
+/// Plan label for the adaptive leftover sweep shown by `--dry-run`.
+const SWEEP_PLAN_LABEL: &str = "Leftover Sweep (only if needed)";
 
 /// Choose between kernel-level or per-process working set emptying.
 ///
@@ -715,92 +706,161 @@ fn empty_working_sets_op(
     }
 }
 
-/// Execute the aggressive cleaning sequence (5 operations).
+/// Flush the modified list, then purge all standby pages.
+///
+/// This is the tail of every level from Moderate up. The flush always uses a
+/// full settle: the modified page writer finishes its I/O asynchronously, and
+/// pages still in flight when the purge runs land on the standby list right
+/// afterwards as leftovers.
+fn flush_and_purge(verbose: bool, results: &mut Vec<CleanResult>) -> Result<()> {
+    results.push(execute_kernel_memory_op(
+        MemoryListCommand::FlushModifiedList,
+        verbose,
+        SettleMode::Full,
+    )?);
+    results.push(execute_kernel_memory_op(
+        MemoryListCommand::PurgeStandbyList,
+        verbose,
+        SettleMode::Full,
+    )?);
+    Ok(())
+}
+
+/// Standby plus pagefile-backed modified memory in bytes: what another
+/// flush + purge could still reclaim. `None` when the page lists are unknown.
+fn leftover_bytes(snapshot: &MemorySnapshot) -> Option<u64> {
+    let lists = snapshot.lists.as_ref()?;
+    Some(
+        (lists.total_standby_pages() + lists.modified_pagefile_pages)
+            .saturating_mul(snapshot.page_size),
+    )
+}
+
+/// Leftovers below this are normal background churn and not worth another
+/// pass: 1% of physical RAM, at least 64 MB.
+fn sweep_threshold(total_physical: u64) -> u64 {
+    (total_physical / 100).max(64 * 1024 * 1024)
+}
+
+/// Whether another sweep is worthwhile given the current and previous
+/// leftover sizes.
+///
+/// Requires leftovers above [`sweep_threshold`], and after a first pass also
+/// requires that pass to have shrunk them by at least a quarter. Less progress
+/// than that means the system refills the cache as fast as it is purged
+/// (`SysMain` prefetching, heavy file I/O) and more passes would only burn time.
+fn should_sweep(leftover: u64, previous: Option<u64>, total_physical: u64) -> bool {
+    leftover >= sweep_threshold(total_physical)
+        && previous.is_none_or(|prev| leftover.saturating_mul(4) < prev.saturating_mul(3))
+}
+
+/// Re-run flush + purge while meaningful leftovers remain (see [`should_sweep`]).
+///
+/// Each pass that runs is appended to `results` as one operation.
+fn leftover_sweep(verbose: bool, results: &mut Vec<CleanResult>) -> Result<()> {
+    let mut previous: Option<u64> = None;
+
+    for pass in 1..=MAX_SWEEP_PASSES {
+        let before = MemorySnapshot::capture()?;
+        let Some(leftover) = leftover_bytes(&before) else {
+            return Ok(()); // page lists unavailable: nothing to measure against
+        };
+        if !should_sweep(leftover, previous, before.total_physical) {
+            return Ok(());
+        }
+        previous = Some(leftover);
+
+        if verbose {
+            println!(
+                "  {} Sweeping {} of leftover standby/modified pages (pass {pass})...",
+                "→".cyan(),
+                format_bytes(leftover)
+            );
+        }
+
+        let name = format!("Leftover Sweep (pass {pass})");
+        let start = std::time::Instant::now();
+
+        // A failed flush is not fatal: the purge still reclaims the standby part.
+        if ntapi::execute_memory_command(MemoryListCommand::FlushModifiedList).is_ok() {
+            wait_for_settle(false, SettleMode::Quick)?;
+        }
+
+        let result = match ntapi::execute_memory_command(MemoryListCommand::PurgeStandbyList) {
+            Ok(()) => {
+                let after = wait_for_settle(verbose, SettleMode::Full)?;
+                let remaining = leftover_bytes(&after).unwrap_or(0);
+                CleanResult::success(
+                    &name,
+                    format!(
+                        "Leftovers {} -> {}",
+                        format_bytes(leftover),
+                        format_bytes(remaining)
+                    ),
+                    &before,
+                    &after,
+                    start.elapsed(),
+                )
+            }
+            Err(status) => CleanResult::failure(
+                &name,
+                format!(
+                    "Standby purge failed: 0x{:08X}: {}",
+                    status as u32,
+                    ntapi::ntstatus_message(status)
+                ),
+                &before,
+            ),
+        };
+
+        let failed = !result.success;
+        results.push(result);
+        if failed {
+            return Ok(());
+        }
+    }
+
+    Ok(())
+}
+
+/// Execute the aggressive cleaning sequence.
 ///
 /// File cache flush → Registry flush → Empty working sets → Flush modified →
-/// Purge ALL standby.
-/// All intermediate operations use [`SettleMode::Quick`]; only the final purge
-/// uses [`SettleMode::Full`] for an accurate delta measurement.
+/// Purge ALL standby. The first three use [`SettleMode::Quick`]; the flush and
+/// purge use [`SettleMode::Full`] (see [`flush_and_purge`]).
 ///
 /// When `exclude_names` is non-empty, working sets are emptied per-process
 /// (skipping excluded names) instead of using the kernel-level command.
 fn execute_aggressive_chain(verbose: bool, exclude_names: &[String]) -> Result<Vec<CleanResult>> {
-    Ok(vec![
+    let mut results = vec![
         flush_file_cache_with_settle(verbose, SettleMode::Quick)?,
         flush_registry_cache_with_settle(verbose, SettleMode::Quick)?,
         empty_working_sets_op(verbose, exclude_names, SettleMode::Quick)?,
-        execute_kernel_memory_op(
-            MemoryListCommand::FlushModifiedList,
-            verbose,
-            SettleMode::Quick,
-        )?,
-        execute_kernel_memory_op(
-            MemoryListCommand::PurgeStandbyList,
-            verbose,
-            SettleMode::Full,
-        )?,
-    ])
+    ];
+    flush_and_purge(verbose, &mut results)?;
+    Ok(results)
 }
 
-/// Execute the nuclear cleaning sequence (8 operations).
+/// Execute the nuclear cleaning sequence.
 ///
-/// All of aggressive + memory combining + a second pass of flush modified +
-/// purge all standby. Only the very last purge uses [`SettleMode::Full`].
+/// The aggressive chain, then memory combining, then a second flush + purge
+/// for the pages that combining released or dirtied.
 ///
 /// When `exclude_names` is non-empty, working sets are emptied per-process.
 fn execute_nuclear_chain(verbose: bool, exclude_names: &[String]) -> Result<Vec<CleanResult>> {
-    let mut results = Vec::with_capacity(8);
-
-    // Phase 1: Cache + Registry + Working sets
-    results.push(flush_file_cache_with_settle(verbose, SettleMode::Quick)?);
-    results.push(flush_registry_cache_with_settle(
-        verbose,
-        SettleMode::Quick,
-    )?);
-    results.push(empty_working_sets_op(
-        verbose,
-        exclude_names,
-        SettleMode::Quick,
-    )?);
-
-    // Phase 2: Flush modified to disk
-    results.push(execute_kernel_memory_op(
-        MemoryListCommand::FlushModifiedList,
-        verbose,
-        SettleMode::Quick,
-    )?);
-
-    // Phase 3: Purge all standby pages (covers low-priority too)
-    results.push(execute_kernel_memory_op(
-        MemoryListCommand::PurgeStandbyList,
-        verbose,
-        SettleMode::Quick,
-    )?);
-
-    // Phase 4: Memory combining
+    let mut results = execute_aggressive_chain(verbose, exclude_names)?;
     results.push(combine_memory_with_settle(verbose, SettleMode::Quick)?);
 
-    // Phase 5: Second pass - modified pages generated during combine.
-    // Append "(2nd pass)" to operation names so they match the dry-run labels
-    // and users can distinguish first-pass from second-pass results.
     if verbose {
         println!("  {} Running second pass cleanup...", "→".cyan());
     }
-    let mut flush2 = execute_kernel_memory_op(
-        MemoryListCommand::FlushModifiedList,
-        verbose,
-        SettleMode::Quick,
-    )?;
-    flush2.operation = format!("{} (2nd pass)", flush2.operation);
-    results.push(flush2);
-
-    let mut purge2 = execute_kernel_memory_op(
-        MemoryListCommand::PurgeStandbyList,
-        verbose,
-        SettleMode::Full,
-    )?;
-    purge2.operation = format!("{} (2nd pass)", purge2.operation);
-    results.push(purge2);
+    let second_pass_start = results.len();
+    flush_and_purge(verbose, &mut results)?;
+    // Label the second pass so it matches the dry-run plan and users can tell
+    // the passes apart.
+    for result in &mut results[second_pass_start..] {
+        result.operation.push_str(" (2nd pass)");
+    }
 
     Ok(results)
 }
@@ -821,13 +881,14 @@ pub fn dry_run_plan(level: CleanLevel, has_excludes: bool) -> Vec<&'static str> 
 
     match level {
         CleanLevel::Gentle => vec!["Purge All Standby"],
-        CleanLevel::Moderate => vec!["Flush Modified List", "Purge All Standby"],
+        CleanLevel::Moderate => vec!["Flush Modified List", "Purge All Standby", SWEEP_PLAN_LABEL],
         CleanLevel::Aggressive => vec![
             "Flush File Cache",
             "Flush Registry Cache",
             ws_label,
             "Flush Modified List",
             "Purge All Standby",
+            SWEEP_PLAN_LABEL,
         ],
         CleanLevel::Nuclear => vec![
             "Flush File Cache",
@@ -838,6 +899,7 @@ pub fn dry_run_plan(level: CleanLevel, has_excludes: bool) -> Vec<&'static str> 
             "Memory Combining",
             "Flush Modified List (2nd pass)",
             "Purge All Standby (2nd pass)",
+            SWEEP_PLAN_LABEL,
         ],
     }
 }
@@ -850,24 +912,30 @@ pub fn dry_run_plan(level: CleanLevel, has_excludes: bool) -> Vec<&'static str> 
 /// | Level | Operations |
 /// |---|---|
 /// | **Gentle** | Purge ALL standby (all priorities) |
-/// | **Moderate** | Flush modified list → Purge ALL standby |
-/// | **Aggressive** | File cache flush → Registry flush → Empty working sets → Flush modified → Purge ALL standby |
-/// | **Nuclear** | All of aggressive + memory combining + second pass |
+/// | **Moderate** | Flush modified list → Purge ALL standby → leftover sweep |
+/// | **Aggressive** | File cache flush → Registry flush → Empty working sets → Flush modified → Purge ALL standby → leftover sweep |
+/// | **Nuclear** | Aggressive + memory combining + second flush/purge → leftover sweep |
+///
+/// ## Leftover Sweep
+///
+/// From Moderate up, the run ends with up to [`MAX_SWEEP_PASSES`] extra
+/// flush + purge passes, each one only if standby/modified leftovers are still
+/// significant and the previous pass made progress (see [`should_sweep`]).
 ///
 /// ## Settle Optimisation
 ///
-/// Intermediate operations use `SettleMode::Quick` (1 stable read, 0.8 s max)
-/// instead of `SettleMode::Full` (3 stable reads, 2 s max). Only the final
-/// operation in each chain uses `Full`, since only the overall delta matters.
-/// This reduces worst-case settle overhead from ~14 s (7 ops × 2 s) to ~4.8 s
-/// (6 × 0.8 s + 1 × 2 s) on a Nuclear clean.
+/// Operations whose effect is synchronous (file cache, registry, working sets,
+/// combining) use `SettleMode::Quick` (1 stable read, 0.8 s max). The modified
+/// flush and standby purge use `SettleMode::Full` (3 stable reads, 2 s max)
+/// because write-back completes asynchronously.
 ///
 /// ## Process Exclusion
 ///
 /// When `exclude_names` is non-empty, the working-set-emptying step uses
 /// per-process trimming instead of the kernel-level command. This allows
 /// protecting specific applications (e.g. `chrome`, `firefox`) from having
-/// their pages evicted.
+/// their pages evicted. Only Aggressive and Nuclear empty working sets, so
+/// exclusions have no effect at lower levels.
 pub fn smart_clean(
     level: CleanLevel,
     verbose: bool,
@@ -876,42 +944,34 @@ pub fn smart_clean(
     let overall_before = MemorySnapshot::capture()?;
     let start = std::time::Instant::now();
 
-    let results = match level {
-        CleanLevel::Gentle => {
-            // Single operation - purge ALL standby pages (priorities 0-7).
-            // Standby pages are already outside every process's working set;
-            // purging them is safe at any time.
-            vec![execute_kernel_memory_op(
-                MemoryListCommand::PurgeStandbyList,
-                verbose,
-                SettleMode::Full,
-            )?]
-        }
+    let mut results = match level {
+        // Standby pages are already outside every process's working set, so
+        // purging them is safe at any time.
+        CleanLevel::Gentle => vec![execute_kernel_memory_op(
+            MemoryListCommand::PurgeStandbyList,
+            verbose,
+            SettleMode::Full,
+        )?],
+        // No working-set eviction: running processes are unaffected; only
+        // triggers an I/O spike while dirty pages are written out.
         CleanLevel::Moderate => {
-            // Flush modified pages to disk first so they become standby,
-            // then purge all standby. No working-set eviction - running
-            // processes are unaffected; only triggers an I/O spike.
-            vec![
-                execute_kernel_memory_op(
-                    MemoryListCommand::FlushModifiedList,
-                    verbose,
-                    SettleMode::Quick,
-                )?,
-                execute_kernel_memory_op(
-                    MemoryListCommand::PurgeStandbyList,
-                    verbose,
-                    SettleMode::Full, // last op
-                )?,
-            ]
+            let mut results = Vec::with_capacity(4);
+            flush_and_purge(verbose, &mut results)?;
+            results
         }
         CleanLevel::Aggressive => execute_aggressive_chain(verbose, exclude_names)?,
         CleanLevel::Nuclear => execute_nuclear_chain(verbose, exclude_names)?,
     };
 
+    if level >= CleanLevel::Moderate {
+        leftover_sweep(verbose, &mut results)?;
+    }
+
     // Each operation already settles internally, so just capture final state
     let overall_after = MemorySnapshot::capture()?;
     let total_freed =
         overall_after.available_physical as i64 - overall_before.available_physical as i64;
+    let total_free_delta = free_delta(&overall_before, &overall_after);
     let total_elapsed_secs = start.elapsed().as_secs_f64();
 
     Ok(SmartCleanResult {
@@ -919,6 +979,7 @@ pub fn smart_clean(
         overall_before,
         overall_after,
         total_freed,
+        total_free_delta,
         total_elapsed_secs,
     })
 }
@@ -952,6 +1013,7 @@ mod tests {
             handle_count: 0,
             process_count: 0,
             thread_count: 0,
+            lists: None,
         }
     }
 
@@ -1034,18 +1096,18 @@ mod tests {
         );
         assert_eq!(
             dry_run_plan(CleanLevel::Moderate, false).len(),
-            2,
-            "moderate = 2 ops"
+            3,
+            "moderate = 2 ops + sweep"
         );
         assert_eq!(
             dry_run_plan(CleanLevel::Aggressive, false).len(),
-            5,
-            "aggressive = 5 ops"
+            6,
+            "aggressive = 5 ops + sweep"
         );
         assert_eq!(
             dry_run_plan(CleanLevel::Nuclear, false).len(),
-            8,
-            "nuclear = 8 ops"
+            9,
+            "nuclear = 8 ops + sweep"
         );
     }
 
@@ -1065,7 +1127,10 @@ mod tests {
     #[test]
     fn dry_run_plan_moderate_ops() {
         let plan = dry_run_plan(CleanLevel::Moderate, false);
-        assert_eq!(plan, vec!["Flush Modified List", "Purge All Standby"]);
+        assert_eq!(
+            plan,
+            vec!["Flush Modified List", "Purge All Standby", SWEEP_PLAN_LABEL]
+        );
         assert!(
             !plan.iter().any(|op| op.contains("Working Set")),
             "moderate should not touch process working sets"
@@ -1147,5 +1212,47 @@ mod tests {
         assert_eq!(result.available_after, 8_000_000_000);
         assert_eq!(result.load_before, 50);
         assert_eq!(result.load_after, 50);
+    }
+
+    const GIB: u64 = 1024 * 1024 * 1024;
+
+    #[test]
+    fn sweep_threshold_scales_with_ram_and_has_floor() {
+        assert_eq!(sweep_threshold(4 * GIB), 64 * 1024 * 1024, "floor applies");
+        assert_eq!(sweep_threshold(64 * GIB), 64 * GIB / 100, "1% of RAM");
+    }
+
+    #[test]
+    fn should_sweep_requires_meaningful_leftovers() {
+        assert!(!should_sweep(10 * 1024 * 1024, None, 16 * GIB));
+        assert!(should_sweep(GIB, None, 16 * GIB));
+    }
+
+    #[test]
+    fn should_sweep_stops_without_progress() {
+        // The first pass only shrank leftovers from 1 GiB to 900 MiB: refilling.
+        assert!(!should_sweep(900 * 1024 * 1024, Some(GIB), 16 * GIB));
+        // Halved: keep going.
+        assert!(should_sweep(GIB / 2, Some(GIB), 16 * GIB));
+    }
+
+    #[test]
+    fn reclaimed_bytes_prefers_larger_measure() {
+        let snap = mock_snapshot(4_000_000_000, 75);
+        let mut result =
+            CleanResult::success("Purge", "ok", &snap, &snap, Duration::from_millis(10));
+        assert_eq!(
+            result.reclaimed_bytes(),
+            0,
+            "no list data: falls back to available"
+        );
+        result.free_delta_bytes = Some(2_000_000_000);
+        assert_eq!(
+            result.reclaimed_bytes(),
+            2_000_000_000,
+            "standby purge shows up as free"
+        );
+        result.freed_bytes = 3_000_000_000;
+        assert_eq!(result.reclaimed_bytes(), 3_000_000_000);
     }
 }

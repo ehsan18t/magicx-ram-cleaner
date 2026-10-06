@@ -233,33 +233,33 @@ pub const fn ntstatus_message(status: NtStatus) -> &'static str {
         STATUS_SUCCESS => "SUCCESS",
         STATUS_PENDING => "STATUS_PENDING",
         STATUS_ACCESS_DENIED => {
-            "STATUS_ACCESS_DENIED -Run as Administrator with required privileges"
+            "STATUS_ACCESS_DENIED: Run as Administrator with required privileges"
         }
-        STATUS_INVALID_HANDLE => "STATUS_INVALID_HANDLE -Invalid handle passed to NT API",
-        STATUS_INVALID_PARAMETER => "STATUS_INVALID_PARAMETER -Invalid command or parameter value",
+        STATUS_INVALID_HANDLE => "STATUS_INVALID_HANDLE: Invalid handle passed to NT API",
+        STATUS_INVALID_PARAMETER => "STATUS_INVALID_PARAMETER: Invalid command or parameter value",
         STATUS_NOT_IMPLEMENTED => {
-            "STATUS_NOT_IMPLEMENTED -This command may not be supported on your Windows version"
+            "STATUS_NOT_IMPLEMENTED: This command may not be supported on your Windows version"
         }
         STATUS_UNSUCCESSFUL => {
-            "STATUS_UNSUCCESSFUL -The operation failed (the kernel could not complete it)"
+            "STATUS_UNSUCCESSFUL: The operation failed (the kernel could not complete it)"
         }
         STATUS_PRIVILEGE_NOT_HELD => {
-            "STATUS_PRIVILEGE_NOT_HELD -Enable SeProfileSingleProcessPrivilege"
+            "STATUS_PRIVILEGE_NOT_HELD: Enable SeProfileSingleProcessPrivilege"
         }
         STATUS_INFO_LENGTH_MISMATCH => {
-            "STATUS_INFO_LENGTH_MISMATCH -Buffer too small or struct size mismatch"
+            "STATUS_INFO_LENGTH_MISMATCH: Buffer too small or struct size mismatch"
         }
         STATUS_BUFFER_TOO_SMALL => {
-            "STATUS_BUFFER_TOO_SMALL -Provided buffer is too small for the requested data"
+            "STATUS_BUFFER_TOO_SMALL: Provided buffer is too small for the requested data"
         }
         STATUS_INSUFFICIENT_RESOURCES => {
-            "STATUS_INSUFFICIENT_RESOURCES -System has insufficient resources to complete the call"
+            "STATUS_INSUFFICIENT_RESOURCES: System has insufficient resources to complete the call"
         }
         STATUS_NOT_SUPPORTED => {
-            "STATUS_NOT_SUPPORTED -This operation is not supported on your Windows version"
+            "STATUS_NOT_SUPPORTED: This operation is not supported on your Windows version"
         }
         STATUS_INVALID_DEVICE_REQUEST => {
-            "STATUS_INVALID_DEVICE_REQUEST -Invalid request for this device/subsystem"
+            "STATUS_INVALID_DEVICE_REQUEST: Invalid request for this device/subsystem"
         }
         _ => "Unknown NTSTATUS code (check Microsoft documentation for this code)",
     }
