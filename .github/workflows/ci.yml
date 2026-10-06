@@ -1,5 +1,5 @@
-# MagicX RAM Cleaner — CI Pipeline
-# Enforces code quality on pull requests. All checks must pass before merging.
+# MagicX RAM Cleaner: CI pipeline
+# Enforces code quality on pull requests and on every push to main.
 #
 # Gates (ALL must pass):
 #   1. cargo fmt --check            → consistent formatting
@@ -13,14 +13,17 @@
 name: CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
-# Principle of least privilege — CI only reads source, never pushes.
+# Principle of least privilege: CI only reads source, never pushes.
 permissions:
   contents: read
 
-# Cancel any in-progress run for the same PR branch to avoid wasted minutes.
+# Cancel any in-progress run for the same branch to avoid wasted minutes.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -56,11 +59,11 @@ jobs:
         with:
           cache-on-failure: true
 
-      # Gate 1: Formatting — rejects inconsistent style
+      # Gate 1 (formatting) rejects inconsistent style
       - name: "Gate 1: cargo fmt --check"
         run: cargo fmt --all -- --check
 
-      # Gate 2: Clippy (all+pedantic+nursery at deny level) — rejects lint violations.
+      # Gate 2 (clippy, all+pedantic+nursery at deny level) rejects lint violations.
       # Lint levels and per-lint overrides are configured in Cargo.toml [lints.clippy].
       # Only -D warnings is passed here to turn any remaining warnings into errors;
       # adding -W clippy::pedantic on the CLI would override the per-lint "allow"
@@ -68,15 +71,15 @@ jobs:
       - name: "Gate 2: cargo clippy"
         run: cargo clippy --locked --all-targets -- -D warnings
 
-      # Gate 3: Tests — rejects broken logic; --locked ensures Cargo.lock is honoured
+      # Gate 3 (tests) rejects broken logic; --locked ensures Cargo.lock is honoured
       - name: "Gate 3: cargo test"
         run: cargo test --locked --all-targets
 
-      # Gate 4: Benchmarks — rejects benchmarks that do not compile
+      # Gate 4 (benchmarks) rejects benchmarks that do not compile
       - name: "Gate 4: cargo bench --no-run"
         run: cargo bench --locked --no-run
 
-      # Gate 5: Debug build — rejects code that does not compile
+      # Gate 5 (debug build) rejects code that does not compile
       - name: "Gate 5: cargo build"
         run: cargo build --locked
 
@@ -89,7 +92,7 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-      # Gate 6: Documentation & doc-comment format — rejects broken links, bare URLs,
+      # Gate 6 (documentation & doc-comment format) rejects broken links, bare URLs,
       # invalid code blocks, and missing crate-level docs.
       - name: "Gate 6: cargo doc"
         run: cargo doc --locked --no-deps
@@ -101,8 +104,7 @@ jobs:
             -D rustdoc::private_intra_doc_links
             -D rustdoc::unescaped_backticks
 
-  # Gate 7: Dependency audit — rejects vulnerable/banned/unlicensed dependencies.
-  # cargo-deny binary is cached to avoid re-downloading on every run.
+  # Gate 7 (dependency audit) rejects vulnerable/banned/unlicensed dependencies.
   audit:
     name: Dependency Audit
     runs-on: windows-latest
@@ -122,18 +124,10 @@ jobs:
           cache-targets: "false"
           cache-on-failure: true
 
-      - name: Cache cargo-deny binary
-        id: cache-deny
-        uses: actions/cache@v5
-        with:
-          path: ~/.cargo/bin/cargo-deny.exe
-          # Bump the suffix (v1 → v2, etc.) to force a fresh install when
-          # upgrading cargo-deny to a new major/minor version.
-          key: cargo-deny-${{ runner.os }}-v1
-
+      # Installs the latest cargo-deny release binary on every run, so the
+      # checker never falls behind the advisory database format.
       - name: Install cargo-deny
-        if: steps.cache-deny.outputs.cache-hit != 'true'
-        run: cargo install cargo-deny --locked
+        uses: taiki-e/install-action@cargo-deny
 
       - name: "Gate 7: cargo deny check"
         run: cargo deny check
