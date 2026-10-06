@@ -31,7 +31,7 @@ use tray_icon::{
     menu::{Icon, IconMenuItem, Menu, MenuEvent, MenuId, PredefinedMenuItem, Submenu},
 };
 
-use crate::cleaner::CleanLevel;
+use crate::engine::CleanLevel;
 use crate::strings;
 
 use super::app::Panel;

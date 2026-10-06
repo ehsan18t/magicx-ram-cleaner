@@ -15,8 +15,8 @@ use std::time::Instant;
 use anyhow::Result;
 use colored::Colorize;
 
-use crate::cleaner::{self, CleanLevel};
 use crate::display;
+use crate::engine::{self, CleanLevel};
 use crate::memory::MemorySnapshot;
 use crate::platform::console;
 use crate::strings;
@@ -206,7 +206,7 @@ fn record_error(streak: &mut u32, error: &anyhow::Error) -> Result<()> {
 ///
 /// Checks whether the (backed-off) cooldown has elapsed since the last clean
 /// finished. If cooldown is active, prints a skip message. Otherwise executes
-/// [`cleaner::smart_clean`] and tracks consecutive errors, aborting the
+/// [`engine::Cleaner::smart_clean`] and tracks consecutive errors, aborting the
 /// monitor after [`MAX_CONSECUTIVE_ERRORS`] consecutive failures.
 fn handle_threshold_clean(
     thresh: u32,
@@ -239,7 +239,8 @@ fn handle_threshold_clean(
     );
     display::print_clean_start(auto_level);
 
-    let outcome = cleaner::smart_clean(auto_level, verbose, &[]);
+    let outcome = engine::Cleaner::new(&engine::WindowsMemory, display::progress_printer(verbose))
+        .smart_clean(auto_level, &[]);
     // The cooldown runs from when the clean finished, so a clean longer than
     // the cooldown cannot be followed immediately by another one.
     state.last_clean = Some(Instant::now());

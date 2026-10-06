@@ -6,7 +6,7 @@
 use eframe::egui;
 use egui_phosphor::regular as ph;
 
-use crate::cleaner::CleanLevel;
+use crate::engine::CleanLevel;
 use crate::strings;
 
 use super::super::app::MagicXApp;

@@ -6,7 +6,7 @@
 use eframe::egui;
 use egui_phosphor::regular as ph;
 
-use crate::cleaner::CleanLevel;
+use crate::engine::CleanLevel;
 use crate::memory;
 use crate::strings;
 
@@ -381,7 +381,7 @@ fn draw_result(ui: &mut egui::Ui, msg: &CleanResultMsg, dark: bool) {
 fn draw_result_success(
     ui: &mut egui::Ui,
     msg: &CleanResultMsg,
-    result: &crate::cleaner::SmartCleanResult,
+    result: &crate::engine::SmartCleanResult,
     dark: bool,
 ) {
     ui.horizontal(|ui| {
@@ -461,7 +461,7 @@ fn draw_result_success(
 }
 
 /// Per-operation result breakdown.
-fn draw_operation_list(ui: &mut egui::Ui, results: &[crate::cleaner::CleanResult], dark: bool) {
+fn draw_operation_list(ui: &mut egui::Ui, results: &[crate::engine::CleanResult], dark: bool) {
     for r in results {
         let (icon, icon_color) = if r.success {
             (ph::CHECK, theme::GREEN)

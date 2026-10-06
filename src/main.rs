@@ -26,7 +26,7 @@ use colored::Colorize;
 
 use magicx_ram_cleaner::cli::{Cli, Commands, ContextMenuAction};
 use magicx_ram_cleaner::platform::{console, notify, privilege};
-use magicx_ram_cleaner::{cleaner, context_menu, display, gui, memory, monitor, strings};
+use magicx_ram_cleaner::{context_menu, display, engine, gui, memory, monitor, strings};
 
 /// Entry point - returns [`ExitCode`] instead of calling `std::process::exit()`.
 ///
@@ -197,15 +197,20 @@ fn parse_cli(no_color: bool) -> Result<Cli, clap::Error> {
     Cli::from_arg_matches(&matches)
 }
 
+/// A cleaner for the live system that prints its progress when `verbose`.
+fn cli_cleaner(verbose: bool) -> engine::Cleaner<'static> {
+    engine::Cleaner::new(&engine::WindowsMemory, display::progress_printer(verbose))
+}
+
 /// Print a single operation's result and return `true` if it failed.
-fn report_single(result: &cleaner::CleanResult) -> bool {
+fn report_single(result: &engine::CleanResult) -> bool {
     display::print_single_result(result);
     !result.success
 }
 
-/// Handle a single [`CleanResult`](cleaner::CleanResult) in both normal and
+/// Handle a single [`CleanResult`](engine::CleanResult) in both normal and
 /// notification modes. Returns `(had_failure, notification_message)`.
-fn handle_single_result(result: &cleaner::CleanResult, notify: bool) -> (bool, String) {
+fn handle_single_result(result: &engine::CleanResult, notify: bool) -> (bool, String) {
     if notify {
         (!result.success, format_single_notification(result))
     } else {
@@ -218,7 +223,7 @@ fn handle_single_result(result: &cleaner::CleanResult, notify: bool) -> (bool, S
 // naturally group into a two-variant enum. Collapsing them would hurt readability.
 #[allow(clippy::fn_params_excessive_bools)]
 fn dispatch_clean(
-    level: cleaner::CleanLevel,
+    level: engine::CleanLevel,
     verbose: bool,
     quiet: bool,
     notify: bool,
@@ -227,7 +232,7 @@ fn dispatch_clean(
     exclude: &[String],
 ) -> Result<(bool, String)> {
     if dry_run {
-        let plan = cleaner::dry_run_plan(level, !exclude.is_empty());
+        let plan = engine::dry_run_plan(level, !exclude.is_empty());
         if notify {
             return Ok((
                 false,
@@ -237,7 +242,7 @@ fn dispatch_clean(
         display::print_dry_run(level, &plan);
         return Ok((false, String::new()));
     }
-    if !exclude.is_empty() && level < cleaner::CleanLevel::Aggressive && !quiet {
+    if !exclude.is_empty() && level < engine::CleanLevel::Aggressive && !quiet {
         eprintln!(
             "{} --exclude has no effect at level {level}: only aggressive and nuclear empty process working sets",
             "warning:".yellow(),
@@ -247,7 +252,7 @@ fn dispatch_clean(
     if !quiet && !notify {
         display::print_clean_start(level);
     }
-    let output = cleaner::smart_clean(level, ev, exclude)?;
+    let output = cli_cleaner(ev).smart_clean(level, exclude)?;
     if !notify {
         display::print_clean_summary(&output);
     }
@@ -309,15 +314,15 @@ fn dispatch_command(command: &Commands, quiet: bool, notify: bool) -> Result<(bo
         } => {
             let ev = *verbose && !quiet;
             let r = if *low_priority {
-                cleaner::purge_standby_low_priority(ev)?
+                cli_cleaner(ev).purge_standby_low_priority()?
             } else {
-                cleaner::purge_standby_all(ev)?
+                cli_cleaner(ev).purge_standby()?
             };
             (had_failure, notify_msg) = handle_single_result(&r, notify);
         }
 
         Commands::FlushModified { verbose } => {
-            let r = cleaner::flush_modified_list(*verbose && !quiet)?;
+            let r = cli_cleaner(*verbose && !quiet).flush_modified()?;
             (had_failure, notify_msg) = handle_single_result(&r, notify);
         }
 
@@ -328,25 +333,25 @@ fn dispatch_command(command: &Commands, quiet: bool, notify: bool) -> Result<(bo
         } => {
             let ev = *verbose && !quiet;
             let r = if *per_process || !exclude.is_empty() {
-                cleaner::empty_working_sets_per_process(ev, exclude)?
+                cli_cleaner(ev).empty_working_sets_per_process(exclude)?
             } else {
-                cleaner::empty_working_sets_kernel(ev)?
+                cli_cleaner(ev).empty_working_sets()?
             };
             (had_failure, notify_msg) = handle_single_result(&r, notify);
         }
 
         Commands::FlushCache { verbose } => {
-            let r = cleaner::flush_file_cache(*verbose && !quiet)?;
+            let r = cli_cleaner(*verbose && !quiet).flush_file_cache()?;
             (had_failure, notify_msg) = handle_single_result(&r, notify);
         }
 
         Commands::FlushRegistry { verbose } => {
-            let r = cleaner::flush_registry_cache(*verbose && !quiet)?;
+            let r = cli_cleaner(*verbose && !quiet).flush_registry_cache()?;
             (had_failure, notify_msg) = handle_single_result(&r, notify);
         }
 
         Commands::Combine { verbose } => {
-            let r = cleaner::combine_memory(*verbose && !quiet)?;
+            let r = cli_cleaner(*verbose && !quiet).combine_memory()?;
             (had_failure, notify_msg) = handle_single_result(&r, notify);
         }
 
@@ -437,7 +442,7 @@ fn dispatch_status(detailed: bool, json: bool, top: Option<usize>) -> Result<()>
 }
 
 /// Write a cleaning report to a JSON file.
-fn write_report(path: &str, output: &cleaner::SmartCleanResult, quiet: bool) -> Result<()> {
+fn write_report(path: &str, output: &engine::SmartCleanResult, quiet: bool) -> Result<()> {
     let json = serde_json::to_string_pretty(output).context("Failed to serialize report")?;
     std::fs::write(path, &json).with_context(|| format!("Failed to write report to '{path}'"))?;
     if !quiet {
@@ -477,8 +482,8 @@ fn is_gui_launch() -> bool {
 
 // ─── Notification message formatting ─────────────────────────────────────────
 
-/// Format a notification body for a [`SmartCleanResult`](cleaner::SmartCleanResult).
-fn format_clean_notification(output: &cleaner::SmartCleanResult) -> String {
+/// Format a notification body for a [`SmartCleanResult`](engine::SmartCleanResult).
+fn format_clean_notification(output: &engine::SmartCleanResult) -> String {
     let freed = memory::format_signed_bytes(output.reclaimed_bytes());
     let before_load = output.overall_before.memory_load_percent;
     let after_load = output.overall_after.memory_load_percent;
@@ -489,8 +494,8 @@ fn format_clean_notification(output: &cleaner::SmartCleanResult) -> String {
     )
 }
 
-/// Format a notification body for a single [`CleanResult`](cleaner::CleanResult).
-fn format_single_notification(result: &cleaner::CleanResult) -> String {
+/// Format a notification body for a single [`CleanResult`](engine::CleanResult).
+fn format_single_notification(result: &engine::CleanResult) -> String {
     let status = if result.success { "OK" } else { "FAILED" };
     let freed = memory::format_signed_bytes(result.reclaimed_bytes());
     format!(

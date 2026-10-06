@@ -17,7 +17,7 @@ use egui_phosphor::regular as ph;
 
 use serde::{Deserialize, Serialize};
 
-use crate::cleaner::{self, CleanLevel, SmartCleanResult};
+use crate::engine::{self, CleanLevel, SmartCleanResult};
 use crate::memory::{self, MemorySnapshot, ProcessMemoryInfo};
 use crate::strings;
 
@@ -459,7 +459,9 @@ impl MagicXApp {
                 // matters in dev builds: the release profile uses
                 // `panic = "abort"`, where a panic ends the process instead.
                 let result = std::panic::catch_unwind(|| {
-                    cleaner::smart_clean(level, false, &[]).map_err(|e| format!("{e:#}"))
+                    engine::Cleaner::silent(&engine::WindowsMemory)
+                        .smart_clean(level, &[])
+                        .map_err(|e| format!("{e:#}"))
                 })
                 .unwrap_or_else(|_| Err("clean worker panicked".to_owned()));
                 drop(tx.send(CleanResultMsg {

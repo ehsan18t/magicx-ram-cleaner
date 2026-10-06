@@ -83,8 +83,8 @@
 #[allow(unsafe_code)]
 pub mod platform;
 
-/// Core memory cleaning operations and orchestration.
-pub mod cleaner;
+/// The cleaning engine: levels, operations, leftover sweep and measurement.
+pub mod engine;
 
 /// Centralised user-facing text constants for CLI and GUI.
 pub mod strings;

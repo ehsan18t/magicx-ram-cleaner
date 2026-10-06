@@ -2,7 +2,7 @@
 //!
 //! Terminal output helpers for memory status and cleaning diagnostics.
 
-use crate::cleaner::{CleanLevel, CleanResult, SmartCleanResult};
+use crate::engine::{CleanLevel, CleanResult, Progress, SmartCleanResult};
 
 use crate::memory::{
     FileCacheSnapshot, MemoryListInfo, MemorySnapshot, ProcessMemoryInfo, format_bytes,
@@ -482,6 +482,44 @@ pub fn print_dry_run(level: CleanLevel, operations: &[&str]) {
     }
     println!("\n  {}", strings::cli::DRY_RUN_FOOTER.yellow());
     println!();
+}
+
+/// Print one engine progress event as a verbose progress line.
+pub fn print_progress(progress: &Progress) {
+    match progress {
+        Progress::Started { label } => println!("  {} {label}", "→".cyan()),
+        Progress::Settled { after_ms } => {
+            println!("    {} Memory settled after {after_ms}ms", "·".dimmed());
+        }
+        Progress::SettleTimedOut { after_ms } => println!(
+            "    {} Memory still settling (timeout reached after {after_ms}ms, using latest reading)",
+            "·".dimmed()
+        ),
+        Progress::Excluded { name, pid } => println!(
+            "    {} Skipping {} (PID {pid}, excluded)",
+            "·".dimmed(),
+            name.yellow()
+        ),
+        Progress::SecondPass => println!("  {} Running second pass cleanup...", "→".cyan()),
+        Progress::Sweep {
+            pass,
+            leftover_bytes,
+        } => println!(
+            "  {} Sweeping {} of leftover standby/modified pages (pass {pass})...",
+            "→".cyan(),
+            format_bytes(*leftover_bytes)
+        ),
+    }
+}
+
+/// A progress callback for the engine: prints each event when `verbose` is
+/// set, ignores them otherwise.
+pub fn progress_printer(verbose: bool) -> impl FnMut(Progress) {
+    move |progress| {
+        if verbose {
+            print_progress(&progress);
+        }
+    }
 }
 
 /// Print a formatted summary of all cleaning results with before/after comparison.

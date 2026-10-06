@@ -7,7 +7,7 @@
 use clap::builder::styling::{AnsiColor, Styles};
 use clap::{Parser, Subcommand};
 
-use crate::cleaner::CleanLevel;
+use crate::engine::CleanLevel;
 
 // ─── Clap styling ────────────────────────────────────────────────────────────
 
