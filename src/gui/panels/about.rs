@@ -388,12 +388,16 @@ fn draw_project(ui: &mut egui::Ui, dark: bool) {
             strings::gui::about::ROW_REPOSITORY,
             dark,
             |ui| {
-                ui.hyperlink_to(
-                    egui::RichText::new(strings::REPO_SHORT)
-                        .size(12.0)
-                        .color(theme::ACCENT),
-                    REPO_URL,
-                );
+                let response = ui
+                    .link(
+                        egui::RichText::new(strings::REPO_SHORT)
+                            .size(12.0)
+                            .color(theme::ACCENT),
+                    )
+                    .on_hover_text(REPO_URL);
+                if response.clicked() {
+                    open_link(ui, REPO_URL);
+                }
             },
         );
 
