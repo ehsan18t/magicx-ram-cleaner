@@ -25,7 +25,7 @@ impl MagicXApp {
             tray::TrayAction::Clean(level) => {
                 crate::platform::window::uncloak_window(self.hwnd);
                 self.hidden_to_tray = false;
-                self.active_panel = Panel::Dashboard;
+                self.active_panel = Panel::Overview;
                 self.start_clean(level);
             }
             tray::TrayAction::Navigate(panel) => {
@@ -47,7 +47,7 @@ impl MagicXApp {
     /// [`Self::tray_error`] for the Settings panel.
     pub(super) fn rebuild_tray(&mut self, ctx: &egui::Context) {
         self.tray_handle = None;
-        match tray::TrayHandle::new(ctx.clone(), self.hwnd, self.settings.dark_mode) {
+        match tray::TrayHandle::new(ctx.clone(), self.hwnd, self.dark()) {
             Ok(handle) => {
                 self.tray_handle = Some(handle);
                 self.tray_error = None;

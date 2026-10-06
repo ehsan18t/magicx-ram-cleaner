@@ -20,7 +20,7 @@ use crate::memory;
 use crate::strings;
 
 use super::super::app::MagicXApp;
-use super::super::settings::TOP_PROCESSES_RANGE;
+use super::super::settings::TOP_PROCESS_CHOICES;
 use super::super::{theme, widgets};
 
 /// Row height for comfortable reading.
@@ -83,8 +83,8 @@ fn group_processes(procs: &[memory::ProcessMemoryInfo]) -> Vec<GroupedProcess> {
 
 /// Draw the processes panel.
 pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
-    let dark = app.settings.dark_mode;
-    widgets::page_title(ui, ph::CPU, strings::gui::processes::TITLE, dark);
+    let dark = app.dark();
+    widgets::page_title(ui, strings::gui::processes::TITLE);
 
     draw_toolbar(ui, app);
     ui.add_space(8.0);
@@ -224,7 +224,7 @@ fn draw_table_card(
                                         g.peak_working_set,
                                     ))
                                     .size(11.0)
-                                    .color(theme::YELLOW),
+                                    .color(theme::yellow()),
                                 );
                             },
                         );
@@ -247,14 +247,14 @@ fn draw_ws_cell(ui: &mut egui::Ui, working_set: u64, max_ws: u64) -> egui::Respo
                 egui::RichText::new(memory::format_bytes(working_set))
                     .size(11.5)
                     .strong()
-                    .color(theme::ACCENT),
+                    .color(theme::accent()),
             );
             let (bar, _) =
                 ui.allocate_exact_size(egui::vec2(ui.available_width(), 2.5), egui::Sense::hover());
             ui.painter().rect_filled(
                 bar,
                 egui::CornerRadius::same(1),
-                theme::ACCENT.gamma_multiply(0.18),
+                theme::accent().gamma_multiply(0.18),
             );
             let fill = egui::Rect::from_min_size(
                 bar.left_top(),
@@ -263,7 +263,7 @@ fn draw_ws_cell(ui: &mut egui::Ui, working_set: u64, max_ws: u64) -> egui::Respo
             ui.painter().rect_filled(
                 fill,
                 egui::CornerRadius::same(1),
-                theme::ACCENT.gamma_multiply(0.85),
+                theme::accent().gamma_multiply(0.85),
             );
         });
     })
@@ -272,22 +272,20 @@ fn draw_ws_cell(ui: &mut egui::Ui, working_set: u64, max_ws: u64) -> egui::Respo
 
 /// Combined toolbar: "Show top" slider on the left, search box on the right.
 fn draw_toolbar(ui: &mut egui::Ui, app: &mut MagicXApp) {
-    let dark = app.settings.dark_mode;
+    let dark = app.dark();
     ui.horizontal(|ui| {
-        // ── Left: count slider ─────────────────────────────────────────────
-        ui.label(
-            egui::RichText::new(strings::gui::processes::LABEL_SHOW_TOP)
-                .size(11.5)
-                .color(theme::muted_color(dark)),
-        );
-        ui.add_space(4.0);
-        ui.add(
-            egui::Slider::new(&mut app.settings.top_process_count, TOP_PROCESSES_RANGE)
-                .step_by(5.0)
-                .show_value(true)
-                .suffix(" programs")
-                .text(""),
-        );
+        // ── Left: how many programs to show ───────────────────────────────
+        ui.allocate_ui(egui::vec2(180.0, theme::CONTROL_HEIGHT), |ui| {
+            let selected = TOP_PROCESS_CHOICES
+                .iter()
+                .position(|n| *n == app.settings.top_process_count)
+                .unwrap_or(1);
+            let labels = TOP_PROCESS_CHOICES.map(|n| format!("Top {n}"));
+            let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
+            if let Some(i) = widgets::segmented(ui, &labels, selected, true) {
+                app.settings.top_process_count = TOP_PROCESS_CHOICES[i];
+            }
+        });
 
         // ── Right: search box ──────────────────────────────────────────────
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -349,7 +347,7 @@ fn draw_sort_header(
         .strong()
         .size(11.0)
         .color(if is_sorted {
-            theme::ACCENT
+            theme::accent()
         } else {
             theme::text_color(dark)
         });

@@ -211,7 +211,7 @@ fn tray_watcher_thread(
             } else if event.id == ids.clean_nuclear {
                 TrayAction::Clean(CleanLevel::Nuclear)
             } else if event.id == ids.nav_dashboard {
-                TrayAction::Navigate(Panel::Dashboard)
+                TrayAction::Navigate(Panel::Overview)
             } else if event.id == ids.nav_monitor {
                 TrayAction::Navigate(Panel::Monitor)
             } else if event.id == ids.nav_processes {
@@ -307,7 +307,7 @@ fn build_menu(dark: bool) -> Result<(MenuIds, Menu), String> {
     let aggressive_item = icon_menu_item(strings::levels::AGGRESSIVE_NAME, ph::FIRE, dark);
     let nuclear_item = icon_menu_item(strings::levels::NUCLEAR_NAME, ph::RADIOACTIVE, dark);
 
-    let nav_dashboard = icon_menu_item(strings::tray::NAV_DASHBOARD, ph::GAUGE, dark);
+    let nav_dashboard = icon_menu_item(strings::tray::NAV_OVERVIEW, ph::GAUGE, dark);
     let nav_monitor = icon_menu_item(strings::tray::NAV_MONITOR, ph::ACTIVITY, dark);
     let nav_processes = icon_menu_item(strings::tray::NAV_PROCESSES, ph::CPU, dark);
     let nav_settings = icon_menu_item(strings::tray::NAV_SETTINGS, ph::GEAR, dark);

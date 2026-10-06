@@ -113,6 +113,59 @@ impl Drop for RegKey {
     }
 }
 
+/// The raw data of value `name` in key `path`, or `None` when the key or
+/// value does not exist or cannot be read.
+#[must_use]
+pub fn read_bytes(hive: Hive, path: &str, name: &str) -> Option<Vec<u8>> {
+    use windows_sys::Win32::System::Registry::{RRF_RT_ANY, RegGetValueW};
+
+    let wide_path = to_wide(path);
+    let wide_name = to_wide(name);
+    let mut size: u32 = 0;
+    // SAFETY: Both strings are null-terminated UTF-16 and `size` is a valid
+    // out pointer; a null data pointer asks only for the size.
+    let rc = unsafe {
+        RegGetValueW(
+            hive.raw(),
+            wide_path.as_ptr(),
+            wide_name.as_ptr(),
+            RRF_RT_ANY,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &raw mut size,
+        )
+    };
+    if rc != 0 || size == 0 {
+        return None;
+    }
+    let mut data = vec![0u8; size as usize];
+    // SAFETY: `data` is a writable buffer of `size` bytes, as `size` states.
+    let rc = unsafe {
+        RegGetValueW(
+            hive.raw(),
+            wide_path.as_ptr(),
+            wide_name.as_ptr(),
+            RRF_RT_ANY,
+            std::ptr::null_mut(),
+            data.as_mut_ptr().cast(),
+            &raw mut size,
+        )
+    };
+    if rc != 0 {
+        return None;
+    }
+    data.truncate(size as usize);
+    Some(data)
+}
+
+/// The `REG_DWORD` value `name` in key `path`, if it exists.
+#[must_use]
+pub fn read_u32(hive: Hive, path: &str, name: &str) -> Option<u32> {
+    let data = read_bytes(hive, path, name)?;
+    let bytes: [u8; 4] = data.get(..4)?.try_into().ok()?;
+    Some(u32::from_le_bytes(bytes))
+}
+
 /// Whether `path` exists under `hive`.
 #[must_use]
 pub fn key_exists(hive: Hive, path: &str) -> bool {

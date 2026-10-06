@@ -60,8 +60,8 @@ const COLOR_WEBSITE: egui::Color32 = egui::Color32::from_rgb(14, 116, 144);
 
 /// Draw the about panel.
 pub fn draw(ui: &mut egui::Ui, app: &MagicXApp) {
-    let dark = app.settings.dark_mode;
-    widgets::page_title(ui, ph::INFO, strings::gui::about::TITLE, dark);
+    let dark = app.dark();
+    widgets::page_title(ui, strings::gui::about::TITLE);
 
     draw_hero(ui, dark);
     ui.add_space(theme::SECTION_SPACING);
@@ -78,7 +78,7 @@ pub fn draw(ui: &mut egui::Ui, app: &MagicXApp) {
 fn draw_hero(ui: &mut egui::Ui, dark: bool) {
     let bg = theme::surface_color(dark);
     let border = theme::border_color(dark);
-    let r = theme::CARD_ROUNDING;
+    let r = theme::CARD_RADIUS;
 
     let resp = egui::Frame::new()
         .fill(bg)
@@ -107,7 +107,7 @@ fn draw_hero(ui: &mut egui::Ui, dark: bool) {
             sw: 0,
             se: 0,
         },
-        theme::ACCENT,
+        theme::accent(),
     );
 }
 
@@ -126,11 +126,11 @@ fn draw_hero_content(ui: &mut egui::Ui, dark: bool) {
                 egui::Sense::hover(),
             );
             ui.painter()
-                .rect_filled(badge_rect, br, theme::ACCENT.gamma_multiply(0.18));
+                .rect_filled(badge_rect, br, theme::accent().gamma_multiply(0.18));
             ui.painter().rect_stroke(
                 badge_rect,
                 br,
-                egui::Stroke::new(1.5_f32, theme::ACCENT.gamma_multiply(0.55)),
+                egui::Stroke::new(1.5_f32, theme::accent().gamma_multiply(0.55)),
                 egui::StrokeKind::Outside,
             );
             ui.painter().text(
@@ -138,7 +138,7 @@ fn draw_hero_content(ui: &mut egui::Ui, dark: bool) {
                 egui::Align2::CENTER_CENTER,
                 strings::MONOGRAM,
                 egui::FontId::proportional(16.0),
-                theme::ACCENT,
+                theme::accent(),
             );
         });
         ui.add_space(16.0);
@@ -248,24 +248,24 @@ fn draw_dev_avatar(ui: &mut egui::Ui) {
     ui.painter().circle_stroke(
         center,
         outer_r - 0.5,
-        egui::Stroke::new(1.0_f32, theme::ACCENT.gamma_multiply(0.22)),
+        egui::Stroke::new(1.0_f32, theme::accent().gamma_multiply(0.22)),
     );
     ui.painter().circle_filled(
         center,
         AVATAR_SIZE / 2.0,
-        theme::ACCENT.gamma_multiply(0.18),
+        theme::accent().gamma_multiply(0.18),
     );
     ui.painter().circle_stroke(
         center,
         AVATAR_SIZE / 2.0,
-        egui::Stroke::new(2.0_f32, theme::ACCENT.gamma_multiply(0.60)),
+        egui::Stroke::new(2.0_f32, theme::accent().gamma_multiply(0.60)),
     );
     ui.painter().text(
         center,
         egui::Align2::CENTER_CENTER,
         strings::developer::INITIALS,
         egui::FontId::proportional(18.0),
-        theme::ACCENT,
+        theme::accent(),
     );
 }
 
@@ -283,7 +283,7 @@ fn draw_dev_bio(ui: &mut egui::Ui, dark: bool) {
         ui.label(
             egui::RichText::new(strings::developer::HANDLE)
                 .size(12.0)
-                .color(theme::ACCENT),
+                .color(theme::accent()),
         );
         ui.add_space(6.0);
         ui.horizontal(|ui| {
@@ -392,7 +392,7 @@ fn draw_project(ui: &mut egui::Ui, dark: bool) {
                     .link(
                         egui::RichText::new(strings::REPO_SHORT)
                             .size(12.0)
-                            .color(theme::ACCENT),
+                            .color(theme::accent()),
                     )
                     .on_hover_text(REPO_URL);
                 if response.clicked() {
@@ -437,8 +437,8 @@ fn draw_project(ui: &mut egui::Ui, dark: bool) {
 /// it is truly vertically centred within the text block regardless of how
 /// many lines the description wraps to.
 fn draw_contrib_banner(ui: &mut egui::Ui, dark: bool) {
-    let bg = theme::ACCENT.gamma_multiply(if dark { 0.08 } else { 0.06 });
-    let border = theme::ACCENT.gamma_multiply(0.20);
+    let bg = theme::accent().gamma_multiply(if dark { 0.08 } else { 0.06 });
+    let border = theme::accent().gamma_multiply(0.20);
 
     egui::Frame::new()
         .fill(bg)
@@ -487,7 +487,7 @@ fn draw_contrib_banner(ui: &mut egui::Ui, dark: bool) {
                 egui::Align2::CENTER_CENTER,
                 ph::HEART,
                 egui::FontId::proportional(20.0),
-                theme::ACCENT,
+                theme::accent(),
             );
         });
 }
@@ -500,26 +500,26 @@ fn version_chip(ui: &mut egui::Ui, dark: bool) {
     let galley = ui.painter().layout_no_wrap(
         version.to_owned(),
         egui::FontId::proportional(11.0),
-        theme::ACCENT,
+        theme::accent(),
     );
     let padding = egui::vec2(8.0, 3.0);
     let chip_size = galley.size() + padding * 2.0;
     let (rect, _) = ui.allocate_exact_size(chip_size, egui::Sense::hover());
     let bg = if dark {
-        theme::ACCENT.gamma_multiply(0.15)
+        theme::accent().gamma_multiply(0.15)
     } else {
-        theme::ACCENT.gamma_multiply(0.12)
+        theme::accent().gamma_multiply(0.12)
     };
     ui.painter()
         .rect_filled(rect, egui::CornerRadius::same(6), bg);
     ui.painter().rect_stroke(
         rect,
         egui::CornerRadius::same(6),
-        egui::Stroke::new(0.5_f32, theme::ACCENT.gamma_multiply(0.40)),
+        egui::Stroke::new(0.5_f32, theme::accent().gamma_multiply(0.40)),
         egui::StrokeKind::Outside,
     );
     ui.painter()
-        .galley(rect.min + padding, galley, theme::ACCENT);
+        .galley(rect.min + padding, galley, theme::accent());
 }
 
 /// Render a compact platform or metadata chip with an icon prefix.
@@ -542,7 +542,7 @@ fn meta_chip(ui: &mut egui::Ui, icon: &str, label: &str, dark: bool) {
 
 /// Render a fully-rounded tag pill for developer bio labels.
 fn tag_pill(ui: &mut egui::Ui, label: &str, dark: bool) {
-    let text_color = theme::ACCENT.gamma_multiply(0.90);
+    let text_color = theme::accent().gamma_multiply(0.90);
     let galley = ui.painter().layout_no_wrap(
         label.to_owned(),
         egui::FontId::proportional(11.0),
@@ -551,8 +551,8 @@ fn tag_pill(ui: &mut egui::Ui, label: &str, dark: bool) {
     let padding = egui::vec2(10.0, 4.0);
     let size = galley.size() + padding * 2.0;
     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-    let bg = theme::ACCENT.gamma_multiply(if dark { 0.12 } else { 0.10 });
-    let border = theme::ACCENT.gamma_multiply(0.28);
+    let bg = theme::accent().gamma_multiply(if dark { 0.12 } else { 0.10 });
+    let border = theme::accent().gamma_multiply(0.28);
     ui.painter()
         .rect_filled(rect, egui::CornerRadius::same(100), bg);
     ui.painter().rect_stroke(
@@ -581,14 +581,14 @@ fn info_row(
         ui.painter().circle_filled(
             icon_rect.center(),
             11.0,
-            theme::ACCENT.gamma_multiply(if dark { 0.14 } else { 0.11 }),
+            theme::accent().gamma_multiply(if dark { 0.14 } else { 0.11 }),
         );
         ui.painter().text(
             icon_rect.center(),
             egui::Align2::CENTER_CENTER,
             icon,
             egui::FontId::proportional(11.0),
-            theme::ACCENT.gamma_multiply(0.80),
+            theme::accent().gamma_multiply(0.80),
         );
 
         ui.add_space(8.0);
@@ -631,19 +631,15 @@ fn view_on_github_btn(ui: &mut egui::Ui, dark: bool) {
 
     let hovered = response.hovered();
     let br = egui::CornerRadius::same(8);
-    let bg = theme::ACCENT.gamma_multiply(if hovered {
+    let bg = theme::accent().gamma_multiply(if hovered {
         if dark { 0.22 } else { 0.18 }
     } else if dark {
         0.12
     } else {
         0.09
     });
-    let border = theme::ACCENT.gamma_multiply(if hovered { 0.80 } else { 0.35 });
-    let text_color = if hovered {
-        theme::ACCENT_HOVER
-    } else {
-        theme::ACCENT
-    };
+    let border = theme::accent().gamma_multiply(if hovered { 0.80 } else { 0.35 });
+    let text_color = theme::accent();
 
     ui.painter().rect_filled(rect, br, bg);
     ui.painter().rect_stroke(

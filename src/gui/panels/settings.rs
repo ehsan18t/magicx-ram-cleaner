@@ -7,6 +7,7 @@ use crate::gui::icons::regular as ph;
 use eframe::egui;
 
 use super::super::app::MagicXApp;
+use super::super::settings::ThemeMode;
 use super::super::persistence::SettingsManager;
 use super::super::{theme, widgets};
 
@@ -14,8 +15,7 @@ use crate::strings;
 
 /// Draw the settings panel.
 pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
-    let dark = app.settings.dark_mode;
-    widgets::page_title(ui, ph::GEAR, strings::gui::settings::TITLE, dark);
+    widgets::page_title(ui, strings::gui::settings::TITLE);
 
     draw_appearance(ui, app);
     ui.add_space(theme::SECTION_SPACING);
@@ -23,76 +23,46 @@ pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     ui.add_space(theme::SECTION_SPACING);
     draw_context_menu(ui, app);
     ui.add_space(theme::SECTION_SPACING);
-    draw_display(ui, app);
-    ui.add_space(theme::SECTION_SPACING);
     draw_backup(ui, app);
 }
 
-/// Appearance section: theme toggle buttons.
+/// Appearance section: the theme choice.
 fn draw_appearance(ui: &mut egui::Ui, app: &mut MagicXApp) {
-    let dark = app.settings.dark_mode;
+    const MODES: [ThemeMode; 3] = [ThemeMode::System, ThemeMode::Light, ThemeMode::Dark];
 
-    widgets::card(ui, dark, |ui| {
-        widgets::section_header(ui, strings::gui::settings::SECTION_APPEARANCE);
-
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new(strings::gui::settings::LABEL_THEME)
-                    .size(12.0)
-                    .color(theme::text_color(dark)),
-            );
-            ui.add_space(8.0);
-
-            let dark_btn = egui::Button::new(
-                egui::RichText::new(strings::gui::settings::THEME_DARK)
-                    .size(12.0)
-                    .color(if dark {
-                        theme::ACCENT
-                    } else {
-                        theme::muted_color(dark)
-                    }),
-            )
-            .min_size(egui::vec2(60.0, 28.0))
-            .corner_radius(egui::CornerRadius::same(6))
-            .fill(if dark {
-                theme::ACCENT.gamma_multiply(0.15)
-            } else {
-                theme::surface_color(dark)
-            });
-
-            if ui.add(dark_btn).clicked() {
-                app.settings.dark_mode = true;
-            }
-
-            ui.add_space(4.0);
-
-            let light_btn = egui::Button::new(
-                egui::RichText::new(strings::gui::settings::THEME_LIGHT)
-                    .size(12.0)
-                    .color(if dark {
-                        theme::muted_color(dark)
-                    } else {
-                        theme::ACCENT
-                    }),
-            )
-            .min_size(egui::vec2(60.0, 28.0))
-            .corner_radius(egui::CornerRadius::same(6))
-            .fill(if dark {
-                theme::surface_color(dark)
-            } else {
-                theme::ACCENT.gamma_multiply(0.15)
-            });
-
-            if ui.add(light_btn).clicked() {
-                app.settings.dark_mode = false;
-            }
-        });
+    widgets::card(ui, app.dark(), |ui| {
+        widgets::settings_row(
+            ui,
+            ph::PALETTE,
+            strings::gui::settings::LABEL_THEME,
+            strings::gui::settings::DESC_THEME,
+            |ui| {
+                ui.allocate_ui(egui::vec2(240.0, theme::CONTROL_HEIGHT), |ui| {
+                    let selected = MODES
+                        .iter()
+                        .position(|m| *m == app.settings.theme)
+                        .unwrap_or(0);
+                    if let Some(i) = widgets::segmented(
+                        ui,
+                        &[
+                            strings::gui::settings::THEME_SYSTEM,
+                            strings::gui::settings::THEME_LIGHT,
+                            strings::gui::settings::THEME_DARK,
+                        ],
+                        selected,
+                        true,
+                    ) {
+                        app.settings.theme = MODES[i];
+                    }
+                });
+            },
+        );
     });
 }
 
 /// Integration section: tray and autostart toggles.
 fn draw_integration(ui: &mut egui::Ui, app: &mut MagicXApp) {
-    let dark = app.settings.dark_mode;
+    let dark = app.dark();
 
     widgets::card(ui, dark, |ui| {
         widgets::section_header(ui, strings::gui::settings::SECTION_INTEGRATION);
@@ -122,7 +92,7 @@ fn draw_integration(ui: &mut egui::Ui, app: &mut MagicXApp) {
             ui.label(
                 egui::RichText::new(format!("Tray icon unavailable: {err}"))
                     .size(10.0)
-                    .color(theme::RED),
+                    .color(theme::red()),
             );
         }
 
@@ -184,7 +154,7 @@ fn draw_integration(ui: &mut egui::Ui, app: &mut MagicXApp) {
 /// folder background.  Requires administrator rights (already enforced by
 /// [`crate::gui::run_gui`]).
 fn draw_context_menu(ui: &mut egui::Ui, app: &mut MagicXApp) {
-    let dark = app.settings.dark_mode;
+    let dark = app.dark();
 
     widgets::card(ui, dark, |ui| {
         widgets::section_header(ui, strings::gui::settings::SECTION_CONTEXT_MENU);
@@ -198,7 +168,7 @@ fn draw_context_menu(ui: &mut egui::Ui, app: &mut MagicXApp) {
 
         // Status badge
         let (status_text, status_color) = if app.context_menu_installed {
-            (strings::gui::settings::STATUS_INSTALLED, theme::GREEN)
+            (strings::gui::settings::STATUS_INSTALLED, theme::green())
         } else {
             (
                 strings::gui::settings::STATUS_NOT_INSTALLED,
@@ -228,7 +198,7 @@ fn draw_context_menu_install_btn(ui: &mut egui::Ui, dark: bool, app: &mut MagicX
             .color(if app.context_menu_installed {
                 theme::muted_color(dark)
             } else {
-                theme::ACCENT
+                theme::accent()
             }),
     )
     .min_size(egui::vec2(110.0, 30.0))
@@ -236,7 +206,7 @@ fn draw_context_menu_install_btn(ui: &mut egui::Ui, dark: bool, app: &mut MagicX
     .fill(if app.context_menu_installed {
         theme::surface_color(dark)
     } else {
-        theme::ACCENT.gamma_multiply(0.12)
+        theme::accent().gamma_multiply(0.12)
     });
 
     if ui
@@ -272,7 +242,7 @@ fn draw_context_menu_remove_btn(ui: &mut egui::Ui, dark: bool, app: &mut MagicXA
         egui::RichText::new(format!("{} Remove", ph::PLUG_CHARGING))
             .size(12.0)
             .color(if app.context_menu_installed {
-                theme::RED
+                theme::red()
             } else {
                 theme::muted_color(dark)
             }),
@@ -280,7 +250,7 @@ fn draw_context_menu_remove_btn(ui: &mut egui::Ui, dark: bool, app: &mut MagicXA
     .min_size(egui::vec2(110.0, 30.0))
     .corner_radius(egui::CornerRadius::same(6))
     .fill(if app.context_menu_installed {
-        theme::RED.gamma_multiply(0.12)
+        theme::red().gamma_multiply(0.12)
     } else {
         theme::surface_color(dark)
     });
@@ -310,29 +280,11 @@ fn draw_context_menu_remove_btn(ui: &mut egui::Ui, dark: bool, app: &mut MagicXA
     }
 }
 
-/// Preferences section: tooltip visibility.
-fn draw_display(ui: &mut egui::Ui, app: &mut MagicXApp) {
-    let dark = app.settings.dark_mode;
-
-    widgets::card(ui, dark, |ui| {
-        widgets::section_header(ui, strings::gui::settings::SECTION_PREFERENCES);
-
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut app.settings.show_level_tooltips, "");
-            ui.label(
-                egui::RichText::new(strings::gui::settings::LABEL_TOOLTIPS)
-                    .size(12.0)
-                    .color(theme::text_color(dark)),
-            );
-        });
-    });
-}
-
 /// Backup section: export and import settings.
 fn draw_backup(ui: &mut egui::Ui, app: &mut MagicXApp) {
     use std::time::Duration;
 
-    let dark = app.settings.dark_mode;
+    let dark = app.dark();
 
     // Auto-dismiss stale feedback before rendering so the card never shows
     // an outdated message on re-entry.
@@ -357,11 +309,11 @@ fn draw_backup(ui: &mut egui::Ui, app: &mut MagicXApp) {
             let export_btn = egui::Button::new(
                 egui::RichText::new(format!("{} Export", ph::UPLOAD_SIMPLE))
                     .size(12.0)
-                    .color(theme::ACCENT),
+                    .color(theme::accent()),
             )
             .min_size(egui::vec2(110.0, 30.0))
             .corner_radius(egui::CornerRadius::same(6))
-            .fill(theme::ACCENT.gamma_multiply(0.12));
+            .fill(theme::accent().gamma_multiply(0.12));
 
             if ui
                 .add(export_btn)
@@ -397,11 +349,11 @@ fn draw_backup(ui: &mut egui::Ui, app: &mut MagicXApp) {
             let import_btn = egui::Button::new(
                 egui::RichText::new(format!("{} Import", ph::DOWNLOAD_SIMPLE))
                     .size(12.0)
-                    .color(theme::ACCENT),
+                    .color(theme::accent()),
             )
             .min_size(egui::vec2(110.0, 30.0))
             .corner_radius(egui::CornerRadius::same(6))
-            .fill(theme::ACCENT.gamma_multiply(0.12));
+            .fill(theme::accent().gamma_multiply(0.12));
 
             if ui
                 .add(import_btn)
@@ -415,7 +367,7 @@ fn draw_backup(ui: &mut egui::Ui, app: &mut MagicXApp) {
         // ── Feedback banner ──────────────────────────────────────────
         if let Some((ref msg, is_err, _)) = app.settings_status {
             ui.add_space(8.0);
-            let color = if is_err { theme::RED } else { theme::GREEN };
+            let color = if is_err { theme::red() } else { theme::green() };
             ui.label(egui::RichText::new(msg.as_str()).size(11.0).color(color));
         }
     });

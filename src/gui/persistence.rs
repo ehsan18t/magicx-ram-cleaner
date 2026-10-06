@@ -37,10 +37,35 @@ fn default_settings_path() -> PathBuf {
 /// Deserialise [`GuiSettings`] from a JSON file and clamp it to valid ranges.
 fn read_settings_file(path: &Path) -> Result<GuiSettings, String> {
     let content = std::fs::read_to_string(path).map_err(|e| format!("Cannot read file: {e}"))?;
+    parse_settings(&content)
+}
+
+/// Parse settings JSON, upgrade fields from older versions, and clamp the
+/// result to valid ranges.
+fn parse_settings(content: &str) -> Result<GuiSettings, String> {
+    let mut value: serde_json::Value =
+        serde_json::from_str(content).map_err(|e| format!("Invalid settings file: {e}"))?;
+    migrate_legacy_theme(&mut value);
     let mut settings: GuiSettings =
-        serde_json::from_str(&content).map_err(|e| format!("Invalid settings file: {e}"))?;
+        serde_json::from_value(value).map_err(|e| format!("Invalid settings file: {e}"))?;
     settings.sanitize();
     Ok(settings)
+}
+
+/// Files written before the `theme` field existed stored `"dark_mode": bool`.
+/// Turn that into the equivalent fixed theme so an update never flips the
+/// user's theme; files with neither field get the default (System).
+fn migrate_legacy_theme(value: &mut serde_json::Value) {
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    if object.contains_key("theme") {
+        return;
+    }
+    if let Some(dark) = object.get("dark_mode").and_then(serde_json::Value::as_bool) {
+        let theme = if dark { "dark" } else { "light" };
+        object.insert("theme".to_owned(), serde_json::Value::from(theme));
+    }
 }
 
 /// Serialise `settings` as pretty JSON to `path`, creating parent directories.
@@ -134,5 +159,39 @@ impl SettingsManager {
             return Ok(None);
         };
         read_settings_file(&path).map(Some)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gui::settings::ThemeMode;
+
+    #[test]
+    fn legacy_dark_mode_becomes_a_fixed_theme() {
+        let dark = parse_settings(r#"{ "dark_mode": true }"#).expect("loads");
+        assert_eq!(dark.theme, ThemeMode::Dark);
+        let light = parse_settings(r#"{ "dark_mode": false }"#).expect("loads");
+        assert_eq!(light.theme, ThemeMode::Light);
+    }
+
+    #[test]
+    fn theme_field_wins_over_the_legacy_flag() {
+        let settings =
+            parse_settings(r#"{ "dark_mode": true, "theme": "system" }"#).expect("loads");
+        assert_eq!(settings.theme, ThemeMode::System);
+    }
+
+    #[test]
+    fn files_without_either_field_follow_the_system() {
+        let settings = parse_settings("{}").expect("loads");
+        assert_eq!(settings.theme, ThemeMode::System);
+    }
+
+    #[test]
+    fn saved_settings_do_not_write_the_legacy_flag() {
+        let json = serde_json::to_string(&GuiSettings::default()).expect("serializes");
+        assert!(!json.contains("dark_mode"));
+        assert!(json.contains(r#""theme":"system""#));
     }
 }

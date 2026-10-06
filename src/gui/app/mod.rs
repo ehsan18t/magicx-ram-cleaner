@@ -16,17 +16,18 @@ use std::time::{Duration, Instant};
 use anyhow::Context;
 
 use eframe::egui;
-use egui::{FontFamily, FontId, TextStyle};
 
+use self::appearance::Appearance;
 use self::background::{PROCESS_REFRESH_SECS, stats_thread};
 pub use self::cleaning::CleanResultMsg;
 use self::cleaning::MONITOR_LOG_CAPACITY;
 use super::settings::GuiSettings;
-use super::{sidebar, theme, tray};
+use super::{fonts, nav, theme, tray};
 use crate::engine::auto_clean::AutoCleanPolicy;
 use crate::memory::{MemorySnapshot, ProcessMemoryInfo};
 use crate::strings;
 
+mod appearance;
 mod background;
 mod cleaning;
 mod tray_events;
@@ -38,8 +39,8 @@ mod tray_events;
 /// Which panel is currently shown in the main content area.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Panel {
-    /// Memory overview, cleaning, and quick stats.
-    Dashboard,
+    /// Memory map, clean level picker and quick stats.
+    Overview,
     /// Continuous monitoring with auto-clean.
     Monitor,
     /// Top processes by memory usage.
@@ -148,9 +149,11 @@ pub struct MagicXApp {
     /// Real-time search / filter text for the processes panel.
     pub process_search: String,
 
-    /// Tracks the last `dark_mode` value written to the egui context so
-    /// the theme is only switched on the frame the setting changes.
-    last_applied_dark: bool,
+    /// The Windows appearance as last read, and the palette in use.
+    appearance: Appearance,
+
+    /// Whether the navigation pane is open over the page (narrow windows).
+    pub nav_overlay_open: bool,
 
     /// Whether the window has been revealed (for anti-flash).
     window_revealed: bool,
@@ -210,17 +213,13 @@ impl MagicXApp {
     ///
     /// Returns an error if the background stats thread cannot be spawned.
     pub fn new(cc: &eframe::CreationContext<'_>) -> anyhow::Result<Self> {
-        // Register Phosphor icon font so all icon glyphs render correctly.
-        let mut fonts = egui::FontDefinitions::default();
-        super::icons::regular::add_to_fonts(&mut fonts);
-        cc.egui_ctx.set_fonts(fonts);
+        fonts::install(&cc.egui_ctx);
+        theme::configure_style(&cc.egui_ctx);
 
         // Load persisted settings before applying the theme so the window
         // starts in the user's preferred mode without a one-frame flash.
         let (settings, settings_status) = load_settings_and_sync_autostart();
-
-        // Register and configure both themes, then activate the saved one.
-        configure_themes(&cc.egui_ctx, settings.dark_mode);
+        let appearance = Appearance::read(settings.theme);
 
         let (clean_tx, clean_rx) = mpsc::channel();
         let latest_snapshot = Arc::new(Mutex::new(None));
@@ -253,19 +252,13 @@ impl MagicXApp {
             );
         }
 
-        // Capture dark_mode before settings is moved into Self.
-        let initial_dark_mode = settings.dark_mode;
+        let initial_dark_mode = appearance.palette.dark;
 
         // Take our own HWND from eframe so the tray-watcher thread can post a
         // synthetic WM_PAINT message that wakes eframe even when WS_VISIBLE
         // is cleared. A title lookup (FindWindowW) could match an unrelated
         // window with the same title, such as an Explorer folder.
         let hwnd = window_hwnd(cc);
-
-        // Force Windows dark mode at the process level so native menus
-        // and the title bar match the user's in-app theme from the start.
-        crate::platform::window::set_process_dark_mode(initial_dark_mode);
-        crate::platform::window::set_title_bar_dark_mode(hwnd, initial_dark_mode);
 
         // Initialize tray icon if minimize-to-tray was previously enabled.
         // Pass the egui context and HWND so the watcher thread can call
@@ -279,8 +272,8 @@ impl MagicXApp {
             (None, None)
         };
 
-        Ok(Self {
-            active_panel: Panel::Dashboard,
+        let app = Self {
+            active_panel: Panel::Overview,
             latest_snapshot,
             stats_running,
             needs_repaint,
@@ -308,7 +301,8 @@ impl MagicXApp {
             process_sort_col: 2,
             process_sort_asc: false,
             process_search: String::new(),
-            last_applied_dark: initial_dark_mode,
+            appearance,
+            nav_overlay_open: false,
             window_revealed: false,
             settings_status,
             tray_handle,
@@ -318,7 +312,10 @@ impl MagicXApp {
             quit_requested: false,
             context_menu_installed: crate::integration::context_menu::is_installed(),
             hwnd,
-        })
+        };
+        // Native menus, the title bar and egui all match from the first frame.
+        app.apply_appearance(&cc.egui_ctx);
+        Ok(app)
     }
 
     /// Synchronise the tray handle when the user changes the minimise-to-tray
@@ -365,35 +362,25 @@ impl MagicXApp {
             self.maybe_refresh_processes();
         }
 
-        // Switch theme when the user toggles the preference.
-        if self.settings.dark_mode != self.last_applied_dark {
-            theme::set_active_theme(ui, self.settings.dark_mode);
-            self.last_applied_dark = self.settings.dark_mode;
+        // Follow the theme setting and the Windows theme and accent.
+        let ctx = ui.ctx().clone();
+        self.refresh_appearance(&ctx);
 
-            crate::platform::window::set_process_dark_mode(self.settings.dark_mode);
-            crate::platform::window::set_title_bar_dark_mode(self.hwnd, self.settings.dark_mode);
-
-            if self.settings.minimize_to_tray {
-                let ctx = ui.ctx().clone();
-                self.rebuild_tray(&ctx);
-            }
-        }
-
-        // Enforce the app's theme preference every visible frame.
-        // Eframe's system-theme detection can silently override
-        // our set_theme between frames when the OS theme differs.
-        let desired = if self.settings.dark_mode {
+        // Enforce the resolved theme every visible frame: eframe's own
+        // system-theme detection can override it between frames when the
+        // app's theme differs from the OS theme.
+        let desired = if self.dark() {
             egui::Theme::Dark
         } else {
             egui::Theme::Light
         };
         if ui.theme() != desired {
-            theme::set_active_theme(ui, self.settings.dark_mode);
+            ctx.set_theme(desired);
         }
 
         // ── Layout ───────────────────────────────────────────
-        sidebar::draw_sidebar(ui, self);
-        sidebar::draw_main_panel(ui, self);
+        nav::draw_pane(ui, self);
+        nav::draw_page(ui, self);
     }
 
     /// Save settings to disk after the user changes anything.
@@ -614,56 +601,8 @@ impl eframe::App for MagicXApp {
         // colour, which bleeds through any panel that uses a transparent
         // frame fill. Return the app's own background colour instead so
         // the viewport clear colour always matches the in-app theme.
-        theme::bg_color(self.settings.dark_mode).to_normalized_gamma_f32()
+        theme::palette().bg.to_normalized_gamma_f32()
     }
-}
-
-// ─── One-Time Theme Configuration ────────────────────────────────────────────
-
-/// Register custom visuals for both dark and light themes, apply shared text
-/// styles and spacing, then activate the user's preferred variant.
-///
-/// Called once from [`MagicXApp::new`]. The `set_visuals_of` + `set_theme`
-/// approach (rather than the legacy `set_visuals`) prevents the OS dark/light
-/// preference from silently overriding the in-app selection.
-fn configure_themes(ctx: &egui::Context, dark_mode: bool) {
-    theme::register_themes(ctx);
-    theme::set_active_theme(ctx, dark_mode);
-
-    // `set_global_style` only modifies the *active* theme's style, so we
-    // temporarily activate each variant, clone-and-patch it, then
-    // restore the user's saved preference.
-    for variant in [egui::Theme::Dark, egui::Theme::Light] {
-        ctx.set_theme(variant);
-        let mut style = (*ctx.global_style()).clone();
-        style.spacing.item_spacing = egui::vec2(6.0, 4.0);
-        style.spacing.button_padding = egui::vec2(8.0, 4.0);
-        style.spacing.window_margin = egui::Margin::same(10);
-
-        style.text_styles.insert(
-            TextStyle::Heading,
-            FontId::new(21.0, FontFamily::Proportional),
-        );
-        style
-            .text_styles
-            .insert(TextStyle::Body, FontId::new(13.0, FontFamily::Proportional));
-        style.text_styles.insert(
-            TextStyle::Small,
-            FontId::new(10.0, FontFamily::Proportional),
-        );
-        style.text_styles.insert(
-            TextStyle::Button,
-            FontId::new(13.0, FontFamily::Proportional),
-        );
-        style.text_styles.insert(
-            TextStyle::Monospace,
-            FontId::new(12.0, FontFamily::Monospace),
-        );
-
-        ctx.set_global_style(style);
-    }
-
-    theme::set_active_theme(ctx, dark_mode);
 }
 
 // ─── Background Stats Thread ─────────────────────────────────────────────────

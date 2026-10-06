@@ -1,82 +1,237 @@
 //! # Shared GUI Widgets
 //!
-//! Reusable UI components used across multiple panels: cards, stat labels,
-//! section headers, memory overview bars, toggle switches, and styled buttons.
+//! The building blocks every page uses, styled after Windows 11 controls:
+//! cards, page titles, Settings-style rows, toggle switches, segmented
+//! controls and buttons. All colours come from the active
+//! [`Palette`](super::theme::Palette).
 
 use eframe::egui;
 
 use crate::memory::{self, MemorySnapshot};
 use crate::strings;
 
-use super::theme;
+use super::theme::{self, Palette};
 
-// ─── Card Container ──────────────────────────────────────────────────────────
+// ─── Containers And Headings ─────────────────────────────────────────────────
 
-/// Draw a card-style container with rounded corners, subtle background, and
-/// a soft shadow for visual depth.
-///
-/// The `add_contents` closure receives the inner `Ui` with padding applied.
-pub fn card(ui: &mut egui::Ui, dark_mode: bool, add_contents: impl FnOnce(&mut egui::Ui)) {
-    let bg = theme::surface_color(dark_mode);
-    let border = theme::border_color(dark_mode);
+/// A card: the elevated surface that groups related content.
+pub fn card(ui: &mut egui::Ui, _dark: bool, add_contents: impl FnOnce(&mut egui::Ui)) {
+    card_with_padding(ui, theme::CARD_PADDING, add_contents);
+}
 
+/// A card with custom inner padding (zero for edge-to-edge lists).
+pub fn card_with_padding(ui: &mut egui::Ui, padding: i8, add_contents: impl FnOnce(&mut egui::Ui)) {
+    let p = theme::palette();
     egui::Frame::new()
-        .fill(bg)
-        .stroke(egui::Stroke::new(0.5_f32, border))
-        .corner_radius(egui::CornerRadius::same(theme::CARD_ROUNDING))
-        .inner_margin(egui::Margin::same(theme::CARD_PADDING))
-        .shadow(egui::Shadow {
-            offset: [0, 2],
-            blur: 10,
-            spread: 0,
-            color: egui::Color32::from_black_alpha(if dark_mode { 50 } else { 15 }),
-        })
+        .fill(p.card)
+        .stroke(egui::Stroke::new(1.0_f32, p.card_stroke))
+        .corner_radius(egui::CornerRadius::same(theme::CARD_RADIUS))
+        .inner_margin(egui::Margin::same(padding))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             add_contents(ui);
         });
 }
 
-// ─── Section Header ──────────────────────────────────────────────────────────
+/// The heading of a page.
+pub fn page_title(ui: &mut egui::Ui, title: &str) {
+    let p = theme::palette();
+    ui.label(theme::display(title, theme::TITLE).color(p.text));
+    ui.add_space(14.0);
+}
 
-/// Draw a section header with an accent-coloured left bar and title.
+/// A group heading above one or more cards, as in Windows Settings.
 pub fn section_header(ui: &mut egui::Ui, title: &str) {
-    ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(4.0, 20.0), egui::Sense::hover());
-        ui.painter()
-            .rect_filled(rect, egui::CornerRadius::same(2), theme::ACCENT);
-        ui.add_space(6.0);
-        ui.label(egui::RichText::new(title).strong().size(15.0));
-    });
-    ui.add_space(8.0);
+    let p = theme::palette();
+    ui.label(theme::semibold(title, theme::BODY).color(p.text));
+    ui.add_space(6.0);
 }
 
-/// Draw a page title used at the top of each panel, with a subtle
-/// separator line for visual structure.
-pub fn page_title(ui: &mut egui::Ui, icon: &str, title: &str, dark_mode: bool) {
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(icon).size(22.0).color(theme::ACCENT));
-        ui.add_space(2.0);
-        ui.label(
-            egui::RichText::new(title)
-                .strong()
-                .size(22.0)
-                .color(theme::text_color(dark_mode)),
+
+/// Draw the keyboard focus ring around `rect` when `response` has focus.
+pub fn focus_ring(ui: &egui::Ui, response: &egui::Response, rect: egui::Rect, p: &Palette) {
+    if response.has_focus() {
+        ui.painter().rect_stroke(
+            rect.expand(1.0),
+            egui::CornerRadius::same(theme::CONTROL_RADIUS + 1),
+            egui::Stroke::new(2.0_f32, p.text),
+            egui::StrokeKind::Outside,
         );
-    });
-    ui.add_space(8.0);
-    // Subtle horizontal separator
-    let width = ui.available_width();
-    let (sep_rect, _) = ui.allocate_exact_size(egui::vec2(width, 1.0), egui::Sense::hover());
-    ui.painter().rect_filled(
-        sep_rect,
-        egui::CornerRadius::same(0),
-        theme::border_color(dark_mode).gamma_multiply(0.5),
-    );
-    ui.add_space(12.0);
+    }
 }
 
-// ─── Stat Label ──────────────────────────────────────────────────────────────
+/// A single-line text layout at `size` and `weight`, elided to `max_width`.
+#[must_use]
+pub fn single_line_job(
+    text: &str,
+    size: f32,
+    color: egui::Color32,
+    weight: f32,
+    max_width: f32,
+) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::single_section(
+        text.to_owned(),
+        egui::TextFormat {
+            font_id: egui::FontId::proportional(size),
+            color,
+            coords: egui::epaint::text::VariationCoords::new([(b"wght", weight)]),
+            ..Default::default()
+        },
+    );
+    job.wrap = egui::text::TextWrapping::truncate_at_width(max_width);
+    job
+}
+
+// ─── Settings Rows ───────────────────────────────────────────────────────────
+
+/// A Windows Settings-style row: icon, title and description on the left,
+/// a control on the right. Rows inside one card are separated by dividers
+/// drawn by the caller with [`divider`].
+pub fn settings_row(
+    ui: &mut egui::Ui,
+    icon: &str,
+    title: &str,
+    description: &str,
+    add_control: impl FnOnce(&mut egui::Ui),
+) {
+    let p = theme::palette();
+    ui.horizontal(|ui| {
+        ui.set_min_height(48.0);
+        ui.add_space(2.0);
+        ui.label(egui::RichText::new(icon).size(20.0).color(p.text));
+        ui.add_space(10.0);
+        ui.vertical(|ui| {
+            ui.add_space(2.0);
+            ui.label(egui::RichText::new(title).size(theme::BODY).color(p.text));
+            if !description.is_empty() {
+                ui.label(
+                    egui::RichText::new(description)
+                        .size(theme::CAPTION)
+                        .color(p.text_secondary),
+                );
+            }
+        });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), add_control);
+    });
+}
+
+// ─── Controls ────────────────────────────────────────────────────────────────
+
+/// A Windows 11 toggle switch. Returns the response; `changed()` is set when
+/// the user flips it.
+pub fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
+    let p = theme::palette();
+    let (rect, mut response) = ui.allocate_exact_size(egui::vec2(40.0, 20.0), egui::Sense::click());
+    if response.clicked() {
+        *on = !*on;
+        response.mark_changed();
+    }
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, *on, "")
+    });
+
+    if ui.is_rect_visible(rect) {
+        let t = ui.ctx().animate_bool_with_time(response.id, *on, 0.12);
+        let hovered = response.hovered();
+        let radius = egui::CornerRadius::same(10);
+        let painter = ui.painter();
+        if *on {
+            let fill = if hovered { p.accent_hover } else { p.accent };
+            painter.rect_filled(rect, radius, fill);
+        } else {
+            let fill = if hovered { p.control_hover } else { p.control };
+            painter.rect_filled(rect, radius, fill);
+            painter.rect_stroke(
+                rect,
+                radius,
+                egui::Stroke::new(1.0_f32, p.text_secondary),
+                egui::StrokeKind::Inside,
+            );
+        }
+        let knob_r = if hovered { 7.0 } else { 6.0 };
+        let x = egui::lerp((rect.left() + 10.0)..=(rect.right() - 10.0), t);
+        let knob = if *on { p.on_accent } else { p.text_secondary };
+        painter.circle_filled(egui::pos2(x, rect.center().y), knob_r, knob);
+        focus_ring(ui, &response, rect, &p);
+    }
+    response
+}
+
+/// A segmented control: one choice out of a few, shown side by side.
+/// Returns the index the user clicked this frame, if any.
+pub fn segmented(ui: &mut egui::Ui, options: &[&str], selected: usize, enabled: bool) -> Option<usize> {
+    let p = theme::palette();
+    let height = theme::CONTROL_HEIGHT;
+    let (track, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), height), egui::Sense::hover());
+    ui.painter().rect_filled(
+        track,
+        egui::CornerRadius::same(theme::CONTROL_RADIUS + 2),
+        p.well,
+    );
+
+    let count = options.len().max(1) as f32;
+    let width = (track.width() - 6.0) / count;
+    let mut clicked = None;
+    for (i, label) in options.iter().enumerate() {
+        let rect = egui::Rect::from_min_size(
+            egui::pos2(width.mul_add(i as f32, track.left() + 3.0), track.top() + 3.0),
+            egui::vec2(width, height - 6.0),
+        );
+        let sense = if enabled {
+            egui::Sense::click()
+        } else {
+            egui::Sense::hover()
+        };
+        let response = ui.interact(rect, ui.id().with(("segment", i)), sense);
+        let is_selected = i == selected;
+        if is_selected {
+            ui.painter().rect_filled(
+                rect,
+                egui::CornerRadius::same(theme::CONTROL_RADIUS),
+                p.card,
+            );
+            ui.painter().rect_stroke(
+                rect,
+                egui::CornerRadius::same(theme::CONTROL_RADIUS),
+                egui::Stroke::new(1.0_f32, p.control_stroke),
+                egui::StrokeKind::Inside,
+            );
+        } else if response.hovered() && enabled {
+            ui.painter().rect_filled(
+                rect,
+                egui::CornerRadius::same(theme::CONTROL_RADIUS),
+                p.control_hover.gamma_multiply(0.6),
+            );
+        }
+        focus_ring(ui, &response, rect, &p);
+        let color = if !enabled {
+            p.text_disabled
+        } else if is_selected {
+            p.text
+        } else {
+            p.text_secondary
+        };
+        let weight = if is_selected { theme::SEMIBOLD } else { 400.0 };
+        let galley = ui.painter().layout_job(single_line_job(
+            label,
+            theme::BODY,
+            color,
+            weight,
+            rect.width() - 8.0,
+        ));
+        ui.painter()
+            .galley(rect.center() - galley.size() / 2.0, galley, color);
+        if response.clicked() {
+            clicked = Some(i);
+        }
+    }
+    clicked
+}
+
+
+
+// ─── Bridge For The Old Dashboard ────────────────────────────────────────────
 
 /// Compact stat label: muted title above a coloured value.
 pub fn stat_label(
@@ -84,175 +239,50 @@ pub fn stat_label(
     label: &str,
     value: &str,
     color: egui::Color32,
-    dark_mode: bool,
+    _dark: bool,
 ) {
+    let p = theme::palette();
     ui.vertical(|ui| {
         ui.label(
             egui::RichText::new(label)
-                .size(11.0)
-                .color(theme::muted_color(dark_mode)),
+                .size(theme::CAPTION)
+                .color(p.text_secondary),
         );
-        ui.add_space(2.0);
-        ui.label(egui::RichText::new(value).strong().size(15.0).color(color));
+        ui.label(theme::semibold(value, 15.0).color(color));
     });
 }
 
-// ─── Memory Overview ─────────────────────────────────────────────────────────
-
-/// Draw the memory overview: large percentage headline, slim bar, stat row.
-///
-/// Clean, modern layout with clear typographic hierarchy and minimal colour.
-pub fn memory_overview(ui: &mut egui::Ui, snap: &MemorySnapshot, dark_mode: bool) {
-    let load = snap.memory_load_percent as f32 / 100.0;
-    let load_color = theme::load_color(load);
-
-    // ── Headline: big percentage + context ───────────────────────
-    ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new(format!("{}%", snap.memory_load_percent))
-                .strong()
-                .size(36.0)
-                .color(load_color),
-        );
-        ui.add_space(8.0);
-        ui.vertical(|ui| {
-            ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new(strings::gui::widgets::LABEL_MEMORY_USED)
-                    .size(12.0)
-                    .color(theme::muted_color(dark_mode)),
-            );
-            ui.label(
-                egui::RichText::new(format!(
-                    "{} of {}",
-                    memory::format_bytes(snap.used_physical),
-                    memory::format_bytes(snap.total_physical),
-                ))
-                .size(12.0)
-                .color(theme::text_color(dark_mode)),
-            );
-        });
-    });
-
+/// Memory overview: percentage, bar and a stat row.
+pub fn memory_overview(ui: &mut egui::Ui, snap: &MemorySnapshot, dark: bool) {
+    let p = theme::palette();
+    ui.label(
+        theme::display(format!("{}%", snap.memory_load_percent), 36.0).color(p.text),
+    );
+    ui.label(
+        egui::RichText::new(format!(
+            "{} {} of {}",
+            strings::gui::widgets::LABEL_MEMORY_USED,
+            memory::format_bytes(snap.used_physical),
+            memory::format_bytes(snap.total_physical),
+        ))
+        .color(p.text_secondary),
+    );
     ui.add_space(10.0);
-
-    // ── Slim progress bar ────────────────────────────────────────
-    draw_memory_bar(ui, load, load_color, dark_mode);
-
-    ui.add_space(14.0);
-
-    // ── Stat labels row ──────────────────────────────────────────
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 30.0;
-
         stat_label(
             ui,
             strings::gui::widgets::LABEL_AVAILABLE,
             &memory::format_bytes(snap.available_physical),
-            theme::GREEN,
-            dark_mode,
-        );
-        stat_label(
-            ui,
-            strings::gui::widgets::LABEL_USED,
-            &memory::format_bytes(snap.used_physical),
-            theme::RED,
-            dark_mode,
+            p.text,
+            dark,
         );
         stat_label(
             ui,
             strings::gui::widgets::LABEL_COMMIT,
             &format!("{:.0}%", snap.commit_percent()),
-            theme::YELLOW,
-            dark_mode,
-        );
-        stat_label(
-            ui,
-            strings::gui::widgets::LABEL_PROCESSES,
-            &snap.process_count.to_string(),
-            theme::ACCENT,
-            dark_mode,
+            p.text,
+            dark,
         );
     });
-}
-
-/// Slim 6 px progress bar - flat, no text overlay, no fake depth.
-fn draw_memory_bar(ui: &mut egui::Ui, load: f32, load_color: egui::Color32, dark_mode: bool) {
-    let bar_height = 6.0;
-    let bar_width = ui.available_width();
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(bar_width, bar_height), egui::Sense::hover());
-
-    if !ui.is_rect_visible(rect) {
-        return;
-    }
-
-    let painter = ui.painter();
-    let rounding = egui::CornerRadius::same(3);
-
-    // Track
-    let track_bg = if dark_mode {
-        egui::Color32::from_rgb(30, 35, 44)
-    } else {
-        egui::Color32::from_rgb(224, 228, 234)
-    };
-    painter.rect_filled(rect, rounding, track_bg);
-
-    // Fill
-    let fill_width = rect.width() * load;
-    if fill_width > 1.0 {
-        let fill_rect = egui::Rect::from_min_size(rect.min, egui::vec2(fill_width, bar_height));
-        painter.rect_filled(fill_rect, rounding, load_color);
-    }
-}
-
-// ─── Toggle Switch ───────────────────────────────────────────────────────────
-
-/// Draw an animated iOS-style toggle switch. Returns `true` when toggled.
-///
-/// The switch smoothly animates between on/off states using
-/// [`egui::Context::animate_bool`].
-pub fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
-    let desired_size = egui::vec2(36.0, 20.0);
-    let (rect, mut response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
-
-    if response.clicked() {
-        *on = !*on;
-        response.mark_changed();
-    }
-
-    if ui.is_rect_visible(rect) {
-        let anim = ui.animate_bool(response.id, *on);
-
-        // Off-state background adapts to the current theme so the track
-        // does not look jarring on light backgrounds.
-        let dark_mode = ui.visuals().dark_mode;
-        let (off_r, off_g, off_b) = if dark_mode {
-            (80_u8, 82_u8, 95_u8)
-        } else {
-            (175_u8, 178_u8, 190_u8)
-        };
-
-        let bg_color = egui::Color32::from_rgb(
-            super::theme::lerp_u8(off_r, 56, anim),
-            super::theme::lerp_u8(off_g, 189, anim),
-            super::theme::lerp_u8(off_b, 248, anim),
-        );
-
-        // Track background
-        let track_radius = rect.height() / 2.0;
-        ui.painter()
-            .rect_filled(rect, egui::CornerRadius::same(track_radius as u8), bg_color);
-
-        // Knob
-        let knob_radius = rect.height() / 2.0 - 2.5;
-        let knob_x = egui::lerp(
-            rect.left() + knob_radius + 2.5..=rect.right() - knob_radius - 2.5,
-            anim,
-        );
-        let knob_center = egui::pos2(knob_x, rect.center().y);
-        ui.painter()
-            .circle_filled(knob_center, knob_radius, egui::Color32::WHITE);
-    }
-
-    response
 }

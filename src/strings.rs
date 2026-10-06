@@ -145,10 +145,13 @@ pub mod gui {
     /// Window title for the main eframe viewport.
     pub const WINDOW_TITLE: &str = "MagicX RAM Cleaner";
 
+    /// Tooltip of the button that expands or collapses the navigation pane.
+    pub const NAV_TOGGLE: &str = "Expand or collapse navigation";
+
     /// Dashboard panel strings.
     pub mod dashboard {
         /// Panel title shown at the top of the page.
-        pub const TITLE: &str = "Dashboard";
+        pub const TITLE: &str = "Overview";
 
         /// Spinner text while the first snapshot loads.
         pub const LOADING: &str = "Loading memory information...";
@@ -189,7 +192,7 @@ pub mod gui {
     /// Monitor panel strings.
     pub mod monitor {
         /// Panel title.
-        pub const TITLE: &str = "Memory Monitor";
+        pub const TITLE: &str = "Monitor";
 
         /// Toggle label.
         pub const LABEL_AUTO_CLEAN: &str = "Auto-Clean";
@@ -229,7 +232,7 @@ pub mod gui {
     /// Processes panel strings.
     pub mod processes {
         /// Panel title.
-        pub const TITLE: &str = "Top Processes";
+        pub const TITLE: &str = "Processes";
 
         /// Table column: process name.
         pub const COL_PROCESS: &str = "Process";
@@ -269,8 +272,14 @@ pub mod gui {
         /// Appearance section header.
         pub const SECTION_APPEARANCE: &str = "Appearance";
 
-        /// Theme label.
-        pub const LABEL_THEME: &str = "Theme:";
+        /// Theme row title.
+        pub const LABEL_THEME: &str = "App theme";
+
+        /// Theme row description.
+        pub const DESC_THEME: &str = "System follows your Windows setting";
+
+        /// System theme option.
+        pub const THEME_SYSTEM: &str = "System";
 
         /// Dark theme button.
         pub const THEME_DARK: &str = "Dark";
@@ -312,12 +321,6 @@ pub mod gui {
 
         /// Remove button tooltip.
         pub const TOOLTIP_REMOVE: &str = "Remove context menu entries from the Windows registry";
-
-        /// Preferences section header.
-        pub const SECTION_PREFERENCES: &str = "Preferences";
-
-        /// Tooltip-visibility checkbox label.
-        pub const LABEL_TOOLTIPS: &str = "Show clean-level tooltips on hover";
 
         /// Backup section header.
         pub const SECTION_BACKUP: &str = "Backup & Restore";
@@ -451,7 +454,7 @@ pub mod tray {
     pub const SUBMENU_CLEAN: &str = "Clean RAM";
 
     /// Sidebar / tray navigation labels (must match panel names).
-    pub const NAV_DASHBOARD: &str = "Dashboard";
+    pub const NAV_OVERVIEW: &str = "Overview";
 
     /// Monitor navigation label.
     pub const NAV_MONITOR: &str = "Monitor";

@@ -20,8 +20,8 @@ use super::super::{theme, widgets};
 /// 2. Clean buttons (uniform neutral cards with color dots)
 /// 3. Progress / result feedback
 pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
-    let dark = app.settings.dark_mode;
-    widgets::page_title(ui, ph::GAUGE, strings::gui::dashboard::TITLE, dark);
+    let dark = app.dark();
+    widgets::page_title(ui, strings::gui::dashboard::TITLE);
 
     let snapshot = app.latest_snapshot.lock().ok().and_then(|s| s.clone());
 
@@ -86,7 +86,7 @@ fn draw_info_card(ui: &mut egui::Ui, snap: &memory::MemorySnapshot, dark: bool) 
                 ui,
                 strings::gui::dashboard::LABEL_TOTAL_RAM,
                 &memory::format_bytes(snap.total_physical),
-                theme::ACCENT,
+                theme::accent(),
                 dark,
             );
             // Commit charge is already shown in the overview above, so this
@@ -98,7 +98,7 @@ fn draw_info_card(ui: &mut egui::Ui, snap: &memory::MemorySnapshot, dark: bool) 
                     || strings::gui::dashboard::VALUE_UNKNOWN.to_owned(),
                     memory::format_bytes,
                 ),
-                theme::YELLOW,
+                theme::yellow(),
                 dark,
             );
             widgets::stat_label(
@@ -130,28 +130,28 @@ const LEVELS: [LevelInfo; 4] = [
         name: strings::levels::GENTLE_NAME,
         short: strings::levels::GENTLE_SHORT,
         detail: strings::levels::GENTLE_DETAIL,
-        color: theme::LEVEL_GENTLE,
+        color: egui::Color32::from_rgb(63, 185, 80),
     },
     LevelInfo {
         level: CleanLevel::Moderate,
         name: strings::levels::MODERATE_NAME,
         short: strings::levels::MODERATE_SHORT,
         detail: strings::levels::MODERATE_DETAIL,
-        color: theme::LEVEL_MODERATE,
+        color: egui::Color32::from_rgb(210, 153, 34),
     },
     LevelInfo {
         level: CleanLevel::Aggressive,
         name: strings::levels::AGGRESSIVE_NAME,
         short: strings::levels::AGGRESSIVE_SHORT,
         detail: strings::levels::AGGRESSIVE_DETAIL,
-        color: theme::LEVEL_AGGRESSIVE,
+        color: egui::Color32::from_rgb(218, 109, 40),
     },
     LevelInfo {
         level: CleanLevel::Nuclear,
         name: strings::levels::NUCLEAR_NAME,
         short: strings::levels::NUCLEAR_SHORT,
         detail: strings::levels::NUCLEAR_DETAIL,
-        color: theme::LEVEL_NUCLEAR,
+        color: egui::Color32::from_rgb(248, 81, 73),
     },
 ];
 
@@ -164,7 +164,7 @@ fn draw_clean_section(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
     widgets::section_header(ui, strings::gui::dashboard::SECTION_CLEAN);
 
     let enabled = !app.cleaning_in_progress;
-    let tooltips = app.settings.show_level_tooltips;
+    let tooltips = true;
     let mut level_to_clean = None;
 
     // ── Circle row ───────────────────────────────────────────────
@@ -352,7 +352,7 @@ fn draw_progress_card(ui: &mut egui::Ui, dark: bool) {
                 egui::RichText::new(strings::gui::dashboard::CLEANING)
                     .strong()
                     .size(12.0)
-                    .color(theme::ACCENT),
+                    .color(theme::accent()),
             );
         });
     });
@@ -369,7 +369,7 @@ fn draw_result(ui: &mut egui::Ui, msg: &CleanResultMsg, dark: bool) {
                     ph::X,
                     msg.level.title_case_name()
                 ))
-                .color(theme::RED)
+                .color(theme::red())
                 .strong()
                 .size(13.0),
             );
@@ -387,7 +387,7 @@ fn draw_result_success(
     ui.horizontal(|ui| {
         ui.label(
             egui::RichText::new(ph::CHECK)
-                .color(theme::GREEN)
+                .color(theme::green())
                 .strong()
                 .size(14.0),
         );
@@ -409,7 +409,7 @@ fn draw_result_success(
             ui,
             strings::gui::dashboard::LABEL_FREED,
             &freed_str,
-            theme::GREEN,
+            theme::green(),
             dark,
         );
         widgets::stat_label(
@@ -421,7 +421,7 @@ fn draw_result_success(
                 ph::ARROW_RIGHT,
                 result.overall_after.memory_load_percent
             ),
-            theme::ACCENT,
+            theme::accent(),
             dark,
         );
         widgets::stat_label(
@@ -433,7 +433,7 @@ fn draw_result_success(
                 ph::ARROW_RIGHT,
                 memory::format_bytes(result.overall_after.available_physical)
             ),
-            theme::YELLOW,
+            theme::yellow(),
             dark,
         );
         // Purging standby moves Free but not Available, so show it too.
@@ -450,7 +450,7 @@ fn draw_result_success(
                     ph::ARROW_RIGHT,
                     memory::format_bytes(after)
                 ),
-                theme::GREEN,
+                theme::green(),
                 dark,
             );
         }
@@ -464,9 +464,9 @@ fn draw_result_success(
 fn draw_operation_list(ui: &mut egui::Ui, results: &[crate::engine::CleanResult], dark: bool) {
     for r in results {
         let (icon, icon_color) = if r.success {
-            (ph::CHECK, theme::GREEN)
+            (ph::CHECK, theme::green())
         } else {
-            (ph::X, theme::RED)
+            (ph::X, theme::red())
         };
 
         ui.horizontal(|ui| {
@@ -486,9 +486,9 @@ fn draw_operation_list(ui: &mut egui::Ui, results: &[crate::engine::CleanResult]
             let reclaimed = r.reclaimed_bytes();
             if reclaimed != 0 {
                 let color = if reclaimed > 0 {
-                    theme::GREEN
+                    theme::green()
                 } else {
-                    theme::YELLOW
+                    theme::yellow()
                 };
                 ui.label(
                     egui::RichText::new(memory::format_signed_bytes(reclaimed))

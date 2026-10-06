@@ -201,6 +201,37 @@ pub fn set_title_bar_dark_mode(hwnd: isize, dark: bool) {
     };
 }
 
+/// Paint the window's title bar in `rgb`, so it blends with the app's
+/// background instead of using the system caption colour.
+///
+/// Uses `DWMWA_CAPTION_COLOR`, which Windows 11 (build 22000+) supports.
+/// Earlier builds reject the attribute and keep their normal title bar, which
+/// is the intended fallback. Does nothing when `hwnd` is `0`.
+pub fn set_caption_color(hwnd: isize, rgb: [u8; 3]) {
+    use windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute;
+
+    /// `DWMWA_CAPTION_COLOR` attribute constant (Windows 11 build 22000+).
+    const DWMWA_CAPTION_COLOR: u32 = 35;
+
+    if hwnd == 0 {
+        return;
+    }
+
+    // COLORREF layout: 0x00BBGGRR.
+    let colorref = u32::from(rgb[0]) | (u32::from(rgb[1]) << 8) | (u32::from(rgb[2]) << 16);
+
+    // SAFETY: Documented DWM call with a valid HWND, the attribute constant,
+    // a pointer to a COLORREF-sized u32 and its byte size.
+    let _ = unsafe {
+        DwmSetWindowAttribute(
+            hwnd as windows_sys::Win32::Foundation::HWND,
+            DWMWA_CAPTION_COLOR,
+            std::ptr::from_ref(&colorref).cast(),
+            std::mem::size_of::<u32>() as u32,
+        )
+    };
+}
+
 /// Force the process's native Win32 menus to render in dark or light theme.
 ///
 /// Uses the undocumented but stable `SetPreferredAppMode` (ordinal 135) and

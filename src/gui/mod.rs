@@ -42,6 +42,8 @@
 //! ```
 
 pub mod app;
+mod fonts;
+mod nav;
 mod panels;
 
 egui_phosphor::subset! {
@@ -50,15 +52,15 @@ egui_phosphor::subset! {
     mod icons {
         use regular::{
             ACTIVITY, ARROW_RIGHT, BROOM, CARET_DOWN, CARET_UP, CHECK, CODE, CPU,
-            DOWNLOAD_SIMPLE, FIRE, GAUGE, GEAR, GITHUB_LOGO, GLOBE, HEART, INFO, LEAF,
-            LIGHTNING, LINKEDIN_LOGO, MAGNIFYING_GLASS, PLUG, PLUG_CHARGING, POWER,
-            RADIOACTIVE, ROCKET_LAUNCH, SCALES, TELEGRAM_LOGO, UPLOAD_SIMPLE, WINDOWS_LOGO, X,
+            DOWNLOAD_SIMPLE, FIRE, FLOPPY_DISK, GAUGE, GEAR, GITHUB_LOGO, GLOBE, HEART, INFO,
+            LEAF, LIGHTNING, LINKEDIN_LOGO, LIST, MAGNIFYING_GLASS, MOUSE_RIGHT_CLICK, PALETTE,
+            PLUG, PLUG_CHARGING, POWER, RADIOACTIVE, ROCKET_LAUNCH, SCALES, TELEGRAM_LOGO, TRAY,
+            UPLOAD_SIMPLE, WARNING_CIRCLE, WINDOWS_LOGO, X,
         };
     }
 }
 pub(super) mod persistence;
 pub mod settings;
-mod sidebar;
 pub mod theme;
 mod tray;
 mod widgets;
@@ -104,7 +106,7 @@ pub fn run_gui() -> Result<()> {
         .context("Failed to enable privileges. Make sure you're running as Administrator.")?;
 
     let mut viewport = egui::ViewportBuilder::default()
-        .with_inner_size([620.0, 500.0])
+        .with_inner_size([860.0, 600.0])
         .with_min_inner_size([620.0, 500.0])
         .with_title(strings::gui::WINDOW_TITLE)
         // Start hidden and reveal on first frame to avoid flash.

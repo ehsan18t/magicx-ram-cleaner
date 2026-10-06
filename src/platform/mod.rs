@@ -9,6 +9,7 @@
 //! `strings` (for user-facing text it renders itself, such as the pause
 //! prompt or balloon tooltip).
 
+pub mod appearance;
 pub mod console;
 pub mod dialog;
 pub mod handle;

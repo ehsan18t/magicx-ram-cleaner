@@ -3,7 +3,6 @@
 //! Continuous memory monitoring with an animated on/off toggle,
 //! configurable threshold, cooldown, cleaning level, and a live log.
 
-use crate::gui::icons::regular as ph;
 use eframe::egui;
 
 use crate::engine::CleanLevel;
@@ -15,8 +14,8 @@ use super::super::{theme, widgets};
 
 /// Draw the monitoring panel.
 pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
-    let dark = app.settings.dark_mode;
-    widgets::page_title(ui, ph::ACTIVITY, strings::gui::monitor::TITLE, dark);
+    let dark = app.dark();
+    widgets::page_title(ui, strings::gui::monitor::TITLE);
 
     draw_toggle_card(ui, app, dark);
     ui.add_space(theme::SECTION_SPACING);
@@ -41,7 +40,7 @@ fn draw_toggle_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
             app.settings.auto_clean_enabled = app.monitor_active;
             ui.add_space(8.0);
             let (status_text, status_color) = if app.monitor_active {
-                (strings::gui::monitor::STATUS_RUNNING, theme::GREEN)
+                (strings::gui::monitor::STATUS_RUNNING, theme::green())
             } else {
                 (
                     strings::gui::monitor::STATUS_STOPPED,
@@ -164,7 +163,7 @@ fn draw_log_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
                             || msg.contains("Error")
                             || msg.contains("aborted");
                         let color = if is_error {
-                            theme::RED
+                            theme::red()
                         } else {
                             theme::muted_color(dark)
                         };

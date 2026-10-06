@@ -1,341 +1,372 @@
-//! # GUI Theme - Modern Visual Design
+//! # GUI Theme
 //!
-//! Centralised colour palette, spacing constants, and custom [`egui::Visuals`]
-//! configuration for a polished, modern look. All panels reference this
-//! module instead of hard-coding colours.
+//! The design tokens of the Windows 11 look (see `docs/UI_DESIGN.md`): a
+//! [`Palette`] of neutral surfaces and text, the user's Windows accent colour,
+//! and one fixed colour per memory list. Panels read the active palette with
+//! [`palette`] instead of hard-coding colours.
+
+use std::cell::Cell;
 
 use eframe::egui;
 
-// ─── Colour Palette ──────────────────────────────────────────────────────────
+use crate::platform::appearance::{AccentPalette, Rgb};
 
-/// Primary accent colour (sky blue - modern, easy on the eyes).
-pub const ACCENT: egui::Color32 = egui::Color32::from_rgb(56, 189, 248);
+// ─── Type Scale ──────────────────────────────────────────────────────────────
 
-/// Lighter accent for hover states.
-pub const ACCENT_HOVER: egui::Color32 = egui::Color32::from_rgb(96, 205, 252);
+/// Caption text: secondary labels and metadata.
+pub const CAPTION: f32 = 12.0;
 
-/// Dimmed accent for subtle borders and indicators.
-pub const ACCENT_DIM: egui::Color32 = egui::Color32::from_rgb(30, 120, 170);
+/// Body text: the default size for content and controls.
+pub const BODY: f32 = 14.0;
 
-/// Success / positive / healthy colour.
-pub const GREEN: egui::Color32 = egui::Color32::from_rgb(63, 185, 80);
+/// Subtitle text: card and section headings.
+pub const SUBTITLE: f32 = 20.0;
 
-/// Warning / caution colour.
-pub const YELLOW: egui::Color32 = egui::Color32::from_rgb(210, 153, 34);
+/// Title text: page headings.
+pub const TITLE: f32 = 28.0;
 
-/// Error / danger colour.
-pub const RED: egui::Color32 = egui::Color32::from_rgb(248, 81, 73);
+/// Weight of strong text (Segoe UI Variable Semibold).
+pub const SEMIBOLD: f32 = 600.0;
 
-// ─── Dark Theme Colours ──────────────────────────────────────────────────────
+// ─── Shape And Spacing ───────────────────────────────────────────────────────
 
-/// Card / elevated surface background (dark).
-pub const SURFACE_DARK: egui::Color32 = egui::Color32::from_rgb(25, 31, 40);
+/// Corner radius of controls (buttons, inputs, list items).
+pub const CONTROL_RADIUS: u8 = 4;
 
-/// Main content background (dark).
-pub const BG_DARK: egui::Color32 = egui::Color32::from_rgb(13, 17, 23);
+/// Corner radius of cards.
+pub const CARD_RADIUS: u8 = 8;
 
-/// Sidebar background (dark).
-pub const SIDEBAR_BG: egui::Color32 = egui::Color32::from_rgb(17, 21, 28);
+/// Inner padding of cards.
+pub const CARD_PADDING: i8 = 16;
 
-/// Subtle border colour (dark).
-pub const BORDER_DARK: egui::Color32 = egui::Color32::from_rgb(48, 54, 61);
+/// Height of standard controls (buttons, inputs, navigation items).
+pub const CONTROL_HEIGHT: f32 = 32.0;
 
-/// Primary text (dark theme).
-pub const TEXT_DARK: egui::Color32 = egui::Color32::from_rgb(230, 237, 243);
-
-/// Muted / secondary text (dark theme).
-pub const MUTED_DARK: egui::Color32 = egui::Color32::from_rgb(125, 133, 144);
-
-// ─── Light Theme Colours ─────────────────────────────────────────────────────
-
-/// Card / elevated surface background (light).
-pub const SURFACE_LIGHT: egui::Color32 = egui::Color32::from_rgb(255, 255, 255);
-
-/// Main content background (light).
-pub const BG_LIGHT: egui::Color32 = egui::Color32::from_rgb(246, 248, 250);
-
-/// Sidebar background (light).
-pub const SIDEBAR_BG_LIGHT: egui::Color32 = egui::Color32::from_rgb(240, 242, 245);
-
-/// Subtle border colour (light).
-pub const BORDER_LIGHT: egui::Color32 = egui::Color32::from_rgb(216, 222, 228);
-
-/// Primary text (light theme).
-pub const TEXT_LIGHT: egui::Color32 = egui::Color32::from_rgb(31, 35, 40);
-
-/// Muted / secondary text (light theme).
-pub const MUTED_LIGHT: egui::Color32 = egui::Color32::from_rgb(101, 109, 118);
-
-// ─── Clean Level Colours ─────────────────────────────────────────────────────
-
-/// Gentle cleaning colour.
-pub const LEVEL_GENTLE: egui::Color32 = egui::Color32::from_rgb(63, 185, 80);
-
-/// Moderate cleaning colour.
-pub const LEVEL_MODERATE: egui::Color32 = egui::Color32::from_rgb(210, 153, 34);
-
-/// Aggressive cleaning colour.
-pub const LEVEL_AGGRESSIVE: egui::Color32 = egui::Color32::from_rgb(218, 109, 40);
-
-/// Nuclear cleaning colour.
-pub const LEVEL_NUCLEAR: egui::Color32 = egui::Color32::from_rgb(248, 81, 73);
-
-// ─── Spacing Constants ───────────────────────────────────────────────────────
-
-/// Standard spacing between sections.
+/// Vertical space between cards and sections.
 pub const SECTION_SPACING: f32 = 16.0;
 
-/// Inner padding for cards.
-pub const CARD_PADDING: i8 = 18;
+/// Width of the navigation pane when expanded.
+pub const PANE_EXPANDED_WIDTH: f32 = 180.0;
 
-/// Corner rounding for cards.
-pub const CARD_ROUNDING: u8 = 12;
+/// Width of the navigation pane when collapsed to an icon rail.
+pub const PANE_RAIL_WIDTH: f32 = 52.0;
 
-/// Sidebar width in logical points - narrow icon rail, frees content area.
-pub const SIDEBAR_WIDTH: f32 = 56.0;
+/// Window width below which the navigation pane collapses on its own.
+pub const PANE_AUTO_COLLAPSE_WIDTH: f32 = 760.0;
 
-/// Sidebar button height - square tap target for centered icons.
-pub const SIDEBAR_BUTTON_HEIGHT: f32 = 44.0;
+/// Widest the page content grows, so lines stay readable on large windows.
+pub const CONTENT_MAX_WIDTH: f32 = 1000.0;
 
-// ─── Theme Application ───────────────────────────────────────────────────────
+// ─── Palette ─────────────────────────────────────────────────────────────────
 
-/// Register both custom themes (dark & light) with the egui context.
-///
-/// Uses [`egui::Context::set_visuals_of`] so that each [`egui::Theme`] variant
-/// carries our bespoke colours, widget styles, and shadows.  After calling this
-/// once at startup the active theme can be switched cheaply with
-/// [`set_active_theme`] - no need to rebuild the full `Visuals` struct on
-/// every toggle.
-///
-/// This also prevents the OS dark/light preference from silently overriding the
-/// user's in-app selection, because we explicitly set the theme rather than
-/// leaving it at `ThemePreference::System`.
-pub fn register_themes(ctx: &egui::Context) {
-    ctx.set_visuals_of(egui::Theme::Dark, build_dark_visuals());
-    ctx.set_visuals_of(egui::Theme::Light, build_light_visuals());
+/// Windows' default accent palette (blue), used when the user's accent
+/// cannot be read. Lightest shade first, as in the registry.
+pub const DEFAULT_ACCENT: AccentPalette = [
+    [0x99, 0xEB, 0xFF],
+    [0x4C, 0xC2, 0xFF],
+    [0x00, 0x91, 0xF8],
+    [0x00, 0x78, 0xD4],
+    [0x00, 0x67, 0xC0],
+    [0x00, 0x3E, 0x92],
+    [0x00, 0x1A, 0x68],
+];
+
+/// Every colour the GUI uses, resolved for one theme and accent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Palette {
+    /// Whether this is the dark theme.
+    pub dark: bool,
+    /// Window background, shared by the title bar, navigation pane and page.
+    pub bg: egui::Color32,
+    /// Card surface.
+    pub card: egui::Color32,
+    /// Card border.
+    pub card_stroke: egui::Color32,
+    /// Divider lines inside cards and lists.
+    pub divider: egui::Color32,
+    /// Resting fill of buttons and inputs.
+    pub control: egui::Color32,
+    /// Hovered fill of buttons and inputs.
+    pub control_hover: egui::Color32,
+    /// Pressed fill of buttons and inputs.
+    pub control_pressed: egui::Color32,
+    /// Border of buttons and inputs.
+    pub control_stroke: egui::Color32,
+    /// Fill behind hovered or selected list and navigation items.
+    pub subtle: egui::Color32,
+    /// Recessed fill: the track of segmented controls and empty bars.
+    pub well: egui::Color32,
+    /// Primary text.
+    pub text: egui::Color32,
+    /// Supporting text.
+    pub text_secondary: egui::Color32,
+    /// Captions and placeholders.
+    pub text_tertiary: egui::Color32,
+    /// Text of disabled controls.
+    pub text_disabled: egui::Color32,
+    /// Accent fill: primary buttons, switches that are on, the selection mark.
+    pub accent: egui::Color32,
+    /// Hovered accent fill.
+    pub accent_hover: egui::Color32,
+    /// Text and icons on an accent fill.
+    pub on_accent: egui::Color32,
+    /// Accent-coloured text, such as links.
+    pub accent_text: egui::Color32,
+    /// Success messages.
+    pub success: egui::Color32,
+    /// Warnings.
+    pub caution: egui::Color32,
+    /// Errors and real memory pressure; nothing else is red.
+    pub critical: egui::Color32,
+    /// Memory list: In use.
+    pub in_use: egui::Color32,
+    /// Memory list: Modified.
+    pub modified: egui::Color32,
+    /// Memory list: Standby.
+    pub standby: egui::Color32,
+    /// Memory list: Free.
+    pub free: egui::Color32,
 }
 
-/// Switch the active theme.
-///
-/// The custom visuals must already have been registered via
-/// [`register_themes`]; this simply tells egui which variant to use.
-pub fn set_active_theme(ctx: &egui::Context, dark: bool) {
-    let theme = if dark {
+/// Build a colour from an RGB triple.
+const fn rgb(c: Rgb) -> egui::Color32 {
+    egui::Color32::from_rgb(c[0], c[1], c[2])
+}
+
+/// Shorthand for an opaque colour.
+const fn hex(r: u8, g: u8, b: u8) -> egui::Color32 {
+    egui::Color32::from_rgb(r, g, b)
+}
+
+impl Palette {
+    /// The palette for the dark or light theme with the given accent.
+    #[must_use]
+    pub fn new(dark: bool, accent: &AccentPalette) -> Self {
+        if dark {
+            let bg = hex(0x20, 0x20, 0x20);
+            let accent_fill = rgb(accent[1]);
+            Self {
+                dark,
+                bg,
+                card: hex(0x2B, 0x2B, 0x2B),
+                card_stroke: hex(0x1C, 0x1C, 0x1C),
+                divider: hex(0x38, 0x38, 0x38),
+                control: hex(0x2D, 0x2D, 0x2D),
+                control_hover: hex(0x32, 0x32, 0x32),
+                control_pressed: hex(0x27, 0x27, 0x27),
+                control_stroke: hex(0x3A, 0x3A, 0x3A),
+                subtle: hex(0x2D, 0x2D, 0x2D),
+                well: hex(0x1E, 0x1E, 0x1E),
+                text: hex(0xFF, 0xFF, 0xFF),
+                text_secondary: hex(0xC8, 0xC8, 0xC8),
+                text_tertiary: hex(0x9E, 0x9E, 0x9E),
+                text_disabled: hex(0x6E, 0x6E, 0x6E),
+                accent: accent_fill,
+                accent_hover: mix(accent_fill, bg, 0.12),
+                on_accent: hex(0x00, 0x00, 0x00),
+                accent_text: rgb(accent[0]),
+                success: hex(0x6C, 0xCB, 0x5F),
+                caution: hex(0xFC, 0xE1, 0x00),
+                critical: hex(0xFF, 0x99, 0xA4),
+                in_use: hex(0x93, 0x89, 0xFF),
+                modified: hex(0xF2, 0xB0, 0x4C),
+                standby: hex(0x3C, 0xC5, 0xB2),
+                free: hex(0x4A, 0x4A, 0x4A),
+            }
+        } else {
+            let bg = hex(0xF3, 0xF3, 0xF3);
+            let accent_fill = rgb(accent[4]);
+            Self {
+                dark,
+                bg,
+                card: hex(0xFB, 0xFB, 0xFB),
+                card_stroke: hex(0xE5, 0xE5, 0xE5),
+                divider: hex(0xEA, 0xEA, 0xEA),
+                control: hex(0xFD, 0xFD, 0xFD),
+                control_hover: hex(0xF6, 0xF6, 0xF6),
+                control_pressed: hex(0xF0, 0xF0, 0xF0),
+                control_stroke: hex(0xDC, 0xDC, 0xDC),
+                subtle: hex(0xE9, 0xE9, 0xE9),
+                well: hex(0xE6, 0xE6, 0xE6),
+                text: hex(0x1B, 0x1B, 0x1B),
+                text_secondary: hex(0x5D, 0x5D, 0x5D),
+                text_tertiary: hex(0x66, 0x66, 0x66),
+                text_disabled: hex(0xA0, 0xA0, 0xA0),
+                accent: accent_fill,
+                accent_hover: mix(accent_fill, bg, 0.12),
+                on_accent: hex(0xFF, 0xFF, 0xFF),
+                accent_text: rgb(accent[5]),
+                success: hex(0x0F, 0x7B, 0x0F),
+                caution: hex(0x9D, 0x5D, 0x00),
+                critical: hex(0xC4, 0x2B, 0x1C),
+                in_use: hex(0x5B, 0x4F, 0xE0),
+                modified: hex(0xB7, 0x70, 0x0A),
+                standby: hex(0x0E, 0x8A, 0x7B),
+                free: hex(0xD2, 0xD2, 0xD2),
+            }
+        }
+    }
+
+    /// The background as RGB, for the window's title bar.
+    #[must_use]
+    pub const fn bg_rgb(&self) -> Rgb {
+        [self.bg.r(), self.bg.g(), self.bg.b()]
+    }
+}
+
+impl Default for Palette {
+    fn default() -> Self {
+        Self::new(true, &DEFAULT_ACCENT)
+    }
+}
+
+thread_local! {
+    /// The palette of the current frame. The GUI runs on one thread, so the
+    /// active palette lives here like egui's own style does in its context.
+    static ACTIVE: Cell<Palette> = Cell::new(Palette::default());
+}
+
+/// The active palette.
+#[must_use]
+pub fn palette() -> Palette {
+    ACTIVE.with(Cell::get)
+}
+
+/// Make `p` the active palette and restyle egui's built-in widgets with it.
+pub fn apply(ctx: &egui::Context, p: Palette) {
+    ACTIVE.with(|cell| cell.set(p));
+    let theme = if p.dark {
         egui::Theme::Dark
     } else {
         egui::Theme::Light
     };
+    ctx.set_visuals_of(theme, build_visuals(&p));
     ctx.set_theme(theme);
 }
 
-/// Build the custom dark-mode [`egui::Visuals`].
-fn build_dark_visuals() -> egui::Visuals {
-    let mut v = egui::Visuals::dark();
+/// Configure egui's text styles and spacing for both themes.
+pub fn configure_style(ctx: &egui::Context) {
+    use egui::{FontFamily, FontId, TextStyle};
 
-    v.panel_fill = BG_DARK;
-    v.window_fill = SURFACE_DARK;
-    v.faint_bg_color = SURFACE_DARK;
-    v.extreme_bg_color = egui::Color32::from_rgb(10, 13, 18);
-    v.code_bg_color = egui::Color32::from_rgb(30, 35, 42);
-
-    v.selection.bg_fill = ACCENT.gamma_multiply(0.22);
-    v.selection.stroke = egui::Stroke::new(1.0_f32, ACCENT);
-
-    let rounding = egui::CornerRadius::same(6);
-
-    // Non-interactive
-    v.widgets.noninteractive.bg_fill = SURFACE_DARK;
-    v.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0_f32, TEXT_DARK);
-    v.widgets.noninteractive.bg_stroke = egui::Stroke::new(0.5_f32, BORDER_DARK);
-    v.widgets.noninteractive.corner_radius = rounding;
-
-    // Inactive (buttons, sliders, checkboxes at rest)
-    v.widgets.inactive.bg_fill = egui::Color32::from_rgb(33, 38, 46);
-    v.widgets.inactive.fg_stroke =
-        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(180, 186, 196));
-    v.widgets.inactive.bg_stroke = egui::Stroke::new(0.5_f32, BORDER_DARK);
-    v.widgets.inactive.corner_radius = rounding;
-
-    // Hovered
-    v.widgets.hovered.bg_fill = egui::Color32::from_rgb(40, 46, 56);
-    v.widgets.hovered.fg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::WHITE);
-    v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0_f32, ACCENT_DIM);
-    v.widgets.hovered.corner_radius = rounding;
-
-    // Active / pressed
-    v.widgets.active.bg_fill = ACCENT.gamma_multiply(0.20);
-    v.widgets.active.fg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::WHITE);
-    v.widgets.active.bg_stroke = egui::Stroke::new(1.0_f32, ACCENT);
-    v.widgets.active.corner_radius = rounding;
-
-    // Open (menu expanded etc.)
-    v.widgets.open.bg_fill = egui::Color32::from_rgb(36, 42, 52);
-    v.widgets.open.fg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::WHITE);
-    v.widgets.open.bg_stroke = egui::Stroke::new(1.0_f32, ACCENT_DIM);
-    v.widgets.open.corner_radius = rounding;
-
-    // Window chrome
-    v.window_corner_radius = egui::CornerRadius::same(8);
-    v.window_stroke = egui::Stroke::new(1.0_f32, BORDER_DARK);
-    v.window_shadow = egui::Shadow {
-        offset: [0, 4],
-        blur: 12,
-        spread: 0,
-        color: egui::Color32::from_black_alpha(80),
-    };
-
-    v.resize_corner_size = 8.0;
-    v.popup_shadow = egui::Shadow {
-        offset: [0, 2],
-        blur: 8,
-        spread: 0,
-        color: egui::Color32::from_black_alpha(60),
-    };
-    v.interact_cursor = Some(egui::CursorIcon::PointingHand);
-
-    v
-}
-
-/// Build the custom light-mode [`egui::Visuals`].
-fn build_light_visuals() -> egui::Visuals {
-    let mut v = egui::Visuals::light();
-
-    v.panel_fill = BG_LIGHT;
-    v.window_fill = SURFACE_LIGHT;
-    v.faint_bg_color = egui::Color32::from_rgb(250, 251, 253);
-    v.extreme_bg_color = egui::Color32::WHITE;
-    v.code_bg_color = egui::Color32::from_rgb(234, 237, 242);
-
-    // Light-blue tint for selections - visible on white/light backgrounds.
-    v.selection.bg_fill = egui::Color32::from_rgb(198, 232, 252);
-    v.selection.stroke = egui::Stroke::new(1.0_f32, ACCENT_DIM);
-
-    let rounding = egui::CornerRadius::same(6);
-
-    // Non-interactive
-    v.widgets.noninteractive.bg_fill = SURFACE_LIGHT;
-    v.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0_f32, TEXT_LIGHT);
-    v.widgets.noninteractive.bg_stroke = egui::Stroke::new(0.5_f32, BORDER_LIGHT);
-    v.widgets.noninteractive.corner_radius = rounding;
-
-    // Inactive (buttons, sliders at rest)
-    v.widgets.inactive.bg_fill = egui::Color32::from_rgb(234, 237, 242);
-    v.widgets.inactive.fg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(57, 62, 70));
-    v.widgets.inactive.bg_stroke = egui::Stroke::new(0.5_f32, BORDER_LIGHT);
-    v.widgets.inactive.corner_radius = rounding;
-
-    // Hovered
-    v.widgets.hovered.bg_fill = egui::Color32::from_rgb(224, 228, 234);
-    v.widgets.hovered.fg_stroke = egui::Stroke::new(1.0_f32, TEXT_LIGHT);
-    v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0_f32, ACCENT_DIM);
-    v.widgets.hovered.corner_radius = rounding;
-
-    // Active / pressed - light accent tint, legible on light backgrounds.
-    v.widgets.active.bg_fill = egui::Color32::from_rgb(178, 224, 250);
-    v.widgets.active.fg_stroke = egui::Stroke::new(1.0_f32, TEXT_LIGHT);
-    v.widgets.active.bg_stroke = egui::Stroke::new(1.0_f32, ACCENT_DIM);
-    v.widgets.active.corner_radius = rounding;
-
-    // Open
-    v.widgets.open.bg_fill = egui::Color32::from_rgb(228, 232, 238);
-    v.widgets.open.fg_stroke = egui::Stroke::new(1.0_f32, TEXT_LIGHT);
-    v.widgets.open.bg_stroke = egui::Stroke::new(1.0_f32, ACCENT_DIM);
-    v.widgets.open.corner_radius = rounding;
-
-    // Window chrome
-    v.window_corner_radius = egui::CornerRadius::same(8);
-    v.window_stroke = egui::Stroke::new(1.0_f32, BORDER_LIGHT);
-    v.window_shadow = egui::Shadow {
-        offset: [0, 2],
-        blur: 10,
-        spread: 0,
-        color: egui::Color32::from_black_alpha(20),
-    };
-
-    v.resize_corner_size = 8.0;
-    v.popup_shadow = egui::Shadow {
-        offset: [0, 2],
-        blur: 8,
-        spread: 0,
-        color: egui::Color32::from_black_alpha(15),
-    };
-    v.interact_cursor = Some(egui::CursorIcon::PointingHand);
-
-    v
-}
-
-// ─── Theme-aware Helpers ─────────────────────────────────────────────────────
-
-/// Map a memory load fraction (0.0 – 1.0) to a colour (green → yellow → red).
-///
-/// Smooth gradient: green below 60 %, blending through yellow to red above 85 %.
-#[must_use]
-pub fn load_color(load: f32) -> egui::Color32 {
-    if load > 0.85 {
-        RED
-    } else if load > 0.60 {
-        let t = (load - 0.60) / 0.25;
-        egui::Color32::from_rgb(
-            lerp_u8(210, 248, t),
-            lerp_u8(153, 81, t),
-            lerp_u8(34, 73, t),
-        )
-    } else if load > 0.40 {
-        let t = (load - 0.40) / 0.20;
-        egui::Color32::from_rgb(
-            lerp_u8(63, 210, t),
-            lerp_u8(185, 153, t),
-            lerp_u8(80, 34, t),
-        )
-    } else {
-        GREEN
+    for theme in [egui::Theme::Dark, egui::Theme::Light] {
+        ctx.style_mut_of(theme, |style| {
+            style.text_styles = [
+                (TextStyle::Small, FontId::new(CAPTION, FontFamily::Proportional)),
+                (TextStyle::Body, FontId::new(BODY, FontFamily::Proportional)),
+                (TextStyle::Button, FontId::new(BODY, FontFamily::Proportional)),
+                (TextStyle::Heading, FontId::new(TITLE, FontFamily::Proportional)),
+                (TextStyle::Monospace, FontId::new(CAPTION, FontFamily::Monospace)),
+            ]
+            .into();
+            style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+            style.spacing.button_padding = egui::vec2(12.0, 5.0);
+            style.spacing.interact_size = egui::vec2(32.0, CONTROL_HEIGHT);
+            style.spacing.window_margin = egui::Margin::same(12);
+            style.spacing.menu_margin = egui::Margin::same(6);
+            style.spacing.slider_rail_height = 4.0;
+            style.spacing.combo_height = 300.0;
+            style.animation_time = 0.15;
+        });
     }
 }
 
-/// Surface / card background for the current theme.
-#[must_use]
-pub const fn surface_color(dark: bool) -> egui::Color32 {
-    if dark { SURFACE_DARK } else { SURFACE_LIGHT }
+/// Build egui [`egui::Visuals`] from a palette.
+fn build_visuals(p: &Palette) -> egui::Visuals {
+    let mut v = if p.dark {
+        egui::Visuals::dark()
+    } else {
+        egui::Visuals::light()
+    };
+
+    v.panel_fill = p.bg;
+    v.window_fill = p.card;
+    v.faint_bg_color = p.card;
+    v.extreme_bg_color = p.control;
+    v.text_edit_bg_color = Some(p.control);
+    v.code_bg_color = p.control;
+    v.hyperlink_color = p.accent_text;
+    v.warn_fg_color = p.caution;
+    v.error_fg_color = p.critical;
+    v.override_text_color = None;
+
+    v.selection.bg_fill = p.accent.gamma_multiply(0.45);
+    v.selection.stroke = egui::Stroke::new(1.0_f32, p.accent);
+    v.slider_trailing_fill = true;
+
+    let radius = egui::CornerRadius::same(CONTROL_RADIUS);
+    let widget = |fill, stroke, text| egui::style::WidgetVisuals {
+        bg_fill: fill,
+        weak_bg_fill: fill,
+        bg_stroke: egui::Stroke::new(1.0_f32, stroke),
+        corner_radius: radius,
+        fg_stroke: egui::Stroke::new(1.0_f32, text),
+        expansion: 0.0,
+    };
+    v.widgets.noninteractive = widget(p.card, p.divider, p.text);
+    v.widgets.inactive = widget(p.control, p.control_stroke, p.text);
+    v.widgets.hovered = widget(p.control_hover, p.control_stroke, p.text);
+    v.widgets.active = widget(p.control_pressed, p.accent, p.text);
+    v.widgets.open = widget(p.control_hover, p.control_stroke, p.text);
+
+    v.window_corner_radius = egui::CornerRadius::same(CARD_RADIUS);
+    v.menu_corner_radius = egui::CornerRadius::same(CARD_RADIUS);
+    v.window_stroke = egui::Stroke::new(1.0_f32, p.card_stroke);
+    v.window_shadow = egui::Shadow {
+        offset: [0, 8],
+        blur: 24,
+        spread: 0,
+        color: egui::Color32::from_black_alpha(if p.dark { 110 } else { 40 }),
+    };
+    v.popup_shadow = egui::Shadow {
+        offset: [0, 4],
+        blur: 12,
+        spread: 0,
+        color: egui::Color32::from_black_alpha(if p.dark { 90 } else { 30 }),
+    };
+    v.resize_corner_size = 8.0;
+    v.interact_cursor = Some(egui::CursorIcon::PointingHand);
+    v
 }
 
-/// Border colour for the current theme.
+// ─── Text Helpers ────────────────────────────────────────────────────────────
+
+/// Text at `size` in the given weight (300 to 700).
 #[must_use]
-pub const fn border_color(dark: bool) -> egui::Color32 {
-    if dark { BORDER_DARK } else { BORDER_LIGHT }
+pub fn weighted(text: impl Into<String>, size: f32, weight: f32) -> egui::RichText {
+    egui::RichText::new(text)
+        .size(size)
+        .variation(b"wght", weight)
 }
 
-/// Muted / secondary text colour for the current theme.
+/// Semibold text at `size`.
 #[must_use]
-pub const fn muted_color(dark: bool) -> egui::Color32 {
-    if dark { MUTED_DARK } else { MUTED_LIGHT }
+pub fn semibold(text: impl Into<String>, size: f32) -> egui::RichText {
+    weighted(text, size, SEMIBOLD)
 }
 
-/// Primary text colour for the current theme.
+/// A display heading: semibold, with the optical size matched to `size` so
+/// large text uses Segoe UI Variable's Display design.
 #[must_use]
-pub const fn text_color(dark: bool) -> egui::Color32 {
-    if dark { TEXT_DARK } else { TEXT_LIGHT }
+pub fn display(text: impl Into<String>, size: f32) -> egui::RichText {
+    semibold(text, size).variation(b"opsz", (size * 0.75).clamp(8.0, 36.0))
 }
 
-/// Sidebar background for the current theme.
-#[must_use]
-pub const fn sidebar_bg(dark: bool) -> egui::Color32 {
-    if dark { SIDEBAR_BG } else { SIDEBAR_BG_LIGHT }
-}
+// ─── Colour Helpers ──────────────────────────────────────────────────────────
 
-/// Main content area / panel background for the current theme.
+/// Blend `a` towards `b` by `t` (0.0 = `a`, 1.0 = `b`).
 #[must_use]
-pub const fn bg_color(dark: bool) -> egui::Color32 {
-    if dark { BG_DARK } else { BG_LIGHT }
+pub fn mix(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
+    egui::Color32::from_rgb(
+        lerp_u8(a.r(), b.r(), t),
+        lerp_u8(a.g(), b.g(), t),
+        lerp_u8(a.b(), b.b(), t),
+    )
 }
 
 /// Linear interpolation between two `u8` values.
-///
-/// Shared across GUI modules for colour blending (toggle switches,
-/// circle-button fills, load-colour gradients, etc.).
 pub(crate) fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
     let t = t.clamp(0.0, 1.0);
     let result = f32::from(a).mul_add(1.0 - t, f32::from(b) * t);
-    // The result of lerping two u8 values is always within 0..=255.
     #[expect(
         clippy::cast_sign_loss,
         clippy::cast_possible_truncation,
@@ -343,5 +374,117 @@ pub(crate) fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
     )]
     {
         result.round() as u8
+    }
+}
+
+// ─── Bridge For Panels Not Yet Rebuilt ───────────────────────────────────────
+//
+// Panels still written against the old colour functions read the active
+// palette through these. Each one goes away once no panel uses it.
+
+/// Primary text colour.
+#[must_use]
+pub fn text_color(_dark: bool) -> egui::Color32 {
+    palette().text
+}
+
+/// Supporting text colour.
+#[must_use]
+pub fn muted_color(_dark: bool) -> egui::Color32 {
+    palette().text_secondary
+}
+
+/// Card surface colour.
+#[must_use]
+pub fn surface_color(_dark: bool) -> egui::Color32 {
+    palette().card
+}
+
+/// Divider colour.
+#[must_use]
+pub fn border_color(_dark: bool) -> egui::Color32 {
+    palette().divider
+}
+
+/// Accent-coloured text.
+#[must_use]
+pub fn accent() -> egui::Color32 {
+    palette().accent_text
+}
+
+/// Success colour.
+#[must_use]
+pub fn green() -> egui::Color32 {
+    palette().success
+}
+
+/// Error colour.
+#[must_use]
+pub fn red() -> egui::Color32 {
+    palette().critical
+}
+
+/// Warning colour.
+#[must_use]
+pub fn yellow() -> egui::Color32 {
+    palette().caution
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// WCAG relative luminance of a colour.
+    fn luminance(c: egui::Color32) -> f32 {
+        let channel = |v: u8| {
+            let s = f32::from(v) / 255.0;
+            if s <= 0.039_28 {
+                s / 12.92
+            } else {
+                ((s + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.0722f32.mul_add(
+            channel(c.b()),
+            0.2126f32.mul_add(channel(c.r()), 0.7152 * channel(c.g())),
+        )
+    }
+
+    /// WCAG contrast ratio between two colours.
+    fn contrast(a: egui::Color32, b: egui::Color32) -> f32 {
+        let (hi, lo) = {
+            let (la, lb) = (luminance(a), luminance(b));
+            if la > lb { (la, lb) } else { (lb, la) }
+        };
+        (hi + 0.05) / (lo + 0.05)
+    }
+
+    #[test]
+    fn text_meets_wcag_aa_on_every_surface() {
+        for dark in [true, false] {
+            let p = Palette::new(dark, &DEFAULT_ACCENT);
+            for surface in [p.bg, p.card, p.control, p.subtle, p.well] {
+                for text in [p.text, p.text_secondary, p.text_tertiary] {
+                    assert!(
+                        contrast(text, surface) >= 4.5,
+                        "dark={dark}: {text:?} on {surface:?} is {:.2}",
+                        contrast(text, surface)
+                    );
+                }
+            }
+            assert!(contrast(p.on_accent, p.accent) >= 4.5, "dark={dark}: text on accent");
+            assert!(contrast(p.accent_text, p.bg) >= 4.5, "dark={dark}: accent text");
+            assert!(contrast(p.critical, p.card) >= 4.5, "dark={dark}: critical text");
+        }
+    }
+
+    #[test]
+    fn memory_list_colours_stand_out_from_the_card() {
+        for dark in [true, false] {
+            let p = Palette::new(dark, &DEFAULT_ACCENT);
+            for list in [p.in_use, p.modified, p.standby] {
+                assert!(contrast(list, p.card) >= 3.0, "dark={dark}: {list:?}");
+            }
+        }
     }
 }

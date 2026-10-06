@@ -37,3 +37,8 @@ pub fn windows_directory() -> Result<PathBuf> {
 pub fn system_directory() -> Result<PathBuf> {
     read_directory(GetSystemDirectoryW)
 }
+
+/// The system fonts directory, e.g. `C:\Windows\Fonts`.
+pub fn fonts_directory() -> Result<PathBuf> {
+    Ok(windows_directory()?.join("Fonts"))
+}
