@@ -10,6 +10,7 @@ use clap::{Parser, Subcommand};
 use clap::ValueEnum;
 
 use crate::engine::CleanLevel;
+use crate::strings;
 
 // ─── Clap styling ────────────────────────────────────────────────────────────
 
@@ -252,16 +253,10 @@ pub enum Commands {
     /// Smart clean - the recommended way to free RAM.
     ///
     /// Runs multiple memory operations in optimal order based on the
-    /// selected aggressiveness level. Shows before/after stats.
-    ///
-    /// Levels:
-    ///   gentle     - Purge ALL standby pages (safe, no process impact)
-    ///   moderate   - Flush modified pages to disk + purge ALL standby
-    ///   aggressive - Full clean: cache + working sets + modified + standby (DEFAULT)
-    ///   nuclear    - Everything + memory combining + second pass
+    /// selected aggressiveness level (see --level). Shows before/after stats.
     #[command(verbatim_doc_comment)]
     Clean {
-        /// Cleaning aggressiveness level [default: aggressive]
+        /// Cleaning aggressiveness level.
         #[arg(short, long, value_enum, default_value = "aggressive")]
         level: LevelArg,
 
@@ -278,7 +273,9 @@ pub enum Commands {
         dry_run: bool,
 
         /// Exclude processes by name during working set emptying (case-insensitive, .exe optional).
+        ///
         /// Can be specified multiple times: --exclude chrome --exclude firefox
+        ///
         /// When set, working set operations use per-process trimming instead of kernel-level.
         /// Only affects the aggressive and nuclear levels (the ones that empty working sets).
         #[arg(long, value_name = "NAME")]
@@ -403,21 +400,21 @@ pub enum Commands {
     /// Monitor memory usage continuously with optional auto-clean.
     ///
     /// Watches memory usage at regular intervals and optionally triggers
-    /// automatic cleaning when usage exceeds a threshold.
+    /// automatic cleaning when usage reaches a threshold.
     ///
     /// Press Ctrl+C to stop monitoring.
     #[command(verbatim_doc_comment)]
     Monitor {
-        /// Check interval in seconds (minimum 1) [default: 5]
+        /// Check interval in seconds (1 to 86400).
         #[arg(short, long, default_value = "5", value_parser = clap::value_parser!(u64).range(1..=86_400))]
         interval: u64,
 
-        /// Auto-clean when memory load exceeds this percentage (1-100).
+        /// Auto-clean when memory load reaches this percentage (1-100).
         /// Omit to only monitor without cleaning.
         #[arg(short, long, value_parser = clap::value_parser!(u32).range(1..=100))]
         threshold: Option<u32>,
 
-        /// Cleaning level for auto-clean [default: aggressive]
+        /// Cleaning level for auto-clean.
         #[arg(short, long, value_enum, default_value = "aggressive")]
         level: LevelArg,
 
@@ -473,22 +470,21 @@ pub enum ContextMenuAction {
 /// Cleaning level as accepted on the command line.
 ///
 /// Mirrors [`CleanLevel`]; kept separate so the engine does not depend on
-/// the argument parser. The doc comments become the `--help` text.
+/// the argument parser. The `--help` text is the shared level description
+/// the GUI shows too, so the two cannot disagree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum LevelArg {
-    /// Gentle: Purge ALL standby pages (priorities 0-7).
-    /// Standby pages are already outside every process's working set;
-    /// purging them is completely safe and frees the disk-page cache.
+    /// The Gentle level.
+    #[value(help = strings::levels::GENTLE_DESC)]
     Gentle,
-    /// Moderate: Flush modified pages to disk, then purge ALL standby.
-    /// No process working sets are touched - safe for running apps.
-    /// More thorough than Gentle because it also drains the modified list.
+    /// The Moderate level.
+    #[value(help = strings::levels::MODERATE_DESC)]
     Moderate,
-    /// Aggressive: File cache flush + registry flush + empty working sets + flush modified + purge ALL standby.
-    /// Frees maximum RAM but may cause brief I/O spike as apps re-fault pages.
+    /// The Aggressive level.
+    #[value(help = strings::levels::AGGRESSIVE_DESC)]
     Aggressive,
-    /// Nuclear: Everything aggressive does, plus memory combining.
-    /// Use when you need every last byte freed. May cause temporary slowdown.
+    /// The Nuclear level.
+    #[value(help = strings::levels::NUCLEAR_DESC)]
     Nuclear,
 }
 

@@ -472,7 +472,7 @@ fn truncate_name(name: &str, max_len: usize) -> String {
 /// footer hint telling the user to remove the `--dry-run` flag to execute.
 pub fn print_dry_run(level: CleanLevel, plan: &[PlannedStep]) {
     println!(
-        "\n{} Dry run  -{} level ({} operations):\n",
+        "\n{} Dry run: {} level ({} operations)\n",
         "🔍".dimmed(),
         level.title_case_name().bold(),
         plan.len()
