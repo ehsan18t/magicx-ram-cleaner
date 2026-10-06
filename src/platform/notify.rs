@@ -35,7 +35,7 @@ pub fn show_balloon_notification(title: &str, body: &str) -> Result<()> {
         NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_REALTIME, NIF_TIP, NIM_ADD, NIM_DELETE,
         NIM_SETVERSION, NOTIFYICON_VERSION, NOTIFYICONDATAW, Shell_NotifyIconW,
     };
-    use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyWindow, WM_APP};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyIcon, DestroyWindow, WM_APP};
 
     let hwnd = create_notification_window()?;
     let hicon = load_app_icon();
@@ -69,15 +69,18 @@ pub fn show_balloon_notification(title: &str, body: &str) -> Result<()> {
     // initialised above with valid field values. NIM_ADD adds a tray icon.
     let added = unsafe { Shell_NotifyIconW(NIM_ADD, &raw const nid) };
     if added == 0 {
-        // SAFETY: DestroyWindow with a valid hwnd from CreateWindowExW.
+        // SAFETY: DestroyWindow with a valid hwnd from CreateWindowExW, and
+        // DestroyIcon with the icon LoadImageW created (null is ignored).
         unsafe {
             DestroyWindow(hwnd);
+            DestroyIcon(hicon);
         }
         bail!("Shell_NotifyIconW(NIM_ADD) failed");
     }
 
-    // Set the icon version to NOTIFYICON_VERSION (v3) so the balloon uses
-    // the classic style and is NOT forwarded to the Action Center.
+    // NOTIFYICON_VERSION (v3) gives the icon the balloon behaviour this
+    // module relies on (the uTimeout hint, the callback messages). Windows
+    // 10 and 11 may still present the balloon as a toast.
     nid.Anonymous.uVersion = NOTIFYICON_VERSION;
     // SAFETY: NIM_SETVERSION is a standard call; nid.uID identifies our icon.
     unsafe {
@@ -90,11 +93,13 @@ pub fn show_balloon_notification(title: &str, body: &str) -> Result<()> {
 
     // ── Cleanup ──────────────────────────────────────────────────────
     // SAFETY: NIM_DELETE removes the tray icon. DestroyWindow destroys
-    // the hidden message window. The icon from LoadIconW is a shared resource
-    // owned by the system and must not be destroyed.
+    // the hidden message window. The icon came from LoadImageW at an
+    // explicit size, so it is not shared and is ours to destroy, after the
+    // shell no longer uses it.
     unsafe {
         Shell_NotifyIconW(NIM_DELETE, &raw const nid);
         DestroyWindow(hwnd);
+        DestroyIcon(hicon);
     }
 
     Ok(())
@@ -178,12 +183,16 @@ fn pump_messages(duration_ms: u32) {
     }
 }
 
-/// Load the application icon (resource ID 1) from the running executable.
+/// Load the application icon (resource ID 1) from the running executable at
+/// the small-icon size the notification area shows, so Windows picks the
+/// matching frame instead of shrinking the 32 px one. The caller destroys it.
 ///
 /// Falls back to a null handle if loading fails (the balloon will show
 /// without a custom icon, using the default info icon instead).
 fn load_app_icon() -> windows_sys::Win32::UI::WindowsAndMessaging::HICON {
-    use windows_sys::Win32::UI::WindowsAndMessaging::LoadIconW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, IMAGE_ICON, LR_DEFAULTCOLOR, LoadImageW, SM_CXSMICON, SM_CYSMICON,
+    };
 
     // Get the module handle for the current exe (HINSTANCE == HMODULE for exe)
     let hinstance = get_exe_hinstance();
@@ -193,9 +202,19 @@ fn load_app_icon() -> windows_sys::Win32::UI::WindowsAndMessaging::HICON {
     // into the low 16 bits of a pointer. Not a real dereferenceable address.
     let resource_id = std::ptr::without_provenance::<u16>(1);
 
-    // SAFETY: LoadIconW with a valid hinstance and numeric resource ID is safe.
-    // Returns null on failure (we handle that gracefully).
-    unsafe { LoadIconW(hinstance, resource_id) }
+    // SAFETY: GetSystemMetrics only reads system settings. LoadImageW gets a
+    // valid hinstance and numeric resource ID and returns null on failure
+    // (handled by the caller).
+    unsafe {
+        LoadImageW(
+            hinstance,
+            resource_id,
+            IMAGE_ICON,
+            GetSystemMetrics(SM_CXSMICON),
+            GetSystemMetrics(SM_CYSMICON),
+            LR_DEFAULTCOLOR,
+        )
+    }
 }
 
 /// Get the `HINSTANCE` of the running executable.
