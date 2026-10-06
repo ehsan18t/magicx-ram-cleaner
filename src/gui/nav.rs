@@ -241,7 +241,7 @@ pub(super) fn draw_page(ui: &mut egui::Ui, app: &mut MagicXApp) {
                 .show(ui, |ui| {
                     ui.set_max_width(ui.available_width().min(theme::CONTENT_MAX_WIDTH));
                     match app.active_panel {
-                        Panel::Overview => panels::dashboard::draw(ui, app),
+                        Panel::Overview => panels::overview::draw(ui, app),
                         Panel::Monitor => panels::monitor::draw(ui, app),
                         Panel::Processes => panels::processes::draw(ui, app),
                         Panel::Settings => panels::settings::draw(ui, app),

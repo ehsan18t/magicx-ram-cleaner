@@ -1,12 +1,13 @@
 //! Running cleans on a worker thread, collecting their results, and the
 //! auto-clean monitor.
 
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::MagicXApp;
 use crate::engine::auto_clean::Decision;
-use crate::engine::{self, CleanLevel, SmartCleanResult};
-use crate::memory;
+use crate::engine::{self, CleanLevel, Progress, SmartCleanResult};
+use crate::memory::{self, MemoryComposition};
 
 /// Maximum number of lines kept in the monitor activity log.
 pub(super) const MONITOR_LOG_CAPACITY: usize = 500;
@@ -19,6 +20,42 @@ pub struct CleanResultMsg {
     pub level: CleanLevel,
     /// `true` when the clean was started by monitor auto-clean.
     pub auto: bool,
+}
+
+/// How far a running clean has got, updated by the worker thread.
+#[derive(Debug, Clone)]
+pub struct CleanProgress {
+    /// The level being run.
+    pub level: CleanLevel,
+    /// `true` when auto-clean started it.
+    pub auto: bool,
+    /// Steps started so far.
+    pub step: usize,
+    /// Steps the level plans to run (a leftover sweep can add more).
+    pub total: usize,
+    /// What the current step is doing, e.g. "Purging all standby pages...".
+    pub label: &'static str,
+    /// When the clean started.
+    pub started: Instant,
+}
+
+/// Progress shared between the clean worker and the UI.
+pub type SharedProgress = Arc<Mutex<Option<CleanProgress>>>;
+
+/// The memory map moving from its state before a clean to after it.
+#[derive(Debug, Clone, Copy)]
+pub struct MapTransition {
+    /// Memory lists before the clean.
+    pub from: MemoryComposition,
+    /// Memory lists after the clean.
+    pub to: MemoryComposition,
+    /// When the transition started.
+    pub started: Instant,
+}
+
+impl MapTransition {
+    /// How long the memory map takes to move to its new state.
+    pub const DURATION: Duration = Duration::from_millis(900);
 }
 
 impl MagicXApp {
@@ -37,8 +74,19 @@ impl MagicXApp {
         }
         self.cleaning_in_progress = true;
         self.last_clean_result = None;
+        if let Ok(mut progress) = self.clean_progress.lock() {
+            *progress = Some(CleanProgress {
+                level,
+                auto,
+                step: 0,
+                total: engine::dry_run_plan(level, false).len(),
+                label: "",
+                started: Instant::now(),
+            });
+        }
 
         let tx = self.clean_tx.clone();
+        let progress = Arc::clone(&self.clean_progress);
         if let Err(e) = std::thread::Builder::new()
             .name("gui-clean".into())
             .spawn(move || {
@@ -47,9 +95,17 @@ impl MagicXApp {
                 // matters in dev builds: the release profile uses
                 // `panic = "abort"`, where a panic ends the process instead.
                 let result = std::panic::catch_unwind(|| {
-                    engine::Cleaner::silent(&engine::WindowsMemory)
-                        .smart_clean(level, &[])
-                        .map_err(|e| format!("{e:#}"))
+                    engine::Cleaner::new(&engine::WindowsMemory, |event| {
+                        if let Progress::Started { label } = event
+                            && let Ok(mut lock) = progress.lock()
+                            && let Some(p) = lock.as_mut()
+                        {
+                            p.step += 1;
+                            p.label = label;
+                        }
+                    })
+                    .smart_clean(level, &[])
+                    .map_err(|e| format!("{e:#}"))
                 })
                 .unwrap_or_else(|_| Err("clean worker panicked".to_owned()));
                 drop(tx.send(CleanResultMsg {
@@ -86,6 +142,19 @@ impl MagicXApp {
             return;
         };
         self.cleaning_in_progress = false;
+        if let Ok(mut progress) = self.clean_progress.lock() {
+            *progress = None;
+        }
+        if let Ok(r) = &msg.result
+            && let (Some(from), Some(to)) =
+                (r.overall_before.composition(), r.overall_after.composition())
+        {
+            self.map_transition = Some(MapTransition {
+                from,
+                to,
+                started: Instant::now(),
+            });
+        }
 
         if msg.auto {
             let log_msg = match &msg.result {

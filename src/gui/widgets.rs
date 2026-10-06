@@ -7,9 +7,6 @@
 
 use eframe::egui;
 
-use crate::memory::{self, MemorySnapshot};
-use crate::strings;
-
 use super::theme::{self, Palette};
 
 // ─── Containers And Headings ─────────────────────────────────────────────────
@@ -47,6 +44,14 @@ pub fn section_header(ui: &mut egui::Ui, title: &str) {
     ui.add_space(6.0);
 }
 
+
+/// A thin horizontal divider across the available width.
+pub fn divider(ui: &mut egui::Ui) {
+    let p = theme::palette();
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
+    ui.painter().rect_filled(rect, egui::CornerRadius::ZERO, p.divider);
+}
 
 /// Draw the keyboard focus ring around `rect` when `response` has focus.
 pub fn focus_ring(ui: &egui::Ui, response: &egui::Response, rect: egui::Rect, p: &Palette) {
@@ -229,60 +234,30 @@ pub fn segmented(ui: &mut egui::Ui, options: &[&str], selected: usize, enabled: 
     clicked
 }
 
-
-
-// ─── Bridge For The Old Dashboard ────────────────────────────────────────────
-
-/// Compact stat label: muted title above a coloured value.
-pub fn stat_label(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: &str,
-    color: egui::Color32,
-    _dark: bool,
-) {
+/// The accent-filled primary button. At most one per page.
+pub fn primary_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> egui::Response {
     let p = theme::palette();
-    ui.vertical(|ui| {
-        ui.label(
-            egui::RichText::new(label)
-                .size(theme::CAPTION)
-                .color(p.text_secondary),
+    let (fill, text) = if enabled {
+        (p.accent, p.on_accent)
+    } else {
+        (p.control, p.text_tertiary)
+    };
+    let button = egui::Button::new(theme::semibold(label, theme::BODY).color(text))
+        .fill(fill)
+        .stroke(egui::Stroke::NONE)
+        .corner_radius(egui::CornerRadius::same(theme::CONTROL_RADIUS))
+        .min_size(egui::vec2(112.0, theme::CONTROL_HEIGHT));
+    let response = ui.add_enabled(enabled, button);
+    if enabled && response.hovered() {
+        ui.painter().rect_filled(
+            response.rect,
+            egui::CornerRadius::same(theme::CONTROL_RADIUS),
+            if p.dark {
+                egui::Color32::from_black_alpha(28)
+            } else {
+                egui::Color32::from_white_alpha(36)
+            },
         );
-        ui.label(theme::semibold(value, 15.0).color(color));
-    });
-}
-
-/// Memory overview: percentage, bar and a stat row.
-pub fn memory_overview(ui: &mut egui::Ui, snap: &MemorySnapshot, dark: bool) {
-    let p = theme::palette();
-    ui.label(
-        theme::display(format!("{}%", snap.memory_load_percent), 36.0).color(p.text),
-    );
-    ui.label(
-        egui::RichText::new(format!(
-            "{} {} of {}",
-            strings::gui::widgets::LABEL_MEMORY_USED,
-            memory::format_bytes(snap.used_physical),
-            memory::format_bytes(snap.total_physical),
-        ))
-        .color(p.text_secondary),
-    );
-    ui.add_space(10.0);
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 30.0;
-        stat_label(
-            ui,
-            strings::gui::widgets::LABEL_AVAILABLE,
-            &memory::format_bytes(snap.available_physical),
-            p.text,
-            dark,
-        );
-        stat_label(
-            ui,
-            strings::gui::widgets::LABEL_COMMIT,
-            &format!("{:.0}%", snap.commit_percent()),
-            p.text,
-            dark,
-        );
-    });
+    }
+    response
 }

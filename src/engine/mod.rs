@@ -25,7 +25,7 @@ mod fake;
 #[cfg(test)]
 mod tests;
 
-pub use self::level::CleanLevel;
+pub use self::level::{CleanLevel, ReclaimEstimate};
 pub use self::progress::Progress;
 pub use self::report::{CleanResult, SmartCleanResult};
 pub use self::smart::dry_run_plan;

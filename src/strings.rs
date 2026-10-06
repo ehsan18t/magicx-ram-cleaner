@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! strings::APP_NAME
-//! strings::gui::dashboard::TITLE
+//! strings::gui::overview::TITLE
 //! strings::cli::PAUSE_PROMPT
 //! ```
 //!
@@ -97,45 +97,29 @@ pub mod levels {
     /// Gentle level display name.
     pub const GENTLE_NAME: &str = "Gentle";
 
-    /// Gentle one-line summary.
-    pub const GENTLE_SHORT: &str = "Purge all standby pages";
-
-    /// Gentle full description for tooltips.
-    pub const GENTLE_DETAIL: &str = "Purges all standby pages (priorities 0-7). Standby pages are already \
-         outside every process's working set, so this is completely safe to run at any time.";
+    /// What Gentle does, in plain words.
+    pub const GENTLE_DESC: &str = "Empties the standby cache. Apps keep running untouched.";
 
     /// Moderate level display name.
     pub const MODERATE_NAME: &str = "Moderate";
 
-    /// Moderate one-line summary.
-    pub const MODERATE_SHORT: &str = "Modified pages + all standby";
-
-    /// Moderate full description for tooltips.
-    pub const MODERATE_DETAIL: &str = "Flushes modified pages to disk, then purges all standby pages. No process \
-         working sets are touched. Running apps are unaffected, but expect a brief \
-         I/O spike.";
+    /// What Moderate does, in plain words.
+    pub const MODERATE_DESC: &str =
+        "Writes changed pages to disk, then empties the standby cache. Apps keep running untouched.";
 
     /// Aggressive level display name.
     pub const AGGRESSIVE_NAME: &str = "Aggressive";
 
-    /// Aggressive one-line summary.
-    pub const AGGRESSIVE_SHORT: &str = "Full clean: cache, registry, working sets, standby";
-
-    /// Aggressive full description for tooltips.
-    pub const AGGRESSIVE_DETAIL: &str = "File cache flush \u{2192} registry flush \u{2192} empty working sets \u{2192} \
-         flush modified \u{2192} purge all standby. Frees maximum RAM but may cause a \
-         brief I/O spike as apps re-fault pages.";
+    /// What Aggressive does, in plain words.
+    pub const AGGRESSIVE_DESC: &str = "Also flushes the file and registry caches and trims every app\u{2019}s \
+         memory. Apps may pause briefly while they reload.";
 
     /// Nuclear level display name.
     pub const NUCLEAR_NAME: &str = "Nuclear";
 
-    /// Nuclear one-line summary.
-    pub const NUCLEAR_SHORT: &str = "Everything + combining + 2nd pass";
-
-    /// Nuclear full description for tooltips.
-    pub const NUCLEAR_DETAIL: &str = "All of Aggressive plus memory page combining (dedup) and a second flush+purge \
-         pass to catch pages modified during combining. Use when you need every last \
-         byte freed.";
+    /// What Nuclear does, in plain words.
+    pub const NUCLEAR_DESC: &str = "Everything in Aggressive, plus page combining and a second pass. Expect a \
+         short slowdown.";
 }
 
 // ─── GUI ─────────────────────────────────────────────────────────────────────
@@ -148,45 +132,53 @@ pub mod gui {
     /// Tooltip of the button that expands or collapses the navigation pane.
     pub const NAV_TOGGLE: &str = "Expand or collapse navigation";
 
-    /// Dashboard panel strings.
-    pub mod dashboard {
+    /// Overview panel strings.
+    pub mod overview {
         /// Panel title shown at the top of the page.
         pub const TITLE: &str = "Overview";
 
-        /// Spinner text while the first snapshot loads.
-        pub const LOADING: &str = "Loading memory information...";
+        /// Shown until the first memory reading arrives.
+        pub const LOADING: &str = "Reading memory\u{2026}";
 
-        /// Section header above the clean buttons.
-        pub const SECTION_CLEAN: &str = "Clean Memory";
+        /// Memory list name: In use.
+        pub const LIST_IN_USE: &str = "In use";
 
-        /// Progress indicator during a clean.
-        pub const CLEANING: &str = "Cleaning in progress...";
+        /// Memory list name: Modified.
+        pub const LIST_MODIFIED: &str = "Modified";
 
-        /// Stat label: total physical RAM.
-        pub const LABEL_TOTAL_RAM: &str = "Total RAM";
+        /// Memory list name: Standby.
+        pub const LIST_STANDBY: &str = "Standby";
 
-        /// Stat label: system thread count.
-        pub const LABEL_THREADS: &str = "Threads";
+        /// Memory list name: Free.
+        pub const LIST_FREE: &str = "Free";
 
-        /// Stat label: bytes freed by a clean.
-        pub const LABEL_FREED: &str = "Freed";
+        /// Legend name for free plus standby, when the lists are unknown.
+        pub const LIST_AVAILABLE: &str = "Available";
 
-        /// Stat label: memory usage percentage.
-        pub const LABEL_USAGE: &str = "Usage";
+        /// Primary button that runs the selected level.
+        pub const BTN_CLEAN: &str = "Clean now";
 
-        /// Stat label: available memory.
-        pub const LABEL_AVAILABLE: &str = "Available";
+        /// The primary button while a clean runs.
+        pub const BTN_CLEANING: &str = "Cleaning\u{2026}";
 
-        // ── GUI fix additions ──────────────────────────────────────────
+        /// Shown instead of an estimate when the memory lists are unknown.
+        pub const NO_ESTIMATE: &str = "No estimate: Windows didn\u{2019}t report its memory lists.";
 
-        /// Stat label: standby cache size.
-        pub const LABEL_STANDBY: &str = "Standby Cache";
+        /// Note under a finished clean that purged standby memory.
+        pub const REFILL_NOTE: &str =
+            "Windows refills the standby cache as you open files. That\u{2019}s normal.";
 
-        /// Stat label: free (zeroed + free list) memory before and after a clean.
-        pub const LABEL_FREE_RAM: &str = "Free RAM";
+        /// Collapsible list of the steps a clean ran.
+        pub const DETAILS: &str = "Details";
 
-        /// Shown in place of a value that is not available.
-        pub const VALUE_UNKNOWN: &str = "n/a";
+        /// Quick stat: commit charge.
+        pub const STAT_COMMIT: &str = "Commit charge";
+
+        /// Quick stat: process count.
+        pub const STAT_PROCESSES: &str = "Processes";
+
+        /// Quick stat: thread count.
+        pub const STAT_THREADS: &str = "Threads";
     }
 
     /// Monitor panel strings.
@@ -409,23 +401,6 @@ pub mod gui {
         pub const SOCIAL_WEBSITE: &str = "Website";
     }
 
-    /// Memory overview widget strings.
-    pub mod widgets {
-        /// Label next to the large percentage heading.
-        pub const LABEL_MEMORY_USED: &str = "Memory Used";
-
-        /// Stat row: available memory.
-        pub const LABEL_AVAILABLE: &str = "Available";
-
-        /// Stat row: used memory.
-        pub const LABEL_USED: &str = "Used";
-
-        /// Stat row: commit percentage.
-        pub const LABEL_COMMIT: &str = "Commit";
-
-        /// Stat row: process count.
-        pub const LABEL_PROCESSES: &str = "Processes";
-    }
 
     /// Persistence / file dialog strings.
     pub mod persistence {

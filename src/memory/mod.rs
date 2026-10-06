@@ -131,6 +131,74 @@ impl MemorySnapshot {
     }
 }
 
+/// One of the kernel's physical memory lists, as the GUI presents them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryList {
+    /// Pages held by running processes and the system (working sets).
+    InUse,
+    /// Changed pages waiting to be written to disk.
+    Modified,
+    /// Cached pages Windows can hand back instantly.
+    Standby,
+    /// Pages holding nothing (free and zeroed lists).
+    Free,
+}
+
+/// How installed RAM divides into the four [`MemoryList`]s at one instant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MemoryComposition {
+    /// Bytes in use: installed RAM minus the other three lists.
+    pub in_use: u64,
+    /// Bytes on the modified list.
+    pub modified: u64,
+    /// Bytes on the standby lists (all priorities).
+    pub standby: u64,
+    /// Bytes on the free and zeroed lists.
+    pub free: u64,
+}
+
+impl MemoryComposition {
+    /// Bytes in `list`.
+    #[must_use]
+    pub const fn bytes(&self, list: MemoryList) -> u64 {
+        match list {
+            MemoryList::InUse => self.in_use,
+            MemoryList::Modified => self.modified,
+            MemoryList::Standby => self.standby,
+            MemoryList::Free => self.free,
+        }
+    }
+
+    /// Sum of all four lists.
+    #[must_use]
+    pub const fn total(&self) -> u64 {
+        self.in_use + self.modified + self.standby + self.free
+    }
+}
+
+impl MemorySnapshot {
+    /// The split of installed RAM into memory lists, when the kernel page
+    /// lists could be read.
+    ///
+    /// In use is derived as the remainder, so the four parts always add up
+    /// to installed RAM.
+    #[must_use]
+    pub fn composition(&self) -> Option<MemoryComposition> {
+        let free = self.free_bytes()?;
+        let standby = self.standby_bytes()?;
+        let modified = self.modified_bytes()?;
+        let free = free.min(self.total_physical);
+        let standby = standby.min(self.total_physical - free);
+        let modified = modified.min(self.total_physical - free - standby);
+        Some(MemoryComposition {
+            in_use: self.total_physical - free - standby - modified,
+            modified,
+            standby,
+            free,
+        })
+    }
+}
+
 /// Lightweight memory reading for settle-detection polling.
 ///
 /// Only calls `GlobalMemoryStatusEx` (skips `K32GetPerformanceInfo`) to avoid
@@ -158,6 +226,69 @@ impl QuickMemoryReading {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A snapshot of 16 GiB with the given page-list sizes in GiB.
+    fn snapshot_with_lists(free: u64, standby: u64, modified: u64) -> MemorySnapshot {
+        const GIB: u64 = 1024 * 1024 * 1024;
+        let pages = |gib: u64| gib * GIB / 4096;
+        MemorySnapshot {
+            memory_load_percent: 0,
+            total_physical: 16 * GIB,
+            available_physical: 0,
+            used_physical: 0,
+            total_page_file: 0,
+            available_page_file: 0,
+            total_virtual: 0,
+            available_virtual: 0,
+            commit_total_pages: 0,
+            commit_limit_pages: 0,
+            commit_peak_pages: 0,
+            physical_available_pages: 0,
+            physical_total_pages: 0,
+            kernel_paged_pages: 0,
+            kernel_nonpaged_pages: 0,
+            page_size: 4096,
+            handle_count: 0,
+            process_count: 0,
+            thread_count: 0,
+            lists: Some(MemoryListInfo {
+                zeroed_pages: 0,
+                free_pages: pages(free),
+                modified_pages: pages(modified),
+                modified_no_write_pages: 0,
+                bad_pages: 0,
+                standby_pages: [pages(standby), 0, 0, 0, 0, 0, 0, 0],
+                repurposed_pages: [0; 8],
+                modified_pagefile_pages: 0,
+            }),
+        }
+    }
+
+    #[test]
+    fn composition_adds_up_to_installed_ram() {
+        const GIB: u64 = 1024 * 1024 * 1024;
+        let c = snapshot_with_lists(2, 5, 1).composition().expect("lists known");
+        assert_eq!(c.free, 2 * GIB);
+        assert_eq!(c.standby, 5 * GIB);
+        assert_eq!(c.modified, GIB);
+        assert_eq!(c.in_use, 8 * GIB);
+        assert_eq!(c.total(), 16 * GIB);
+    }
+
+    #[test]
+    fn composition_clamps_lists_that_overshoot_installed_ram() {
+        let c = snapshot_with_lists(10, 10, 10).composition().expect("lists known");
+        assert_eq!(c.total(), 16 * 1024 * 1024 * 1024);
+        assert_eq!(c.in_use, 0);
+        assert_eq!(c.modified, 0);
+    }
+
+    #[test]
+    fn composition_is_unknown_without_page_lists() {
+        let mut snap = snapshot_with_lists(1, 1, 1);
+        snap.lists = None;
+        assert!(snap.composition().is_none());
+    }
 
     #[test]
     fn commit_percent_normal() {

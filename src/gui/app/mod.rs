@@ -19,7 +19,7 @@ use eframe::egui;
 
 use self::appearance::Appearance;
 use self::background::{PROCESS_REFRESH_SECS, stats_thread};
-pub use self::cleaning::CleanResultMsg;
+pub use self::cleaning::{CleanProgress, CleanResultMsg, MapTransition};
 use self::cleaning::MONITOR_LOG_CAPACITY;
 use super::settings::GuiSettings;
 use super::{fonts, nav, theme, tray};
@@ -94,6 +94,13 @@ pub struct MagicXApp {
 
     /// Last cleaning result (for display).
     pub last_clean_result: Option<CleanResultMsg>,
+
+    /// Progress of the running clean, updated by the worker thread.
+    pub clean_progress: cleaning::SharedProgress,
+
+    /// The memory map's move from before to after the last clean, while it
+    /// is animating.
+    pub map_transition: Option<MapTransition>,
 
     /// Top processes list (refreshed periodically).
     ///
@@ -282,6 +289,8 @@ impl MagicXApp {
             clean_tx,
             cleaning_in_progress: false,
             last_clean_result: None,
+            clean_progress: Arc::new(Mutex::new(None)),
+            map_transition: None,
             top_processes,
             last_process_refresh: Instant::now()
                 .checked_sub(Duration::from_secs(PROCESS_REFRESH_SECS + 1))

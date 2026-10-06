@@ -9,6 +9,7 @@ use std::cell::Cell;
 
 use eframe::egui;
 
+use crate::memory::MemoryList;
 use crate::platform::appearance::{AccentPalette, Rgb};
 
 // ─── Type Scale ──────────────────────────────────────────────────────────────
@@ -204,6 +205,17 @@ impl Palette {
                 standby: hex(0x0E, 0x8A, 0x7B),
                 free: hex(0xD2, 0xD2, 0xD2),
             }
+        }
+    }
+
+    /// The fixed colour of a memory list.
+    #[must_use]
+    pub const fn list(&self, list: MemoryList) -> egui::Color32 {
+        match list {
+            MemoryList::InUse => self.in_use,
+            MemoryList::Modified => self.modified,
+            MemoryList::Standby => self.standby,
+            MemoryList::Free => self.free,
         }
     }
 

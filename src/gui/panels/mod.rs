@@ -3,7 +3,7 @@
 //! Re-exports all panel draw functions for the main content area.
 
 pub mod about;
-pub mod dashboard;
 pub mod monitor;
+pub mod overview;
 pub mod processes;
 pub mod settings;
