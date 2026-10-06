@@ -104,6 +104,19 @@ pub fn performance_info() -> Result<PerformanceInfo> {
     })
 }
 
+/// The system page size in bytes.
+fn page_size() -> u64 {
+    use windows_sys::Win32::System::SystemInformation::{GetSystemInfo, SYSTEM_INFO};
+    // SAFETY: SYSTEM_INFO is plain data that GetSystemInfo fills in; the call
+    // cannot fail.
+    let info = unsafe {
+        let mut info: SYSTEM_INFO = std::mem::zeroed();
+        GetSystemInfo(&raw mut info);
+        info
+    };
+    u64::from(info.dwPageSize)
+}
+
 /// Trim the system file cache working set.
 ///
 /// `(SIZE_T)-1` for both limits is the documented one-shot "flush the cache"
@@ -151,94 +164,44 @@ pub struct MemoryListInfo {
 }
 
 impl MemoryListInfo {
+    /// Number of `ULONG_PTR` fields in `SYSTEM_MEMORY_LIST_INFORMATION`.
+    const FIELDS: usize = 22;
+
     /// Query the kernel for detailed memory list information.
     ///
-    /// Maps `SYSTEM_MEMORY_LIST_INFORMATION`: 22 `ULONG_PTR` entries
-    /// (5 list counters, 8 standby priorities, 8 repurposed priorities and the
-    /// pagefile-backed modified count). The exact size is requested first; if a
-    /// future kernel reports a larger structure, the query is retried with a
-    /// heap buffer of the size it asks for and only the known prefix is parsed.
-    ///
-    /// Requires `SeProfileSingleProcessPrivilege` to be enabled.
+    /// Reading the lists needs no special privilege; only the purge and
+    /// flush commands need `SeProfileSingleProcessPrivilege`.
     pub fn query() -> Result<Self> {
-        use crate::platform::nt::{STATUS_INFO_LENGTH_MISMATCH, SYSTEM_MEMORY_LIST_INFORMATION};
+        use crate::platform::nt::{SYSTEM_MEMORY_LIST_INFORMATION, query_system_information};
 
-        const ENTRIES: usize = 22;
-
-        let mut stack_buf = [0usize; ENTRIES];
-        let mut return_length: u32 = 0;
-
-        // SAFETY: stack_buf is a valid, zero-initialized array of the stated size.
-        // return_length is a valid stack-allocated u32.
-        let mut status = unsafe {
-            crate::platform::nt::nt_query_system_information(
-                SYSTEM_MEMORY_LIST_INFORMATION,
-                stack_buf.as_mut_ptr().cast(),
-                std::mem::size_of_val(&stack_buf) as u32,
-                &raw mut return_length,
-            )
-        };
-
-        let mut heap_buf: Vec<usize> = Vec::new();
-        if status == STATUS_INFO_LENGTH_MISMATCH
-            && return_length as usize > std::mem::size_of_val(&stack_buf)
-        {
-            heap_buf =
-                vec![0usize; (return_length as usize).div_ceil(std::mem::size_of::<usize>())];
-            // SAFETY: heap_buf holds at least `return_length` bytes, the size the
-            // kernel asked for.
-            status = unsafe {
-                crate::platform::nt::nt_query_system_information(
-                    SYSTEM_MEMORY_LIST_INFORMATION,
-                    heap_buf.as_mut_ptr().cast(),
-                    return_length,
-                    &raw mut return_length,
+        let fields = query_system_information(SYSTEM_MEMORY_LIST_INFORMATION, Self::FIELDS)
+            .map_err(|status| {
+                anyhow::anyhow!(
+                    "NtQuerySystemInformation(SystemMemoryListInformation) failed: NTSTATUS 0x{status:08X}"
                 )
-            };
-        }
+            })?;
+        Ok(Self::from_fields(&fields))
+    }
 
-        if status != crate::platform::nt::STATUS_SUCCESS {
-            bail!(
-                "NtQuerySystemInformation(SystemMemoryListInformation) failed: NTSTATUS 0x{status:08X}"
-            );
+    /// Map the fields of `SYSTEM_MEMORY_LIST_INFORMATION`: 5 list counters,
+    /// 8 standby priorities, 8 repurposed priorities and the pagefile-backed
+    /// modified count. Extra trailing fields are ignored.
+    ///
+    /// # Panics
+    ///
+    /// If `fields` holds fewer than 22 entries.
+    fn from_fields(fields: &[usize]) -> Self {
+        let field = |i: usize| fields[i] as u64;
+        Self {
+            zeroed_pages: field(0),
+            free_pages: field(1),
+            modified_pages: field(2),
+            modified_no_write_pages: field(3),
+            bad_pages: field(4),
+            standby_pages: std::array::from_fn(|i| field(5 + i)),
+            repurposed_pages: std::array::from_fn(|i| field(13 + i)),
+            modified_pagefile_pages: field(21),
         }
-
-        let buf: &[usize] = if heap_buf.is_empty() {
-            &stack_buf
-        } else {
-            &heap_buf
-        };
-        // Only trust what the kernel says it wrote. Some builds report 0 on
-        // success when the buffer is exactly the structure size.
-        let written = if return_length == 0 {
-            buf.len()
-        } else {
-            (return_length as usize / std::mem::size_of::<usize>()).min(buf.len())
-        };
-        if written < ENTRIES {
-            bail!(
-                "NtQuerySystemInformation(SystemMemoryListInformation) returned {return_length} bytes, need at least {}",
-                ENTRIES * std::mem::size_of::<usize>()
-            );
-        }
-
-        let mut standby = [0u64; 8];
-        let mut repurposed = [0u64; 8];
-        for i in 0..8 {
-            standby[i] = buf[5 + i] as u64;
-            repurposed[i] = buf[13 + i] as u64;
-        }
-
-        Ok(Self {
-            zeroed_pages: buf[0] as u64,
-            free_pages: buf[1] as u64,
-            modified_pages: buf[2] as u64,
-            modified_no_write_pages: buf[3] as u64,
-            bad_pages: buf[4] as u64,
-            standby_pages: standby,
-            repurposed_pages: repurposed,
-            modified_pagefile_pages: buf[21] as u64,
-        })
     }
 
     /// Pages on the zeroed and free lists combined (truly unused RAM).
@@ -264,43 +227,46 @@ pub struct FileCacheSnapshot {
     pub current_size: u64,
     /// Peak file cache working set size since boot (bytes).
     pub peak_size: u64,
-    /// Minimum configured working set (bytes, 0 = system default).
+    /// Minimum configured working set (bytes).
     pub minimum_working_set: u64,
-    /// Maximum configured working set (bytes, 0 = system default).
+    /// Maximum configured working set (bytes).
     pub maximum_working_set: u64,
 }
 
 impl FileCacheSnapshot {
+    /// Number of leading `SYSTEM_FILECACHE_INFORMATION` fields this parses.
+    /// Newer Windows builds append more (transition pages, flags) and reject
+    /// a buffer that holds only these, which the query helper handles.
+    const FIELDS: usize = 5;
+
     /// Query the kernel for current file cache statistics.
     pub fn capture() -> Result<Self> {
-        use crate::platform::nt::{SYSTEM_FILE_CACHE_INFORMATION, SystemFileCacheInfo};
+        use crate::platform::nt::{SYSTEM_FILE_CACHE_INFORMATION, query_system_information};
 
-        let mut info: SystemFileCacheInfo = unsafe { std::mem::zeroed() };
-        let mut return_length: u32 = 0;
+        let fields = query_system_information(SYSTEM_FILE_CACHE_INFORMATION, Self::FIELDS)
+            .map_err(|status| {
+                anyhow::anyhow!(
+                    "NtQuerySystemInformation(SystemFileCacheInformation) failed: NTSTATUS 0x{status:08X}"
+                )
+            })?;
+        Ok(Self::from_fields(&fields, page_size()))
+    }
 
-        // SAFETY: info is a valid, zero-initialized SystemFileCacheInfo struct.
-        // return_length is a valid stack-allocated u32.
-        let status = unsafe {
-            crate::platform::nt::nt_query_system_information(
-                SYSTEM_FILE_CACHE_INFORMATION,
-                (&raw mut info).cast(),
-                std::mem::size_of::<SystemFileCacheInfo>() as u32,
-                &raw mut return_length,
-            )
-        };
-
-        if status != 0 {
-            bail!(
-                "NtQuerySystemInformation(SystemFileCacheInformation) failed: NTSTATUS 0x{status:08X}"
-            );
+    /// Map the leading fields of `SYSTEM_FILECACHE_INFORMATION`:
+    /// `CurrentSize` and `PeakSize` (bytes), `PageFaultCount` (a `ULONG`
+    /// padded to a full field), then `MinimumWorkingSet` and
+    /// `MaximumWorkingSet`, which are in pages of `page_size` bytes.
+    ///
+    /// # Panics
+    ///
+    /// If `fields` holds fewer than 5 entries.
+    const fn from_fields(fields: &[usize], page_size: u64) -> Self {
+        Self {
+            current_size: fields[0] as u64,
+            peak_size: fields[1] as u64,
+            minimum_working_set: (fields[3] as u64).saturating_mul(page_size),
+            maximum_working_set: (fields[4] as u64).saturating_mul(page_size),
         }
-
-        Ok(Self {
-            current_size: info.current_size as u64,
-            peak_size: info.peak_size as u64,
-            minimum_working_set: info.minimum_working_set as u64,
-            maximum_working_set: info.maximum_working_set as u64,
-        })
     }
 }
 
@@ -340,5 +306,40 @@ mod tests {
             modified_pagefile_pages: 0,
         };
         assert_eq!(info.total_standby_pages(), 0);
+    }
+
+    #[test]
+    fn memory_list_fields_map_to_the_right_lists() {
+        let fields: Vec<usize> = (0..25).collect(); // 3 extra trailing fields
+        let info = MemoryListInfo::from_fields(&fields);
+        assert_eq!(info.zeroed_pages, 0);
+        assert_eq!(info.free_pages, 1);
+        assert_eq!(info.modified_pages, 2);
+        assert_eq!(info.modified_no_write_pages, 3);
+        assert_eq!(info.bad_pages, 4);
+        assert_eq!(info.standby_pages, [5, 6, 7, 8, 9, 10, 11, 12]);
+        assert_eq!(info.repurposed_pages, [13, 14, 15, 16, 17, 18, 19, 20]);
+        assert_eq!(info.modified_pagefile_pages, 21);
+    }
+
+    #[test]
+    fn file_cache_fields_skip_the_page_fault_count() {
+        let info = FileCacheSnapshot::from_fields(&[10, 20, 30, 40, 50, 60, 70, 80], 4096);
+        assert_eq!(info.current_size, 10);
+        assert_eq!(info.peak_size, 20);
+        assert_eq!(info.minimum_working_set, 40 * 4096, "limits are in pages");
+        assert_eq!(info.maximum_working_set, 50 * 4096, "limits are in pages");
+    }
+
+    #[test]
+    fn file_cache_capture_works_unelevated() {
+        let snapshot = FileCacheSnapshot::capture().expect("file cache query should succeed");
+        assert!(snapshot.peak_size >= snapshot.current_size);
+    }
+
+    #[test]
+    fn memory_list_query_works() {
+        let info = MemoryListInfo::query().expect("memory list query should succeed");
+        assert!(info.zeroed_pages + info.free_pages + info.total_standby_pages() > 0);
     }
 }

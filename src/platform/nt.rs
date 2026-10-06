@@ -1,7 +1,8 @@
 //! # `MagicX` RAM Cleaner - NT Native API Bindings
 //!
-//! Raw FFI declarations for undocumented/semi-documented NT kernel APIs
-//! used for advanced memory management. These are loaded directly from ntdll.dll.
+//! Safe wrappers around the undocumented/semi-documented NT kernel APIs used
+//! for advanced memory management. The raw functions are linked from
+//! ntdll.dll and stay private to this module.
 
 /// NTSTATUS type alias.
 pub type NtStatus = i32;
@@ -25,41 +26,14 @@ pub const SYSTEM_REGISTRY_RECONCILIATION_INFORMATION: u32 = 155;
 /// Returns current and peak file system cache sizes.
 pub const SYSTEM_FILE_CACHE_INFORMATION: u32 = 21;
 
-/// File system cache information returned by
-/// `NtQuerySystemInformation(SystemFileCacheInformation)`.
-///
-/// Maps to `SYSTEM_FILECACHE_INFORMATION`. Only the base fields are included;
-/// newer Windows 10 builds may return additional fields (transition pages, flags)
-/// which are safely ignored by querying with this smaller struct.
-#[repr(C)]
-pub struct SystemFileCacheInfo {
-    /// Current size of the system file cache working set (bytes).
-    pub current_size: usize,
-    /// Peak size of the system file cache working set since boot (bytes).
-    pub peak_size: usize,
-    /// Total page faults incurred by the file cache.
-    pub page_fault_count: u32,
-    // 4 bytes padding on x86-64 (u32 before usize alignment)
-    /// Minimum configured working set for the file cache (bytes).
-    pub minimum_working_set: usize,
-    /// Maximum configured working set for the file cache (bytes).
-    pub maximum_working_set: usize,
-}
-
 /// Memory list commands passed to NtSetSystemInformation(SystemMemoryListInformation).
 ///
-/// These are the core operations that `EmptyStandbyList` uses.
-/// `MagicX` supports ALL of them with finer control.
+/// These are the operations `EmptyStandbyList` uses. The two diagnostic
+/// commands (0 and 1, capture PTE accessed bits) are left out because the
+/// app never issues them.
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-// CaptureAccessedBits and CaptureAndResetAccessedBits are valid Windows API
-// constants not yet exposed via CLI commands. Kept for API completeness.
-#[allow(dead_code)]
 pub enum MemoryListCommand {
-    /// Capture PTE accessed bits (diagnostic only).
-    CaptureAccessedBits = 0,
-    /// Capture and reset PTE accessed bits (diagnostic).
-    CaptureAndResetAccessedBits = 1,
     /// Empty working sets of ALL processes system-wide (kernel-level).
     /// Unlike per-process `EmptyWorkingSet`, reaches all processes
     /// including ones you can't open with `PROCESS_SET_QUOTA`.
@@ -81,7 +55,7 @@ unsafe extern "system" {
     /// For memory commands: class = 80 (`SystemMemoryListInformation`),
     /// buffer points to a `SYSTEM_MEMORY_LIST_COMMAND` (i32),
     /// length = 4.
-    pub fn NtSetSystemInformation(
+    fn NtSetSystemInformation(
         system_information_class: u32,
         system_information: *mut std::ffi::c_void,
         system_information_length: u32,
@@ -89,7 +63,7 @@ unsafe extern "system" {
 
     /// Query system information from the NT kernel.
     /// Used to get detailed memory list stats (page counts per list).
-    pub fn NtQuerySystemInformation(
+    fn NtQuerySystemInformation(
         system_information_class: u32,
         system_information: *mut std::ffi::c_void,
         system_information_length: u32,
@@ -195,20 +169,56 @@ pub fn execute_registry_flush() -> Result<(), NtStatus> {
     }
 }
 
-/// Safe wrapper around `NtQuerySystemInformation`.
+/// Query an information class that returns an array of `ULONG_PTR`-sized
+/// fields, and return the fields the kernel wrote.
 ///
-/// # Safety
+/// `fields` is the number of fields the caller expects. If the kernel says
+/// it needs a larger buffer (a newer Windows with extra trailing fields),
+/// the query is retried with the size it asks for, so callers can always
+/// parse the known prefix. The result holds at least `fields` entries.
 ///
-/// `buffer` must point to a valid, writable allocation of at least `length`
-/// bytes. `return_length` must point to a valid `u32` or be null.
-pub unsafe fn nt_query_system_information(
-    class: u32,
-    buffer: *mut std::ffi::c_void,
-    length: u32,
-    return_length: *mut u32,
-) -> NtStatus {
-    // SAFETY: Caller upholds pointer validity per the function's safety contract.
-    unsafe { NtQuerySystemInformation(class, buffer, length, return_length) }
+/// # Errors
+///
+/// Returns the [`NtStatus`] of a failed call, or [`STATUS_INFO_LENGTH_MISMATCH`]
+/// if the kernel wrote fewer than `fields` entries.
+pub fn query_system_information(class: u32, fields: usize) -> Result<Vec<usize>, NtStatus> {
+    /// Give up after this many "buffer too small" answers in a row.
+    const MAX_ATTEMPTS: usize = 3;
+
+    let word = std::mem::size_of::<usize>();
+    let mut buf = vec![0usize; fields];
+    for _ in 0..MAX_ATTEMPTS {
+        let len = (buf.len() * word) as u32;
+        let mut return_length: u32 = 0;
+        // SAFETY: `buf` is a writable allocation of exactly `len` bytes and
+        // `return_length` is a valid u32 on the stack; both outlive the call.
+        let status = unsafe {
+            NtQuerySystemInformation(class, buf.as_mut_ptr().cast(), len, &raw mut return_length)
+        };
+        let needed = (return_length as usize).div_ceil(word);
+        if (status == STATUS_INFO_LENGTH_MISMATCH || status == STATUS_BUFFER_TOO_SMALL)
+            && needed > buf.len()
+        {
+            buf = vec![0usize; needed];
+            continue;
+        }
+        if status != STATUS_SUCCESS {
+            return Err(status);
+        }
+        // Only trust what the kernel says it wrote. Some builds report 0 on
+        // success when the buffer is exactly the structure size.
+        let written = if return_length == 0 {
+            buf.len()
+        } else {
+            (return_length as usize / word).min(buf.len())
+        };
+        if written < fields {
+            return Err(STATUS_INFO_LENGTH_MISMATCH);
+        }
+        buf.truncate(written);
+        return Ok(buf);
+    }
+    Err(STATUS_INFO_LENGTH_MISMATCH)
 }
 
 // NTSTATUS constants for match arms
@@ -297,8 +307,6 @@ mod tests {
     #[test]
     fn memory_list_command_values() {
         // Verify that the enum discriminants match the Windows API constants
-        assert_eq!(MemoryListCommand::CaptureAccessedBits as i32, 0);
-        assert_eq!(MemoryListCommand::CaptureAndResetAccessedBits as i32, 1);
         assert_eq!(MemoryListCommand::EmptyWorkingSets as i32, 2);
         assert_eq!(MemoryListCommand::FlushModifiedList as i32, 3);
         assert_eq!(MemoryListCommand::PurgeStandbyList as i32, 4);
@@ -311,5 +319,15 @@ mod tests {
         assert_eq!(SYSTEM_COMBINE_PHYSICAL_MEMORY_INFORMATION, 130);
         assert_eq!(SYSTEM_REGISTRY_RECONCILIATION_INFORMATION, 155);
         assert_eq!(SYSTEM_FILE_CACHE_INFORMATION, 21);
+    }
+
+    #[test]
+    fn query_returns_at_least_the_requested_fields() {
+        // SystemFileCacheInformation needs no privilege; on current Windows
+        // it rejects a buffer of only the 5 base fields, so this also
+        // exercises the retry.
+        let fields = query_system_information(SYSTEM_FILE_CACHE_INFORMATION, 5)
+            .expect("file cache query should succeed unelevated");
+        assert!(fields.len() >= 5);
     }
 }

@@ -12,13 +12,6 @@ use crate::platform::nt::{self, MemoryListCommand, NtStatus};
 /// `(operation_name, success_message, progress_label)`.
 const fn command_labels(command: MemoryListCommand) -> (&'static str, &'static str, &'static str) {
     match command {
-        MemoryListCommand::CaptureAccessedBits | MemoryListCommand::CaptureAndResetAccessedBits => {
-            (
-                "Capture Accessed Bits",
-                "PTE accessed bits captured",
-                "Capturing PTE accessed bits...",
-            )
-        }
         MemoryListCommand::EmptyWorkingSets => (
             "Empty Working Sets (Kernel)",
             "All process working sets emptied via kernel",

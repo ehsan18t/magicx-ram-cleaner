@@ -222,8 +222,6 @@ impl MemorySystem for FakeSystem {
                 let refill = m.refill_after_purge.pop_front().unwrap_or(0);
                 shift(&mut m.free, &mut m.standby, refill);
             }
-            MemoryListCommand::CaptureAccessedBits
-            | MemoryListCommand::CaptureAndResetAccessedBits => {}
         }
         failure.map_or(Ok(()), Err)
     }
