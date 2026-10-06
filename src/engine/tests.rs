@@ -200,8 +200,12 @@ fn failed_operation_is_reported_and_the_chain_continues() {
 
 #[test]
 fn failed_purge_stops_the_sweep_after_one_pass() {
+    // The purge does its work but reports failure, and leftovers shrink
+    // from 4 GiB to 1 GiB: only the stop-on-failure rule prevents pass 2.
     let sys = FakeSystem::new(Model {
         failing_command: Some((PurgeStandbyList, 0xC000_0022_u32 as i32)),
+        failure_still_applies: true,
+        refill_after_purge: [4 * GIB_PAGES, GIB_PAGES].into(),
         ..Model::default()
     });
     let (result, _) = run(&sys, CleanLevel::Moderate, &[]);

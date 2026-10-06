@@ -62,6 +62,9 @@ pub struct Model {
     pub refill_after_purge: VecDeque<u64>,
     /// Command that fails, and the status it fails with.
     pub failing_command: Option<(MemoryListCommand, NtStatus)>,
+    /// Whether the failing command still moves its pages before reporting
+    /// the error (a partial success), rather than doing nothing.
+    pub failure_still_applies: bool,
     /// Running processes.
     pub processes: Vec<ProcessEntry>,
     /// PIDs that cannot be trimmed (protected processes).
@@ -82,6 +85,7 @@ impl Default for Model {
             lists_available: true,
             refill_after_purge: VecDeque::new(),
             failing_command: None,
+            failure_still_applies: false,
             processes: vec![
                 entry(OWN_PID, "magicx-ram-cleaner.exe"),
                 entry(2000, "chrome.exe"),
@@ -188,8 +192,12 @@ impl MemorySystem for FakeSystem {
     fn memory_command(&self, command: MemoryListCommand) -> Result<(), NtStatus> {
         self.calls.borrow_mut().push(Call::Command(command));
         let mut m = self.model.borrow_mut();
-        if let Some((failing, status)) = m.failing_command
-            && failing == command
+        let failure = m
+            .failing_command
+            .filter(|(failing, _)| *failing == command)
+            .map(|(_, status)| status);
+        if let Some(status) = failure
+            && !m.failure_still_applies
         {
             return Err(status);
         }
@@ -217,7 +225,7 @@ impl MemorySystem for FakeSystem {
             MemoryListCommand::CaptureAccessedBits
             | MemoryListCommand::CaptureAndResetAccessedBits => {}
         }
-        Ok(())
+        failure.map_or(Ok(()), Err)
     }
 
     fn flush_file_cache(&self) -> Result<(), u32> {
