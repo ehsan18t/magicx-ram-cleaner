@@ -5,7 +5,7 @@
 
 use eframe::egui;
 
-use crate::stats::{self, MemorySnapshot};
+use crate::memory::{self, MemorySnapshot};
 use crate::strings;
 
 use super::theme;
@@ -125,8 +125,8 @@ pub fn memory_overview(ui: &mut egui::Ui, snap: &MemorySnapshot, dark_mode: bool
             ui.label(
                 egui::RichText::new(format!(
                     "{} of {}",
-                    stats::format_bytes(snap.used_physical),
-                    stats::format_bytes(snap.total_physical),
+                    memory::format_bytes(snap.used_physical),
+                    memory::format_bytes(snap.total_physical),
                 ))
                 .size(12.0)
                 .color(theme::text_color(dark_mode)),
@@ -148,14 +148,14 @@ pub fn memory_overview(ui: &mut egui::Ui, snap: &MemorySnapshot, dark_mode: bool
         stat_label(
             ui,
             strings::gui::widgets::LABEL_AVAILABLE,
-            &stats::format_bytes(snap.available_physical),
+            &memory::format_bytes(snap.available_physical),
             theme::GREEN,
             dark_mode,
         );
         stat_label(
             ui,
             strings::gui::widgets::LABEL_USED,
-            &stats::format_bytes(snap.used_physical),
+            &memory::format_bytes(snap.used_physical),
             theme::RED,
             dark_mode,
         );

@@ -18,7 +18,7 @@ use egui_phosphor::regular as ph;
 use serde::{Deserialize, Serialize};
 
 use crate::cleaner::{self, CleanLevel, SmartCleanResult};
-use crate::stats::{self, MemorySnapshot, ProcessMemoryInfo};
+use crate::memory::{self, MemorySnapshot, ProcessMemoryInfo};
 use crate::strings;
 
 use super::{panels, theme, tray};
@@ -501,7 +501,7 @@ impl MagicXApp {
             let log_msg = match &msg.result {
                 Ok(r) => format!(
                     "Auto-clean complete: freed {}",
-                    stats::format_bytes(r.reclaimed_bytes().max(0) as u64),
+                    memory::format_bytes(r.reclaimed_bytes().max(0) as u64),
                 ),
                 Err(e) => format!("Auto-clean failed: {e}"),
             };
@@ -560,7 +560,7 @@ impl MagicXApp {
         let spawned = std::thread::Builder::new()
             .name("gui-procs".into())
             .spawn(move || {
-                if let Ok(procs) = stats::query_all_processes()
+                if let Ok(procs) = memory::query_all_processes()
                     && let Ok(mut lock) = procs_ref.lock()
                 {
                     *lock = Some(procs);

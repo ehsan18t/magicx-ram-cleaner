@@ -4,9 +4,9 @@
 //! working set trimming to aggressive full standby list purging.
 //! Each operation is independently callable for maximum control.
 
+use crate::memory::{MemorySnapshot, QuickMemoryReading, format_bytes};
 use crate::platform::nt::{self, MemoryListCommand};
 use crate::platform::{memory, process};
-use crate::stats::{MemorySnapshot, QuickMemoryReading, format_bytes};
 use anyhow::Result;
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
@@ -953,7 +953,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::stats::MemorySnapshot;
+    use crate::memory::MemorySnapshot;
 
     /// Helper to build a minimal `MemorySnapshot` for testing.
     fn mock_snapshot(available: u64, load: u32) -> MemorySnapshot {

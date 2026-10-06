@@ -7,7 +7,7 @@ use eframe::egui;
 use egui_phosphor::regular as ph;
 
 use crate::cleaner::CleanLevel;
-use crate::stats;
+use crate::memory;
 use crate::strings;
 
 use super::super::app::{CleanResultMsg, MagicXApp};
@@ -61,7 +61,7 @@ pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
 // ─── Info Card ───────────────────────────────────────────────────────────────
 
 /// Unified info card: memory overview + system info below a thin divider.
-fn draw_info_card(ui: &mut egui::Ui, snap: &stats::MemorySnapshot, dark: bool) {
+fn draw_info_card(ui: &mut egui::Ui, snap: &memory::MemorySnapshot, dark: bool) {
     widgets::card(ui, dark, |ui| {
         widgets::memory_overview(ui, snap, dark);
 
@@ -85,7 +85,7 @@ fn draw_info_card(ui: &mut egui::Ui, snap: &stats::MemorySnapshot, dark: bool) {
             widgets::stat_label(
                 ui,
                 strings::gui::dashboard::LABEL_TOTAL_RAM,
-                &stats::format_bytes(snap.total_physical),
+                &memory::format_bytes(snap.total_physical),
                 theme::ACCENT,
                 dark,
             );
@@ -96,7 +96,7 @@ fn draw_info_card(ui: &mut egui::Ui, snap: &stats::MemorySnapshot, dark: bool) {
                 strings::gui::dashboard::LABEL_STANDBY,
                 &snap.standby_bytes().map_or_else(
                     || strings::gui::dashboard::VALUE_UNKNOWN.to_owned(),
-                    stats::format_bytes,
+                    memory::format_bytes,
                 ),
                 theme::YELLOW,
                 dark,
@@ -401,7 +401,7 @@ fn draw_result_success(
     });
 
     ui.add_space(4.0);
-    let freed_str = stats::format_bytes(result.reclaimed_bytes().max(0) as u64);
+    let freed_str = memory::format_bytes(result.reclaimed_bytes().max(0) as u64);
 
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 20.0;
@@ -429,9 +429,9 @@ fn draw_result_success(
             strings::gui::dashboard::LABEL_AVAILABLE,
             &format!(
                 "{} {} {}",
-                stats::format_bytes(result.overall_before.available_physical),
+                memory::format_bytes(result.overall_before.available_physical),
                 ph::ARROW_RIGHT,
-                stats::format_bytes(result.overall_after.available_physical)
+                memory::format_bytes(result.overall_after.available_physical)
             ),
             theme::YELLOW,
             dark,
@@ -446,9 +446,9 @@ fn draw_result_success(
                 strings::gui::dashboard::LABEL_FREE_RAM,
                 &format!(
                     "{} {} {}",
-                    stats::format_bytes(before),
+                    memory::format_bytes(before),
                     ph::ARROW_RIGHT,
-                    stats::format_bytes(after)
+                    memory::format_bytes(after)
                 ),
                 theme::GREEN,
                 dark,
@@ -491,7 +491,7 @@ fn draw_operation_list(ui: &mut egui::Ui, results: &[crate::cleaner::CleanResult
                     theme::YELLOW
                 };
                 ui.label(
-                    egui::RichText::new(stats::format_signed_bytes(reclaimed))
+                    egui::RichText::new(memory::format_signed_bytes(reclaimed))
                         .color(color)
                         .size(10.5),
                 );

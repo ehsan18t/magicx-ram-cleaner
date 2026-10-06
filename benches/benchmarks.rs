@@ -9,9 +9,11 @@
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use magicx_ram_cleaner::memory::{
+    MemoryListInfo, MemorySnapshot, QuickMemoryReading, format_bytes,
+};
 use magicx_ram_cleaner::platform::nt;
 use magicx_ram_cleaner::platform::wide::extract_exe_name;
-use magicx_ram_cleaner::stats::{MemoryListInfo, MemorySnapshot, QuickMemoryReading, format_bytes};
 
 // ─── format_bytes ────────────────────────────────────────────────────────────
 

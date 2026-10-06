@@ -303,3 +303,42 @@ impl FileCacheSnapshot {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn memory_list_info_total_standby_pages() {
+        let info = MemoryListInfo {
+            zeroed_pages: 0,
+            free_pages: 0,
+            modified_pages: 0,
+            modified_no_write_pages: 0,
+            bad_pages: 0,
+            standby_pages: [100, 200, 300, 400, 500, 600, 700, 800],
+            repurposed_pages: [0; 8],
+            modified_pagefile_pages: 0,
+        };
+        assert_eq!(
+            info.total_standby_pages(),
+            3600,
+            "sum of 100..800 should be 3600"
+        );
+    }
+
+    #[test]
+    fn memory_list_info_total_standby_all_zero() {
+        let info = MemoryListInfo {
+            zeroed_pages: 0,
+            free_pages: 0,
+            modified_pages: 0,
+            modified_no_write_pages: 0,
+            bad_pages: 0,
+            standby_pages: [0; 8],
+            repurposed_pages: [0; 8],
+            modified_pagefile_pages: 0,
+        };
+        assert_eq!(info.total_standby_pages(), 0);
+    }
+}

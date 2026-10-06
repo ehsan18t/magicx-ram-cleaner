@@ -4,7 +4,7 @@
 
 use crate::cleaner::{CleanLevel, CleanResult, SmartCleanResult};
 
-use crate::stats::{
+use crate::memory::{
     FileCacheSnapshot, MemoryListInfo, MemorySnapshot, ProcessMemoryInfo, format_bytes,
     format_signed_bytes,
 };

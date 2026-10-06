@@ -26,7 +26,7 @@ use colored::Colorize;
 
 use magicx_ram_cleaner::cli::{Cli, Commands, ContextMenuAction};
 use magicx_ram_cleaner::platform::{console, notify, privilege};
-use magicx_ram_cleaner::{cleaner, context_menu, display, gui, monitor, stats, strings};
+use magicx_ram_cleaner::{cleaner, context_menu, display, gui, memory, monitor, strings};
 
 /// Entry point - returns [`ExitCode`] instead of calling `std::process::exit()`.
 ///
@@ -296,7 +296,7 @@ fn dispatch_command(command: &Commands, quiet: bool, notify: bool) -> Result<(bo
             top,
         } => {
             if notify {
-                let snapshot = stats::MemorySnapshot::capture()?;
+                let snapshot = memory::MemorySnapshot::capture()?;
                 notify_msg = format_status_notification(&snapshot);
             } else {
                 dispatch_status(*detailed, *json, *top)?;
@@ -374,9 +374,9 @@ fn dispatch_command(command: &Commands, quiet: bool, notify: bool) -> Result<(bo
 
 /// Handle the `status` subcommand - capture and display memory information.
 fn dispatch_status(detailed: bool, json: bool, top: Option<usize>) -> Result<()> {
-    let snapshot = stats::MemorySnapshot::capture()?;
+    let snapshot = memory::MemorySnapshot::capture()?;
     let list_info = if detailed {
-        match stats::MemoryListInfo::query() {
+        match memory::MemoryListInfo::query() {
             Ok(info) => Some(info),
             Err(e) => {
                 eprintln!(
@@ -392,7 +392,7 @@ fn dispatch_status(detailed: bool, json: bool, top: Option<usize>) -> Result<()>
     };
 
     let file_cache = if detailed {
-        match stats::FileCacheSnapshot::capture() {
+        match memory::FileCacheSnapshot::capture() {
             Ok(fc) => Some(fc),
             Err(e) => {
                 eprintln!(
@@ -407,7 +407,7 @@ fn dispatch_status(detailed: bool, json: bool, top: Option<usize>) -> Result<()>
         None
     };
 
-    let top_processes = top.and_then(|count| match stats::query_top_processes(count) {
+    let top_processes = top.and_then(|count| match memory::query_top_processes(count) {
         Ok(procs) => Some(procs),
         Err(e) => {
             eprintln!(
@@ -479,7 +479,7 @@ fn is_gui_launch() -> bool {
 
 /// Format a notification body for a [`SmartCleanResult`](cleaner::SmartCleanResult).
 fn format_clean_notification(output: &cleaner::SmartCleanResult) -> String {
-    let freed = stats::format_signed_bytes(output.reclaimed_bytes());
+    let freed = memory::format_signed_bytes(output.reclaimed_bytes());
     let before_load = output.overall_before.memory_load_percent;
     let after_load = output.overall_after.memory_load_percent;
     let ops = output.results.len();
@@ -492,7 +492,7 @@ fn format_clean_notification(output: &cleaner::SmartCleanResult) -> String {
 /// Format a notification body for a single [`CleanResult`](cleaner::CleanResult).
 fn format_single_notification(result: &cleaner::CleanResult) -> String {
     let status = if result.success { "OK" } else { "FAILED" };
-    let freed = stats::format_signed_bytes(result.reclaimed_bytes());
+    let freed = memory::format_signed_bytes(result.reclaimed_bytes());
     format!(
         "{}: {status}\nFreed {freed}\nRAM usage: {}% → {}%",
         result.operation, result.load_before, result.load_after
@@ -500,15 +500,15 @@ fn format_single_notification(result: &cleaner::CleanResult) -> String {
 }
 
 /// Format a notification body for a memory status snapshot.
-fn format_status_notification(snapshot: &stats::MemorySnapshot) -> String {
+fn format_status_notification(snapshot: &memory::MemorySnapshot) -> String {
     let used = snapshot
         .total_physical
         .saturating_sub(snapshot.available_physical);
     format!(
         "RAM: {} / {} ({}% used)\nAvailable: {}",
-        stats::format_bytes(used),
-        stats::format_bytes(snapshot.total_physical),
+        memory::format_bytes(used),
+        memory::format_bytes(snapshot.total_physical),
         snapshot.memory_load_percent,
-        stats::format_bytes(snapshot.available_physical),
+        memory::format_bytes(snapshot.available_physical),
     )
 }

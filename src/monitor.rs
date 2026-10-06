@@ -17,8 +17,8 @@ use colored::Colorize;
 
 use crate::cleaner::{self, CleanLevel};
 use crate::display;
+use crate::memory::MemorySnapshot;
 use crate::platform::console;
-use crate::stats::MemorySnapshot;
 use crate::strings;
 
 /// Maximum consecutive auto-clean errors before the monitor aborts.

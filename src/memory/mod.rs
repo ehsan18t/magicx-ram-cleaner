@@ -1,14 +1,19 @@
-//! # `MagicX` RAM Cleaner - Memory Statistics
+//! # Memory domain types
 //!
-//! Domain types for memory usage reporting: system snapshots, per-process
-//! usage and byte formatting. All operating-system access goes through
-//! [`crate::platform`].
+//! System memory snapshots, per-process usage and byte formatting, built on
+//! the safe queries in [`crate::platform`]. Everything here is plain data
+//! plus the logic to derive figures from it.
+
+mod format;
+mod process;
 
 use anyhow::Result;
 use serde::Serialize;
 
+pub use self::format::{format_bytes, format_signed_bytes};
+pub use self::process::{ProcessMemoryInfo, query_all_processes, query_top_processes};
+use crate::platform::memory;
 pub use crate::platform::memory::{FileCacheSnapshot, MemoryListInfo};
-use crate::platform::{memory, process};
 
 /// Snapshot of system memory state at a point in time.
 #[derive(Debug, Clone, Serialize)]
@@ -150,142 +155,9 @@ impl QuickMemoryReading {
     }
 }
 
-/// Format bytes into a human-readable string (e.g., "3.42 GB").
-#[must_use]
-pub fn format_bytes(bytes: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = 1024 * KB;
-    const GB: u64 = 1024 * MB;
-    const TB: u64 = 1024 * GB;
-
-    if bytes >= TB {
-        format!("{:.2} TB", bytes as f64 / TB as f64)
-    } else if bytes >= GB {
-        format!("{:.2} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.2} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.2} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{bytes} B")
-    }
-}
-
-/// Format a signed byte delta with an explicit sign (e.g. "+1.50 GB", "-12.00 MB").
-///
-/// Zero is rendered without a sign ("0 B").
-#[must_use]
-pub fn format_signed_bytes(bytes: i64) -> String {
-    match bytes.cmp(&0) {
-        std::cmp::Ordering::Greater => format!("+{}", format_bytes(bytes.unsigned_abs())),
-        std::cmp::Ordering::Less => format!("-{}", format_bytes(bytes.unsigned_abs())),
-        std::cmp::Ordering::Equal => format_bytes(0),
-    }
-}
-
-// ─── File Cache Information ──────────────────────────────────────────────────
-
-// ─── Per-Process Memory Usage ────────────────────────────────────────────────
-
-/// Memory usage information for a single process.
-#[derive(Debug, Clone, Serialize)]
-pub struct ProcessMemoryInfo {
-    /// Process ID.
-    pub pid: u32,
-    /// Executable name (e.g. `chrome.exe`).
-    pub name: String,
-    /// Current working set size in bytes (physical RAM used, shared + private).
-    pub working_set: u64,
-    /// Peak working set size in bytes.
-    pub peak_working_set: u64,
-    /// Private working set size in bytes - the portion of the working set
-    /// that is not shared with other processes.
-    ///
-    /// This matches the "Memory" column shown in Windows Task Manager.
-    /// Obtained from `PROCESS_MEMORY_COUNTERS_EX2::PrivateWorkingSetSize`
-    /// (Windows 10 1709+). Falls back to the full `working_set` on older
-    /// builds where the extended struct is not supported.
-    pub private_working_set: u64,
-}
-
-/// Enumerate running processes and return the top `count` by working set size.
-///
-/// Processes that cannot be opened (system/protected) are silently skipped.
-pub fn query_top_processes(count: usize) -> Result<Vec<ProcessMemoryInfo>> {
-    let mut processes = query_all_processes()?;
-    processes.truncate(count);
-    Ok(processes)
-}
-
-/// Enumerate all running processes sorted by working set size (descending).
-///
-/// Unlike [`query_top_processes`], this function returns every process that can
-/// be queried without any limit.  Use this when caller-side aggregation (e.g.
-/// grouping by executable name) must see all instances before deciding what to
-/// keep. Processes that cannot be opened (system/protected) are skipped.
-pub fn query_all_processes() -> Result<Vec<ProcessMemoryInfo>> {
-    let mut processes: Vec<ProcessMemoryInfo> = process::processes()?
-        .into_iter()
-        .filter_map(|entry| {
-            let counters = process::memory_counters(entry.pid)?;
-            Some(ProcessMemoryInfo {
-                pid: entry.pid,
-                name: entry.name,
-                working_set: counters.working_set,
-                peak_working_set: counters.peak_working_set,
-                private_working_set: counters.private_working_set,
-            })
-        })
-        .collect();
-    processes.sort_unstable_by_key(|p| std::cmp::Reverse(p.working_set));
-    Ok(processes)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn format_bytes_zero() {
-        assert_eq!(format_bytes(0), "0 B");
-    }
-
-    #[test]
-    fn format_bytes_bytes_range() {
-        assert_eq!(format_bytes(1), "1 B");
-        assert_eq!(format_bytes(1023), "1023 B");
-    }
-
-    #[test]
-    fn format_bytes_kilobytes() {
-        assert_eq!(format_bytes(1024), "1.00 KB");
-        assert_eq!(format_bytes(1536), "1.50 KB");
-    }
-
-    #[test]
-    fn format_bytes_megabytes() {
-        assert_eq!(format_bytes(1024 * 1024), "1.00 MB");
-        assert_eq!(format_bytes(1_572_864), "1.50 MB"); // 1.5 MB
-    }
-
-    #[test]
-    fn format_bytes_gigabytes() {
-        assert_eq!(format_bytes(1024 * 1024 * 1024), "1.00 GB");
-        assert_eq!(format_bytes(17_179_869_184), "16.00 GB");
-    }
-
-    #[test]
-    fn format_signed_bytes_sign_handling() {
-        assert_eq!(format_signed_bytes(0), "0 B");
-        assert_eq!(format_signed_bytes(1536), "+1.50 KB");
-        assert_eq!(format_signed_bytes(-1024 * 1024), "-1.00 MB");
-        assert_eq!(format_signed_bytes(i64::MIN).chars().next(), Some('-'));
-    }
-
-    #[test]
-    fn format_bytes_terabytes() {
-        assert_eq!(format_bytes(1024 * 1024 * 1024 * 1024), "1.00 TB");
-    }
 
     #[test]
     fn commit_percent_normal() {
@@ -346,39 +218,5 @@ mod tests {
             snap.commit_percent().abs() < f64::EPSILON,
             "commit_percent should be 0.0 when limit is 0"
         );
-    }
-
-    #[test]
-    fn memory_list_info_total_standby_pages() {
-        let info = MemoryListInfo {
-            zeroed_pages: 0,
-            free_pages: 0,
-            modified_pages: 0,
-            modified_no_write_pages: 0,
-            bad_pages: 0,
-            standby_pages: [100, 200, 300, 400, 500, 600, 700, 800],
-            repurposed_pages: [0; 8],
-            modified_pagefile_pages: 0,
-        };
-        assert_eq!(
-            info.total_standby_pages(),
-            3600,
-            "sum of 100..800 should be 3600"
-        );
-    }
-
-    #[test]
-    fn memory_list_info_total_standby_all_zero() {
-        let info = MemoryListInfo {
-            zeroed_pages: 0,
-            free_pages: 0,
-            modified_pages: 0,
-            modified_no_write_pages: 0,
-            bad_pages: 0,
-            standby_pages: [0; 8],
-            repurposed_pages: [0; 8],
-            modified_pagefile_pages: 0,
-        };
-        assert_eq!(info.total_standby_pages(), 0);
     }
 }

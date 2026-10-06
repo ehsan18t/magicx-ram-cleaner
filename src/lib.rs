@@ -101,8 +101,8 @@ pub mod display;
 /// Continuous monitoring loop with auto-clean and Ctrl+C handling.
 pub mod monitor;
 
-/// Memory statistics, Win32 API wrappers, and `MemorySnapshot`.
-pub mod stats;
+/// Memory domain types: system snapshots, per-process usage, byte formatting.
+pub mod memory;
 
 /// egui-based graphical user interface with dashboard, system-tray icon,
 /// auto-clean monitoring, process inspector, and persistent settings.

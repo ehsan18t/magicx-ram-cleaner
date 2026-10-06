@@ -16,7 +16,7 @@ use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 use egui_phosphor::regular as ph;
 
-use crate::stats;
+use crate::memory;
 use crate::strings;
 
 use super::super::app::MagicXApp;
@@ -54,9 +54,9 @@ struct GroupedProcess {
 /// Collapse a flat process list into per-program groups.
 ///
 /// Uses a [`HashMap`] for O(n) grouping. Entries with the same
-/// [`name`](stats::ProcessMemoryInfo::name) (case-insensitive) are merged:
+/// [`name`](memory::ProcessMemoryInfo::name) (case-insensitive) are merged:
 /// instance counts and all memory metrics are summed.
-fn group_processes(procs: &[stats::ProcessMemoryInfo]) -> Vec<GroupedProcess> {
+fn group_processes(procs: &[memory::ProcessMemoryInfo]) -> Vec<GroupedProcess> {
     let mut map: HashMap<String, GroupedProcess> = HashMap::new();
 
     for p in procs {
@@ -209,8 +209,8 @@ fn draw_table_card(
                         let resp = draw_ws_cell(ui, g.private_working_set, max_ws);
                         resp.on_hover_text(format!(
                             "Private: {}\nFull WS: {}",
-                            stats::format_bytes(g.private_working_set),
-                            stats::format_bytes(g.working_set),
+                            memory::format_bytes(g.private_working_set),
+                            memory::format_bytes(g.working_set),
                         ));
                     });
                     row.col(|ui| {
@@ -219,7 +219,7 @@ fn draw_table_card(
                             |ui| {
                                 ui.add_space(4.0);
                                 ui.label(
-                                    egui::RichText::new(stats::format_bytes(
+                                    egui::RichText::new(memory::format_bytes(
                                         g.peak_working_set,
                                     ))
                                     .size(11.0)
@@ -243,7 +243,7 @@ fn draw_ws_cell(ui: &mut egui::Ui, working_set: u64, max_ws: u64) -> egui::Respo
         ui.vertical(|ui| {
             ui.add_space(3.0);
             ui.label(
-                egui::RichText::new(stats::format_bytes(working_set))
+                egui::RichText::new(memory::format_bytes(working_set))
                     .size(11.5)
                     .strong()
                     .color(theme::ACCENT),
