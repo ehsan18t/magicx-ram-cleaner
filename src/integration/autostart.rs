@@ -8,7 +8,7 @@
 use anyhow::{Context, Result};
 
 use crate::platform::registry::{self, Hive};
-use crate::platform::task_scheduler;
+use crate::platform::{identity, task_scheduler};
 use crate::strings;
 
 /// Task Scheduler task name used for the autostart logon task.
@@ -52,13 +52,7 @@ pub fn is_enabled() -> bool {
 /// Create (or replace) the autostart logon task for the running executable.
 fn create_task() -> Result<()> {
     let exe = canonical_exe_path()?;
-
-    let user_name = std::env::var("USERNAME").context("USERNAME is not set")?;
-    let user = match std::env::var("USERDOMAIN") {
-        Ok(domain) if !domain.is_empty() => format!("{domain}\\{user_name}"),
-        _ => user_name,
-    };
-
+    let user = identity::current_account().context("Cannot determine the current account")?;
     task_scheduler::register_from_xml(AUTOSTART_TASK_NAME, &autostart_task_xml(&user, &exe))
 }
 

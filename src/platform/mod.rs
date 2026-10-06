@@ -12,6 +12,7 @@
 pub mod console;
 pub mod dialog;
 pub mod handle;
+pub mod identity;
 pub mod instance;
 pub mod memory;
 pub mod notify;
