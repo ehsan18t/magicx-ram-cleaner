@@ -12,6 +12,7 @@
 pub mod console;
 pub mod handle;
 pub mod instance;
+pub mod memory;
 pub mod notify;
 pub mod nt;
 pub mod privilege;

@@ -4,18 +4,12 @@
 //! working set trimming to aggressive full standby list purging.
 //! Each operation is independently callable for maximum control.
 
+use crate::platform::nt::{self, MemoryListCommand};
+use crate::platform::{memory, process};
+use crate::stats::{MemorySnapshot, QuickMemoryReading, format_bytes};
 use anyhow::Result;
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
-use windows_sys::Win32::System::Memory::SetSystemFileCacheSize;
-use windows_sys::Win32::System::ProcessStatus::K32EmptyWorkingSet;
-use windows_sys::Win32::System::Threading::{
-    OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA,
-};
-
-use crate::platform::handle::HandleGuard;
-use crate::platform::nt::{self, MemoryListCommand};
-use crate::stats::{MemorySnapshot, QuickMemoryReading, enumerate_processes, format_bytes};
 
 // ─── Kernel Settle Detection ─────────────────────────────────────────────────
 
@@ -386,16 +380,7 @@ fn flush_file_cache_with_settle(verbose: bool, settle: SettleMode) -> Result<Cle
     let before = MemorySnapshot::capture()?;
     let start = std::time::Instant::now();
 
-    // (SIZE_T)-1 for both limits is the documented one-shot "flush the cache"
-    // request: it trims the system cache working set without changing the
-    // configured limits, so there is nothing to restore afterwards. (Calling
-    // SetSystemFileCacheSize(0, 0, 0) to "restore" would instead overwrite any
-    // limits the administrator configured.)
-    // SAFETY: Plain Win32 call with value arguments. Requires
-    // SeIncreaseQuotaPrivilege, which `enable_all_privileges` enables.
-    if unsafe { SetSystemFileCacheSize(usize::MAX, usize::MAX, 0) } == 0 {
-        // SAFETY: Reads the calling thread's last-error value.
-        let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+    if let Err(err) = memory::flush_system_file_cache() {
         return Ok(CleanResult::failure(
             "Flush File Cache",
             format!("SetSystemFileCacheSize failed (error {err}). Need SeIncreaseQuotaPrivilege."),
@@ -520,49 +505,28 @@ fn empty_working_sets_per_process_with_settle(
         })
         .collect();
 
-    enumerate_processes(|pid, exe_name| {
+    for entry in process::processes()? {
         // Skip ourselves
-        if pid == current_pid {
-            return;
+        if entry.pid == current_pid {
+            continue;
         }
 
-        if is_excluded(exe_name, &normalised_excludes) {
+        if is_excluded(&entry.name, &normalised_excludes) {
             if verbose {
                 println!(
-                    "    {} Skipping {} (PID {pid}, excluded)",
+                    "    {} Skipping {} (PID {}, excluded)",
                     "·".dimmed(),
-                    exe_name.yellow()
+                    entry.name.yellow(),
+                    entry.pid
                 );
             }
             excluded_count += 1;
+        } else if process::empty_working_set(entry.pid) {
+            success_count += 1;
         } else {
-            // EmptyWorkingSet needs PROCESS_SET_QUOTA plus either query right.
-            // The limited query right is granted to far more processes
-            // (sandboxed browser children, services), so more of them get trimmed.
-            // SAFETY: OpenProcess has no memory-safety preconditions; the
-            // returned handle (or null) is owned by the guard.
-            let proc_handle = HandleGuard::new(unsafe {
-                OpenProcess(
-                    PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SET_QUOTA,
-                    0,
-                    pid,
-                )
-            });
-
-            if proc_handle.raw().is_null() {
-                fail_count += 1;
-            } else {
-                // SAFETY: proc_handle is a valid process handle from OpenProcess.
-                let result = unsafe { K32EmptyWorkingSet(proc_handle.raw()) };
-                if result != 0 {
-                    success_count += 1;
-                } else {
-                    fail_count += 1;
-                }
-                // proc_handle dropped here - CloseHandle called automatically
-            }
+            fail_count += 1;
         }
-    })?;
+    }
 
     let after = wait_for_settle(verbose, settle)?;
     let elapsed = start.elapsed();
@@ -571,6 +535,7 @@ fn empty_working_sets_per_process_with_settle(
         format!("Trimmed {success_count} processes, {fail_count} skipped (protected/system)");
     if excluded_count > 0 {
         use std::fmt::Write;
+        // Writing to a String cannot fail.
         let _ = write!(message, ", {excluded_count} excluded by name");
     }
 

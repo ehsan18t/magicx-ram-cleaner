@@ -1,33 +1,14 @@
 //! # `MagicX` RAM Cleaner - Memory Statistics
 //!
-//! Provides comprehensive memory usage reporting using Win32 and NT APIs.
-//! Displays physical memory, commit charge, page file, kernel pools, and more.
+//! Domain types for memory usage reporting: system snapshots, per-process
+//! usage and byte formatting. All operating-system access goes through
+//! [`crate::platform`].
 
-use anyhow::{Result, bail};
-
+use anyhow::Result;
 use serde::Serialize;
 
-use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
-
-use crate::platform::handle::HandleGuard;
-use crate::platform::wide::extract_exe_name;
-
-use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
-};
-
-use windows_sys::Win32::System::ProcessStatus::{
-    K32GetPerformanceInfo, K32GetProcessMemoryInfo, PERFORMANCE_INFORMATION,
-    PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX2,
-};
-
-use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
-
-use windows_sys::Win32::System::Threading::{
-    OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
-};
-
-// ─── RAII Handle Guard ─────────────────────────────────────────────────────────
+pub use crate::platform::memory::{FileCacheSnapshot, MemoryListInfo};
+use crate::platform::{memory, process};
 
 /// Snapshot of system memory state at a point in time.
 #[derive(Debug, Clone, Serialize)]
@@ -81,43 +62,28 @@ pub struct MemorySnapshot {
 impl MemorySnapshot {
     /// Capture current system memory state.
     pub fn capture() -> Result<Self> {
-        // SAFETY: Both structs are zeroed and have their size fields set before
-        // calling the Win32 functions. These are standard documented Win32 APIs.
-        let (ms, pi) = unsafe {
-            let mut ms: MEMORYSTATUSEX = std::mem::zeroed();
-            ms.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
-            if GlobalMemoryStatusEx(&raw mut ms) == 0 {
-                bail!("GlobalMemoryStatusEx failed");
-            }
-
-            let mut pi: PERFORMANCE_INFORMATION = std::mem::zeroed();
-            pi.cb = std::mem::size_of::<PERFORMANCE_INFORMATION>() as u32;
-            if K32GetPerformanceInfo(&raw mut pi, pi.cb) == 0 {
-                bail!("GetPerformanceInfo failed");
-            }
-            (ms, pi)
-        };
-
+        let ms = memory::memory_status()?;
+        let pi = memory::performance_info()?;
         Ok(Self {
-            memory_load_percent: ms.dwMemoryLoad,
-            total_physical: ms.ullTotalPhys,
-            available_physical: ms.ullAvailPhys,
-            used_physical: ms.ullTotalPhys.saturating_sub(ms.ullAvailPhys),
-            total_page_file: ms.ullTotalPageFile,
-            available_page_file: ms.ullAvailPageFile,
-            total_virtual: ms.ullTotalVirtual,
-            available_virtual: ms.ullAvailVirtual,
-            commit_total_pages: pi.CommitTotal as u64,
-            commit_limit_pages: pi.CommitLimit as u64,
-            commit_peak_pages: pi.CommitPeak as u64,
-            physical_available_pages: pi.PhysicalAvailable as u64,
-            physical_total_pages: pi.PhysicalTotal as u64,
-            kernel_paged_pages: pi.KernelPaged as u64,
-            kernel_nonpaged_pages: pi.KernelNonpaged as u64,
-            page_size: pi.PageSize as u64,
-            handle_count: pi.HandleCount,
-            process_count: pi.ProcessCount,
-            thread_count: pi.ThreadCount,
+            memory_load_percent: ms.load_percent,
+            total_physical: ms.total_physical,
+            available_physical: ms.available_physical,
+            used_physical: ms.total_physical.saturating_sub(ms.available_physical),
+            total_page_file: ms.total_page_file,
+            available_page_file: ms.available_page_file,
+            total_virtual: ms.total_virtual,
+            available_virtual: ms.available_virtual,
+            commit_total_pages: pi.commit_total_pages,
+            commit_limit_pages: pi.commit_limit_pages,
+            commit_peak_pages: pi.commit_peak_pages,
+            physical_available_pages: pi.physical_available_pages,
+            physical_total_pages: pi.physical_total_pages,
+            kernel_paged_pages: pi.kernel_paged_pages,
+            kernel_nonpaged_pages: pi.kernel_nonpaged_pages,
+            page_size: pi.page_size,
+            handle_count: pi.handle_count,
+            process_count: pi.process_count,
+            thread_count: pi.thread_count,
             lists: MemoryListInfo::query().ok(),
         })
     }
@@ -176,19 +142,10 @@ pub struct QuickMemoryReading {
 impl QuickMemoryReading {
     /// Capture physical memory metrics (single Win32 call).
     pub fn capture() -> Result<Self> {
-        // SAFETY: MEMORYSTATUSEX is zeroed and has dwLength set before calling
-        // GlobalMemoryStatusEx. This is a standard documented Win32 API.
-        let ms = unsafe {
-            let mut ms: MEMORYSTATUSEX = std::mem::zeroed();
-            ms.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
-            if GlobalMemoryStatusEx(&raw mut ms) == 0 {
-                bail!("GlobalMemoryStatusEx failed");
-            }
-            ms
-        };
+        let ms = memory::memory_status()?;
         Ok(Self {
-            total_physical: ms.ullTotalPhys,
-            available_physical: ms.ullAvailPhys,
+            total_physical: ms.total_physical,
+            available_physical: ms.available_physical,
         })
     }
 }
@@ -226,187 +183,7 @@ pub fn format_signed_bytes(bytes: i64) -> String {
     }
 }
 
-/// Detailed memory list information from the kernel (undocumented API).
-///
-/// This gives exact page counts for each memory list (Zeroed, Free, Modified,
-/// `ModifiedNoWrite`, Bad, Standby priorities 0-7, Repurposed priorities 0-7).
-#[derive(Debug, Clone, Serialize)]
-// Every field genuinely represents a page count - the `_pages` suffix is intentional.
-#[allow(clippy::struct_field_names)]
-pub struct MemoryListInfo {
-    /// Pages on the zeroed-page list (already zero-filled, ready for allocation).
-    pub zeroed_pages: u64,
-    /// Pages on the free-page list (available but not yet zeroed).
-    pub free_pages: u64,
-    /// Pages on the modified-page list (dirty, awaiting writeback).
-    pub modified_pages: u64,
-    /// Modified pages that will not be written to the pagefile.
-    pub modified_no_write_pages: u64,
-    /// Pages flagged as physically defective.
-    pub bad_pages: u64,
-    /// Standby pages by priority (index 0 = lowest, 7 = highest).
-    pub standby_pages: [u64; 8],
-    /// Repurposed standby pages by priority.
-    pub repurposed_pages: [u64; 8],
-    /// Modified pages destined for the pagefile (subset of `modified_pages`).
-    pub modified_pagefile_pages: u64,
-}
-
-impl MemoryListInfo {
-    /// Query the kernel for detailed memory list information.
-    ///
-    /// Maps `SYSTEM_MEMORY_LIST_INFORMATION`: 22 `ULONG_PTR` entries
-    /// (5 list counters, 8 standby priorities, 8 repurposed priorities and the
-    /// pagefile-backed modified count). The exact size is requested first; if a
-    /// future kernel reports a larger structure, the query is retried with a
-    /// heap buffer of the size it asks for and only the known prefix is parsed.
-    ///
-    /// Requires `SeProfileSingleProcessPrivilege` to be enabled.
-    pub fn query() -> Result<Self> {
-        use crate::platform::nt::{STATUS_INFO_LENGTH_MISMATCH, SYSTEM_MEMORY_LIST_INFORMATION};
-
-        const ENTRIES: usize = 22;
-
-        let mut stack_buf = [0usize; ENTRIES];
-        let mut return_length: u32 = 0;
-
-        // SAFETY: stack_buf is a valid, zero-initialized array of the stated size.
-        // return_length is a valid stack-allocated u32.
-        let mut status = unsafe {
-            crate::platform::nt::nt_query_system_information(
-                SYSTEM_MEMORY_LIST_INFORMATION,
-                stack_buf.as_mut_ptr().cast(),
-                std::mem::size_of_val(&stack_buf) as u32,
-                &raw mut return_length,
-            )
-        };
-
-        let mut heap_buf: Vec<usize> = Vec::new();
-        if status == STATUS_INFO_LENGTH_MISMATCH
-            && return_length as usize > std::mem::size_of_val(&stack_buf)
-        {
-            heap_buf =
-                vec![0usize; (return_length as usize).div_ceil(std::mem::size_of::<usize>())];
-            // SAFETY: heap_buf holds at least `return_length` bytes, the size the
-            // kernel asked for.
-            status = unsafe {
-                crate::platform::nt::nt_query_system_information(
-                    SYSTEM_MEMORY_LIST_INFORMATION,
-                    heap_buf.as_mut_ptr().cast(),
-                    return_length,
-                    &raw mut return_length,
-                )
-            };
-        }
-
-        if status != crate::platform::nt::STATUS_SUCCESS {
-            bail!(
-                "NtQuerySystemInformation(SystemMemoryListInformation) failed: NTSTATUS 0x{status:08X}"
-            );
-        }
-
-        let buf: &[usize] = if heap_buf.is_empty() {
-            &stack_buf
-        } else {
-            &heap_buf
-        };
-        // Only trust what the kernel says it wrote. Some builds report 0 on
-        // success when the buffer is exactly the structure size.
-        let written = if return_length == 0 {
-            buf.len()
-        } else {
-            (return_length as usize / std::mem::size_of::<usize>()).min(buf.len())
-        };
-        if written < ENTRIES {
-            bail!(
-                "NtQuerySystemInformation(SystemMemoryListInformation) returned {return_length} bytes, need at least {}",
-                ENTRIES * std::mem::size_of::<usize>()
-            );
-        }
-
-        let mut standby = [0u64; 8];
-        let mut repurposed = [0u64; 8];
-        for i in 0..8 {
-            standby[i] = buf[5 + i] as u64;
-            repurposed[i] = buf[13 + i] as u64;
-        }
-
-        Ok(Self {
-            zeroed_pages: buf[0] as u64,
-            free_pages: buf[1] as u64,
-            modified_pages: buf[2] as u64,
-            modified_no_write_pages: buf[3] as u64,
-            bad_pages: buf[4] as u64,
-            standby_pages: standby,
-            repurposed_pages: repurposed,
-            modified_pagefile_pages: buf[21] as u64,
-        })
-    }
-
-    /// Pages on the zeroed and free lists combined (truly unused RAM).
-    #[must_use]
-    pub const fn free_and_zeroed_pages(&self) -> u64 {
-        self.zeroed_pages + self.free_pages
-    }
-
-    /// Total standby pages across all priority levels.
-    #[must_use]
-    pub fn total_standby_pages(&self) -> u64 {
-        self.standby_pages.iter().sum()
-    }
-}
-
 // ─── File Cache Information ──────────────────────────────────────────────────
-
-/// Snapshot of the system file cache working set.
-///
-/// Queried via `NtQuerySystemInformation(SystemFileCacheInformation)`.
-/// Shows how much RAM the file cache is currently consuming and its limits.
-#[derive(Debug, Clone, Serialize)]
-pub struct FileCacheSnapshot {
-    /// Current file cache working set size (bytes).
-    pub current_size: u64,
-    /// Peak file cache working set size since boot (bytes).
-    pub peak_size: u64,
-    /// Minimum configured working set (bytes, 0 = system default).
-    pub minimum_working_set: u64,
-    /// Maximum configured working set (bytes, 0 = system default).
-    pub maximum_working_set: u64,
-}
-
-impl FileCacheSnapshot {
-    /// Query the kernel for current file cache statistics.
-    pub fn capture() -> Result<Self> {
-        use crate::platform::nt::{SYSTEM_FILE_CACHE_INFORMATION, SystemFileCacheInfo};
-
-        let mut info: SystemFileCacheInfo = unsafe { std::mem::zeroed() };
-        let mut return_length: u32 = 0;
-
-        // SAFETY: info is a valid, zero-initialized SystemFileCacheInfo struct.
-        // return_length is a valid stack-allocated u32.
-        let status = unsafe {
-            crate::platform::nt::nt_query_system_information(
-                SYSTEM_FILE_CACHE_INFORMATION,
-                (&raw mut info).cast(),
-                std::mem::size_of::<SystemFileCacheInfo>() as u32,
-                &raw mut return_length,
-            )
-        };
-
-        if status != 0 {
-            bail!(
-                "NtQuerySystemInformation(SystemFileCacheInformation) failed: NTSTATUS 0x{status:08X}"
-            );
-        }
-
-        Ok(Self {
-            current_size: info.current_size as u64,
-            peak_size: info.peak_size as u64,
-            minimum_working_set: info.minimum_working_set as u64,
-            maximum_working_set: info.maximum_working_set as u64,
-        })
-    }
-}
 
 // ─── Per-Process Memory Usage ────────────────────────────────────────────────
 
@@ -433,8 +210,6 @@ pub struct ProcessMemoryInfo {
 
 /// Enumerate running processes and return the top `count` by working set size.
 ///
-/// Uses [`enumerate_processes`] for process enumeration and
-/// `K32GetProcessMemoryInfo` for per-process memory counters.
 /// Processes that cannot be opened (system/protected) are silently skipped.
 pub fn query_top_processes(count: usize) -> Result<Vec<ProcessMemoryInfo>> {
     let mut processes = query_all_processes()?;
@@ -447,154 +222,23 @@ pub fn query_top_processes(count: usize) -> Result<Vec<ProcessMemoryInfo>> {
 /// Unlike [`query_top_processes`], this function returns every process that can
 /// be queried without any limit.  Use this when caller-side aggregation (e.g.
 /// grouping by executable name) must see all instances before deciding what to
-/// keep.
+/// keep. Processes that cannot be opened (system/protected) are skipped.
 pub fn query_all_processes() -> Result<Vec<ProcessMemoryInfo>> {
-    let mut processes = Vec::new();
-
-    enumerate_processes(|pid, exe_name| {
-        if let Some(info) = query_single_process(pid, exe_name) {
-            processes.push(info);
-        }
-    })?;
-
-    // Sort descending by working set size
+    let mut processes: Vec<ProcessMemoryInfo> = process::processes()?
+        .into_iter()
+        .filter_map(|entry| {
+            let counters = process::memory_counters(entry.pid)?;
+            Some(ProcessMemoryInfo {
+                pid: entry.pid,
+                name: entry.name,
+                working_set: counters.working_set,
+                peak_working_set: counters.peak_working_set,
+                private_working_set: counters.private_working_set,
+            })
+        })
+        .collect();
     processes.sort_unstable_by_key(|p| std::cmp::Reverse(p.working_set));
-
     Ok(processes)
-}
-
-/// Iterate all running processes, calling `callback` for each.
-///
-/// Uses `Toolhelp32` snapshot for reliable enumeration. System Idle (PID 0)
-/// and System (PID 4) are automatically skipped. The callback receives the
-/// process ID and executable name (already decoded from UTF-16).
-///
-/// This centralises the `CreateToolhelp32Snapshot` + `Process32First/Next`
-/// boilerplate so callers (stats and cleaner) don't duplicate it.
-pub fn enumerate_processes(mut callback: impl FnMut(u32, &str)) -> Result<()> {
-    // SAFETY: CreateToolhelp32Snapshot with TH32CS_SNAPPROCESS and 0 is the
-    // standard documented way to enumerate all running processes.
-    let snap_raw = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
-    if snap_raw == INVALID_HANDLE_VALUE {
-        bail!("CreateToolhelp32Snapshot failed");
-    }
-    let snapshot = HandleGuard::new(snap_raw);
-
-    let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
-    entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
-
-    // SAFETY: Process32FirstW/Process32NextW iterate the Toolhelp snapshot.
-    // The entry struct is properly zeroed and sized.
-    let mut has_entry = unsafe { Process32FirstW(snapshot.raw(), &raw mut entry) } != 0;
-
-    while has_entry {
-        let pid = entry.th32ProcessID;
-
-        // Skip System Idle (PID 0) and System (PID 4)
-        if pid != 0 && pid != 4 {
-            let exe_name = extract_exe_name(&entry.szExeFile);
-            callback(pid, &exe_name);
-        }
-
-        has_entry = unsafe { Process32NextW(snapshot.raw(), &raw mut entry) } != 0;
-    }
-
-    // snapshot guard dropped here - CloseHandle called automatically
-    Ok(())
-}
-
-/// Query memory info for a single process. Returns `None` if the process
-/// cannot be opened (protected/system processes).
-///
-/// Tries `PROCESS_MEMORY_COUNTERS_EX2` first (Windows 10 1709+) to obtain
-/// `PrivateWorkingSetSize` - the metric Task Manager shows as "Memory".
-/// Falls back to `PROCESS_MEMORY_COUNTERS` on older builds, using the full
-/// working set as a proxy for the private portion.
-///
-/// Uses a tiered `OpenProcess` strategy to maximise process visibility:
-///
-/// 1. `PROCESS_QUERY_INFORMATION` - sufficient for `K32GetProcessMemoryInfo`
-///    including the EX2 struct with `PrivateWorkingSetSize`.
-/// 2. `PROCESS_QUERY_LIMITED_INFORMATION` - weaker right that succeeds for
-///    Chromium/Electron sandboxed child processes (VS Code, Chrome, Edge
-///    renderer/utility processes) and Protected Process Light (PPL) processes
-///    whose DACLs deny full query access.
-///
-/// `PROCESS_VM_READ` is intentionally **not** requested - it is not required
-/// by `K32GetProcessMemoryInfo` and causes `OpenProcess` to fail for
-/// sandboxed processes, leading to missing entries and inaccurate RAM totals.
-fn query_single_process(pid: u32, exe_name: &str) -> Option<ProcessMemoryInfo> {
-    // Tier 1: PROCESS_QUERY_INFORMATION - works for most processes and gives
-    // full access to the EX2 counters struct.
-    // SAFETY: OpenProcess with PROCESS_QUERY_INFORMATION is the documented
-    // minimum for K32GetProcessMemoryInfo.
-    let proc_handle = HandleGuard::new(unsafe { OpenProcess(PROCESS_QUERY_INFORMATION, 0, pid) });
-
-    // Tier 2: fall back to PROCESS_QUERY_LIMITED_INFORMATION for sandboxed /
-    // PPL processes (e.g. Chromium renderer children) whose DACLs deny
-    // PROCESS_QUERY_INFORMATION but allow the limited variant.
-    let proc_handle = if proc_handle.raw().is_null() {
-        // SAFETY: PROCESS_QUERY_LIMITED_INFORMATION is a weaker access right
-        // accepted by K32GetProcessMemoryInfo on Windows Vista+.
-        let fallback =
-            HandleGuard::new(unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) });
-        if fallback.raw().is_null() {
-            return None;
-        }
-        fallback
-    } else {
-        proc_handle
-    };
-
-    // Try the extended EX2 struct first - it includes PrivateWorkingSetSize.
-    // SAFETY: PROCESS_MEMORY_COUNTERS_EX2 is zeroed, cb is set to sizeof(EX2),
-    // and handle is a valid process handle from OpenProcess.
-    let ex2 = unsafe {
-        let mut counters: PROCESS_MEMORY_COUNTERS_EX2 = std::mem::zeroed();
-        counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX2>() as u32;
-        let ok = K32GetProcessMemoryInfo(
-            proc_handle.raw(),
-            std::ptr::from_mut(&mut counters).cast::<PROCESS_MEMORY_COUNTERS>(),
-            std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX2>() as u32,
-        );
-        if ok != 0 { Some(counters) } else { None }
-    };
-
-    if let Some(c) = ex2 {
-        return Some(ProcessMemoryInfo {
-            pid,
-            name: exe_name.to_owned(),
-            working_set: c.WorkingSetSize as u64,
-            peak_working_set: c.PeakWorkingSetSize as u64,
-            private_working_set: c.PrivateWorkingSetSize as u64,
-        });
-    }
-
-    // Fallback: use the base struct when EX2 is unsupported.
-    // SAFETY: PROCESS_MEMORY_COUNTERS is zeroed, cb is set to struct size,
-    // and handle is a valid process handle from OpenProcess.
-    let counters = unsafe {
-        let mut counters: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
-        counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
-        let ok = K32GetProcessMemoryInfo(
-            proc_handle.raw(),
-            &raw mut counters,
-            std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
-        );
-        if ok == 0 {
-            return None;
-        }
-        counters
-    };
-
-    Some(ProcessMemoryInfo {
-        pid,
-        name: exe_name.to_owned(),
-        working_set: counters.WorkingSetSize as u64,
-        peak_working_set: counters.PeakWorkingSetSize as u64,
-        // No EX2 data available - use full working set as fallback.
-        private_working_set: counters.WorkingSetSize as u64,
-    })
 }
 
 #[cfg(test)]
