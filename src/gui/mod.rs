@@ -74,7 +74,6 @@ mod widgets;
 use anyhow::{Context, Result};
 use eframe::egui;
 
-
 /// Load the application icon from the embedded PNG for use as the window icon.
 fn load_window_icon() -> Option<egui::IconData> {
     let bytes = include_bytes!("../../assets/app.png");

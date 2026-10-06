@@ -231,7 +231,7 @@ fn set_status(app: &mut MagicXApp, msg: String, is_err: bool) {
 
 /// Export settings to a user-chosen file.
 fn export_settings(app: &mut MagicXApp) {
-    match SettingsManager::export(&app.settings) {
+    match SettingsManager::export(app.hwnd(), &app.settings) {
         Ok(Some(path)) => {
             let name = path.file_name().map_or_else(
                 || path.to_string_lossy().into_owned(),
@@ -253,7 +253,7 @@ fn export_settings(app: &mut MagicXApp) {
 /// Also syncs the autostart task and the monitor state, which only follow
 /// direct UI toggles otherwise.
 fn import_settings(app: &mut MagicXApp) {
-    match SettingsManager::import() {
+    match SettingsManager::import(app.hwnd()) {
         Ok(Some(new_settings)) => {
             let sync = crate::integration::autostart::set_enabled(new_settings.auto_start)
                 .map_err(|e| format!("{e:#}"));

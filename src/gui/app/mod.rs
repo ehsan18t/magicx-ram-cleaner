@@ -212,14 +212,18 @@ pub struct MagicXApp {
     pub context_menu_installed: bool,
 
     /// Win32 `HWND` of the main application window, stored as `isize` for
-    /// `Send`-safe access from background threads.
-    ///
-    /// Used by the tray-watcher thread to post a synthetic `WM_PAINT` message
-    /// that wakes eframe's event loop even while the window is invisible.
+    /// `Send`-safe access from background threads (the tray watcher uses it
+    /// to bring the window back).
     hwnd: isize,
 }
 
 impl MagicXApp {
+    /// The main window's `HWND`, for dialogs that must be modal to it.
+    #[must_use]
+    pub const fn hwnd(&self) -> isize {
+        self.hwnd
+    }
+
     /// Create the app, spawn background threads, and apply the initial theme.
     ///
     /// # Errors

@@ -138,11 +138,14 @@ impl SettingsManager {
     /// - `Ok(Some(path))` - exported successfully; `path` is where the file was written.
     /// - `Ok(None)` - user cancelled the dialog.
     /// - `Err(msg)` - the user confirmed a path but the write failed.
-    pub fn export(settings: &GuiSettings) -> Result<Option<PathBuf>, String> {
+    pub fn export(owner: isize, settings: &GuiSettings) -> Result<Option<PathBuf>, String> {
         let Some(path) = dialog::pick_save_json(
+            owner,
             strings::gui::persistence::EXPORT_TITLE,
             "magicx-settings.json",
-        ) else {
+        )
+        .map_err(|e| format!("{e:#}"))?
+        else {
             return Ok(None);
         };
         write_settings_file(&path, settings)?;
@@ -154,8 +157,10 @@ impl SettingsManager {
     /// - `Ok(Some(settings))` - loaded (and sanitised) from the chosen file.
     /// - `Ok(None)` - user cancelled the dialog.
     /// - `Err(msg)` - file was chosen but could not be read or parsed.
-    pub fn import() -> Result<Option<GuiSettings>, String> {
-        let Some(path) = dialog::pick_open_json(strings::gui::persistence::IMPORT_TITLE) else {
+    pub fn import(owner: isize) -> Result<Option<GuiSettings>, String> {
+        let Some(path) = dialog::pick_open_json(owner, strings::gui::persistence::IMPORT_TITLE)
+            .map_err(|e| format!("{e:#}"))?
+        else {
             return Ok(None);
         };
         read_settings_file(&path).map(Some)
