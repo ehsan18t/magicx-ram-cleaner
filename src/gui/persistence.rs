@@ -292,7 +292,8 @@ fn create_autostart_task() -> Result<(), String> {
 
     // The XML is read by schtasks on behalf of this elevated process, so it
     // must live where a non-elevated process of the same user cannot swap it
-    // (which would register an arbitrary elevated logon task).
+    // (which would register an arbitrary elevated logon task). See
+    // `PrivateTempDir::create` for why that rules out the user's %TEMP%.
     let dir = PrivateTempDir::create()?;
     let xml_path = dir.path.join("task.xml");
     {
@@ -341,8 +342,16 @@ struct PrivateTempDir {
 }
 
 impl PrivateTempDir {
-    /// Create a new uniquely named directory under `%TEMP%` with a protected
-    /// DACL. Fails if the directory already exists; it is never reused.
+    /// Create a new uniquely named directory under `%SystemRoot%\Temp` with a
+    /// protected DACL. Fails if the directory already exists; it is never
+    /// reused.
+    ///
+    /// The user's own `%TEMP%` is not safe even with a protected DACL: the
+    /// user owns that folder, so any of their non-elevated processes can
+    /// rename our directory away and plant a look-alike. In the Windows temp
+    /// folder standard users may create entries but not delete or rename
+    /// anyone else's. The Windows directory is read from the API rather than
+    /// the environment, which a non-elevated launcher controls.
     fn create() -> Result<Self, String> {
         use std::hash::{BuildHasher, Hasher};
 
@@ -362,7 +371,7 @@ impl PrivateTempDir {
         if let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
             hasher.write_u128(now.as_nanos());
         }
-        let path = std::env::temp_dir().join(format!("magicx-{:016x}", hasher.finish()));
+        let path = windows_temp_dir()?.join(format!("magicx-{:016x}", hasher.finish()));
 
         let sddl_wide = to_wide(SDDL);
         let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
@@ -405,6 +414,25 @@ impl PrivateTempDir {
         }
         Ok(Self { path })
     }
+}
+
+/// `%SystemRoot%\Temp`, resolved through `GetSystemWindowsDirectoryW`.
+fn windows_temp_dir() -> Result<PathBuf, String> {
+    use std::os::windows::ffi::OsStringExt;
+
+    use windows_sys::Win32::System::SystemInformation::GetSystemWindowsDirectoryW;
+
+    let mut buf = [0u16; 260];
+    // SAFETY: `buf` is a writable buffer of the stated length; the call writes
+    // at most that many UTF-16 units and returns the length written.
+    let len = unsafe { GetSystemWindowsDirectoryW(buf.as_mut_ptr(), buf.len() as u32) } as usize;
+    if len == 0 || len >= buf.len() {
+        return Err(format!(
+            "Cannot locate the Windows directory: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok(PathBuf::from(std::ffi::OsString::from_wide(&buf[..len])).join("Temp"))
 }
 
 impl Drop for PrivateTempDir {
