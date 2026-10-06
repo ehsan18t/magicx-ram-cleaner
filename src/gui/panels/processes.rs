@@ -195,6 +195,7 @@ fn search_box(ui: &mut egui::Ui, app: &mut MagicXApp, p: &Palette) {
             p.subtle,
         );
     }
+    widgets::focus_ring(ui, &clear_response, clear, p);
     ui.painter().text(
         clear.center(),
         egui::Align2::CENTER_CENTER,
@@ -347,18 +348,25 @@ fn draw_row(
     max: u64,
     trim: Option<&TrimState>,
 ) -> Option<Vec<u32>> {
-    let (rect, _) = ui.allocate_exact_size(
+    // Rows take keyboard focus so Trim works without a mouse: a focused row
+    // shows the Trim button, and Enter or Space runs it.
+    let (rect, row) = ui.allocate_exact_size(
         egui::vec2(ui.available_width(), ROW_HEIGHT),
-        egui::Sense::hover(),
+        egui::Sense::focusable_noninteractive(),
     );
-    let hovered = ui.rect_contains_pointer(rect);
-    if hovered {
+    let focused = row.has_focus();
+    let active = ui.rect_contains_pointer(rect) || focused;
+    let highlight = rect.shrink2(egui::vec2(4.0, 2.0));
+    if active {
         ui.painter().rect_filled(
-            rect.shrink2(egui::vec2(4.0, 2.0)),
+            highlight,
             egui::CornerRadius::same(theme::CONTROL_RADIUS),
             p.subtle,
         );
     }
+    widgets::focus_ring(ui, &row, highlight, p);
+    let key_trim =
+        focused && ui.input(|i| i.key_pressed(egui::Key::Enter) || i.key_pressed(egui::Key::Space));
     let cols = Columns::new(rect);
     draw_name_cell(ui, p, cols.name, group, trim);
     paint_text(
@@ -378,7 +386,9 @@ fn draw_row(
         p.text_secondary,
         egui::Align::Max,
     );
-    draw_action(ui, p, cols.action, group, hovered, trim)
+    let clicked = draw_action(ui, p, cols.action, active, trim);
+    let running = matches!(trim, Some(TrimState::Running));
+    ((clicked || key_trim) && !running).then(|| group.pids.clone())
 }
 
 /// The program name, with the hover details, and a second line while a trim
@@ -482,15 +492,14 @@ fn draw_memory_cell(ui: &egui::Ui, p: &Palette, cell: egui::Rect, bytes: u64, ma
 }
 
 /// The action column: a spinner while a trim runs, otherwise the Trim
-/// button on the hovered row.
+/// button on the hovered or focused row. Returns whether it was clicked.
 fn draw_action(
     ui: &mut egui::Ui,
     p: &Palette,
     cell: egui::Rect,
-    group: &GroupedProcess,
-    hovered: bool,
+    active: bool,
     trim: Option<&TrimState>,
-) -> Option<Vec<u32>> {
+) -> bool {
     match trim {
         Some(TrimState::Running) => {
             let spinner = egui::Rect::from_center_size(
@@ -498,7 +507,7 @@ fn draw_action(
                 egui::vec2(16.0, 16.0),
             );
             ui.place(spinner, egui::Spinner::new().size(14.0));
-            return None;
+            return false;
         }
         Some(TrimState::Done(_, at)) if at.elapsed().as_secs_f32() < RESULT_SECS => {
             // Keep repainting until the result under the name times out.
@@ -506,26 +515,43 @@ fn draw_action(
         }
         _ => {}
     }
-    if !hovered {
-        return None;
+    if !active {
+        return false;
     }
+    // Click-only (not focusable): keyboard users trim from the focused row,
+    // so Tab never lands on a button that hides once the row loses focus.
     let button = egui::Rect::from_center_size(
         egui::pos2(cell.right() - 34.0, cell.center().y),
         egui::vec2(68.0, 28.0),
     );
-    let clicked = ui
-        .place(
+    let response = ui
+        .interact(
             button,
-            egui::Button::new(
-                egui::RichText::new(text::BTN_TRIM)
-                    .size(theme::CAPTION)
-                    .color(p.text),
-            )
-            .corner_radius(egui::CornerRadius::same(theme::CONTROL_RADIUS)),
+            ui.id().with(("trim", cell.top().to_bits())),
+            egui::Sense::CLICK,
         )
-        .on_hover_text(text::TOOLTIP_TRIM)
-        .clicked();
-    clicked.then(|| group.pids.clone())
+        .on_hover_text(text::TOOLTIP_TRIM);
+    let radius = egui::CornerRadius::same(theme::CONTROL_RADIUS);
+    let fill = if response.hovered() {
+        p.control_hover
+    } else {
+        p.control
+    };
+    ui.painter().rect_filled(button, radius, fill);
+    ui.painter().rect_stroke(
+        button,
+        radius,
+        egui::Stroke::new(1.0_f32, p.control_stroke),
+        egui::StrokeKind::Inside,
+    );
+    ui.painter().text(
+        button.center(),
+        egui::Align2::CENTER_CENTER,
+        text::BTN_TRIM,
+        egui::FontId::proportional(theme::CAPTION),
+        p.text,
+    );
+    response.clicked()
 }
 
 /// Paint one line of text in `cell` at `(size, weight)`, vertically

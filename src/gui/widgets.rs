@@ -274,6 +274,7 @@ pub fn primary_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> egui::Re
             },
         );
     }
+    focus_ring(ui, &response, response.rect, &p);
     response
 }
 
@@ -317,11 +318,22 @@ pub fn slider(
             min + steps * step
         });
         if response.has_focus() {
+            // Left and Right adjust the value instead of moving focus on;
+            // Up and Down still move between controls.
+            ui.memory_mut(|m| {
+                m.set_focus_lock_filter(
+                    response.id,
+                    egui::EventFilter {
+                        horizontal_arrows: true,
+                        ..Default::default()
+                    },
+                );
+            });
             ui.input(|i| {
-                if i.key_pressed(egui::Key::ArrowRight) || i.key_pressed(egui::Key::ArrowUp) {
+                if i.key_pressed(egui::Key::ArrowRight) {
                     new = new.saturating_add(step);
                 }
-                if i.key_pressed(egui::Key::ArrowLeft) || i.key_pressed(egui::Key::ArrowDown) {
+                if i.key_pressed(egui::Key::ArrowLeft) {
                     new = new.saturating_sub(step);
                 }
             });
