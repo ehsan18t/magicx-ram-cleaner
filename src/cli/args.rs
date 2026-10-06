@@ -409,7 +409,7 @@ pub enum Commands {
     #[command(verbatim_doc_comment)]
     Monitor {
         /// Check interval in seconds (minimum 1) [default: 5]
-        #[arg(short, long, default_value = "5", value_parser = clap::value_parser!(u64).range(1..))]
+        #[arg(short, long, default_value = "5", value_parser = clap::value_parser!(u64).range(1..=86_400))]
         interval: u64,
 
         /// Auto-clean when memory load exceeds this percentage (1-100).

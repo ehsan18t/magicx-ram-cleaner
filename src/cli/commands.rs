@@ -134,14 +134,14 @@ pub(super) fn dispatch(command: &Commands, reporting: Reporting) -> Result<Outco
             cooldown,
             verbose,
         } => {
-            monitor::run_monitor(
+            let had_failure = monitor::run_monitor(
                 *interval,
                 *threshold,
                 (*level).into(),
                 *cooldown,
                 reporting.verbose(*verbose),
             )?;
-            Ok(Outcome::default())
+            Ok(Outcome::from_failure(had_failure))
         }
 
         Commands::ContextMenu { action } => context_menu_command(*action),

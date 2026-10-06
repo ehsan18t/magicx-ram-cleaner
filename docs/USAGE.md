@@ -305,8 +305,8 @@ magicx-ram-cleaner monitor [OPTIONS]
 **Options:**
 | Flag                        | Description                                                           |
 | --------------------------- | --------------------------------------------------------------------- |
-| `-i, --interval <SECONDS>`  | Check interval in seconds (default: 5)                                |
-| `-t, --threshold <PERCENT>` | Auto-clean when memory load exceeds this %                            |
+| `-i, --interval <SECONDS>`  | Check interval in seconds, 1 to 86400 (default: 5)                    |
+| `-t, --threshold <PERCENT>` | Auto-clean when memory load reaches this %                            |
 | `-l, --level <LEVEL>`       | Cleaning level for auto-clean (default: aggressive)                   |
 | `-c, --cooldown <SECONDS>`  | Cooldown after auto-clean before cleaning again (default: 2x interval) |
 | `-v, --verbose`             | Show details during auto-clean                                        |

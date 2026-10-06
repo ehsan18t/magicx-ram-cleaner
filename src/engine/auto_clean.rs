@@ -62,6 +62,12 @@ impl AutoCleanPolicy {
         self.cooldown = cooldown;
     }
 
+    /// The load percentage that triggers a clean.
+    #[must_use]
+    pub const fn threshold(&self) -> u32 {
+        self.threshold
+    }
+
     /// Drop any backoff (e.g. when monitoring restarts). The cooldown since
     /// the last clean still applies, so toggling monitoring off and on cannot
     /// trigger back-to-back cleans.

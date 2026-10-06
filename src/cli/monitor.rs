@@ -1,15 +1,9 @@
 //! # `MagicX` RAM Cleaner - Monitoring Mode
 //!
 //! Continuous monitoring with optional auto-clean when memory usage
-//! exceeds a configurable threshold, stopped gracefully with Ctrl+C (see
+//! reaches a configurable threshold, stopped gracefully with Ctrl+C (see
 //! [`console::watch_interrupts`]).
-//!
-//! The interrupt flag is process-global (a Win32 console handler cannot
-//! capture state), so `MONITOR_ACTIVE` guards against two monitor loops
-//! running at once and sharing it. The guard is released by an RAII
-//! `MonitorGuard` on every exit path.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use anyhow::Result;
@@ -26,26 +20,6 @@ use crate::strings;
 /// Prevents infinite error-clean-error loops on a malfunctioning system.
 const MAX_CONSECUTIVE_ERRORS: u32 = 3;
 
-/// Guard preventing concurrent [`run_monitor`] calls.
-///
-/// The interrupt flag and console handler are process-wide, so running two
-/// monitor loops simultaneously would corrupt shared state.
-/// This flag is checked at entry and cleared on exit via [`MonitorGuard`].
-static MONITOR_ACTIVE: AtomicBool = AtomicBool::new(false);
-
-/// RAII guard that clears `MONITOR_ACTIVE` when the monitor exits.
-///
-/// Ensures the flag is always reset, even if [`run_monitor`] returns early
-/// via `?` or an error path. Without this, a failed monitor run would
-/// permanently block future monitor calls for the process lifetime.
-struct MonitorGuard;
-
-impl Drop for MonitorGuard {
-    fn drop(&mut self) {
-        MONITOR_ACTIVE.store(false, Ordering::Release);
-    }
-}
-
 /// Run the monitoring loop.
 ///
 /// # Arguments
@@ -57,32 +31,19 @@ impl Drop for MonitorGuard {
 ///   Defaults to `2 × interval_secs` if `None`.
 /// * `verbose` - Show detailed output during auto-clean.
 ///
+/// Returns whether any auto-clean had a failed operation, for the exit code.
+///
 /// # Errors
 ///
-/// Returns an error if a monitor loop is already running in this process
-/// (concurrent calls are prevented by the `MONITOR_ACTIVE` guard), or if
-/// the console ctrl handler cannot be installed.
+/// Returns an error if the console ctrl handler cannot be installed, or
+/// after [`MAX_CONSECUTIVE_ERRORS`] failed status queries or cleans in a row.
 pub fn run_monitor(
     interval_secs: u64,
     threshold: Option<u32>,
     auto_level: CleanLevel,
     cooldown_secs: Option<u64>,
     verbose: bool,
-) -> Result<()> {
-    // Prevent concurrent monitor loops - all state is global (see module docs).
-    if MONITOR_ACTIVE
-        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-        .is_err()
-    {
-        anyhow::bail!(
-            "A monitor loop is already running in this process. \
-             Only one monitor instance can run at a time because Win32 \
-             SetConsoleCtrlHandler state is process-global."
-        );
-    }
-    // RAII guard: clears MONITOR_ACTIVE on all exit paths (success, error, panic)
-    let _guard = MonitorGuard;
-
+) -> Result<bool> {
     // Ctrl+C / Ctrl+Break end the loop gracefully instead of killing the process.
     console::watch_interrupts()?;
 
@@ -109,6 +70,7 @@ pub fn run_monitor(
         policy: threshold.map(|t| AutoCleanPolicy::new(t, cooldown)),
         snapshot_errors: 0,
         clean_errors: 0,
+        had_failure: false,
     };
     let interval = std::time::Duration::from_secs(interval_secs);
 
@@ -121,28 +83,29 @@ pub fn run_monitor(
             Ok(snapshot) => {
                 state.snapshot_errors = 0;
                 display::print_compact_status(&snapshot);
-                if let Some(thresh) = threshold {
-                    handle_threshold_clean(thresh, &snapshot, auto_level, verbose, &mut state)?;
-                }
+                handle_threshold_clean(&snapshot, auto_level, verbose, &mut state)?;
             }
             Err(e) => record_error(&mut state.snapshot_errors, &e)?,
         }
 
-        sleep_until(iteration_start + interval);
+        sleep_until(iteration_start.checked_add(interval));
     }
 
     println!("\n{} {}", "◉".red().bold(), strings::cli::monitor::STOPPED);
-    Ok(())
+    Ok(state.had_failure)
 }
 
 /// Sleep until `deadline` in small increments so Ctrl+C stays responsive.
+/// `None` (a deadline past what `Instant` can hold) waits for Ctrl+C.
 ///
 /// Measuring against a deadline (rather than counting whole ticks) keeps the
 /// check interval exact, including the time spent capturing and cleaning.
-fn sleep_until(deadline: Instant) {
+fn sleep_until(deadline: Option<Instant>) {
     const TICK: std::time::Duration = std::time::Duration::from_millis(100);
     while !console::interrupted() {
-        let remaining = deadline.saturating_duration_since(Instant::now());
+        let remaining = deadline.map_or(TICK, |deadline| {
+            deadline.saturating_duration_since(Instant::now())
+        });
         if remaining.is_zero() {
             break;
         }
@@ -157,10 +120,13 @@ struct MonitorState {
     policy: Option<AutoCleanPolicy>,
     /// Consecutive failed status queries (reset by a successful query).
     snapshot_errors: u32,
-    /// Consecutive failed cleans (reset by a successful clean). Kept apart
-    /// from `snapshot_errors` so the good status queries between cleans
-    /// cannot mask a clean that keeps failing.
+    /// Consecutive failed cleans (reset by a fully successful clean). Kept
+    /// apart from `snapshot_errors` so the good status queries between
+    /// cleans cannot mask a clean that keeps failing. A clean whose
+    /// operations failed counts, not only one that could not run at all.
     clean_errors: u32,
+    /// Whether any auto-clean so far had a failed operation (exit code 1).
+    had_failure: bool,
 }
 
 /// Count an error in `streak` and abort the monitor once
@@ -182,13 +148,13 @@ fn record_error(streak: &mut u32, error: &anyhow::Error) -> Result<()> {
     Ok(())
 }
 
-/// Apply the auto-clean policy for a single monitor iteration.
+/// Apply the auto-clean policy for a single monitor iteration. Does nothing
+/// when auto-clean is off.
 ///
 /// Prints a skip message while the (backed-off) cooldown is active, and
 /// otherwise runs [`engine::Cleaner::smart_clean`], tracking consecutive
 /// errors and aborting the monitor after [`MAX_CONSECUTIVE_ERRORS`].
 fn handle_threshold_clean(
-    thresh: u32,
     snapshot: &MemorySnapshot,
     auto_level: CleanLevel,
     verbose: bool,
@@ -197,6 +163,7 @@ fn handle_threshold_clean(
     let Some(policy) = state.policy.as_mut() else {
         return Ok(());
     };
+    let thresh = policy.threshold();
     let load = snapshot.memory_load_percent;
     match policy.decide(load, Instant::now()) {
         Decision::BelowThreshold => return Ok(()),
@@ -225,11 +192,21 @@ fn handle_threshold_clean(
 
     match outcome {
         Ok(output) => {
-            // Reset error streak on any successful execution
-            state.clean_errors = 0;
             display::print_clean_summary(&output);
+            let failed = output.failed_count();
+            if failed == 0 {
+                state.clean_errors = 0;
+            } else {
+                state.had_failure = true;
+                let error =
+                    anyhow::anyhow!("{failed} of {} operations failed", output.results.len());
+                record_error(&mut state.clean_errors, &error)?;
+            }
         }
-        Err(e) => record_error(&mut state.clean_errors, &e)?,
+        Err(e) => {
+            state.had_failure = true;
+            record_error(&mut state.clean_errors, &e)?;
+        }
     }
     if still_high {
         println!(
