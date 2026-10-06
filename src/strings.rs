@@ -22,8 +22,8 @@
 //! ## What stays in its source module
 //!
 //! * `format!()` templates with runtime values (only static parts extracted)
-//! * CLI help-text constants with embedded ANSI codes (`cli.rs`)
-//! * NT status code translations (`ntapi.rs`)
+//! * CLI help-text constants with embedded ANSI codes (`cli/args.rs`)
+//! * NT status code translations (`platform/nt.rs`)
 //! * Error `.context()` messages (too granular)
 //! * Registry paths, mutex names, and other implementation details
 
