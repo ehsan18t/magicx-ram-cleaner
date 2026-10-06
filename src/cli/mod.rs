@@ -1,8 +1,9 @@
 //! # Command-line interface
 //!
-//! Argument definitions ([`args`]), command dispatch, terminal output, the
-//! continuous monitor, and the summaries shown as balloon notifications when
-//! a command runs with `--notify` (the context-menu entries).
+//! Argument definitions ([`args`](crate::cli::args)), command dispatch,
+//! terminal output, the continuous monitor, and the summaries shown as
+//! balloon notifications when a command runs with `--notify` (the
+//! context-menu entries).
 
 pub mod args;
 mod commands;

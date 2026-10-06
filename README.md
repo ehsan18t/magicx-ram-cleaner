@@ -86,32 +86,47 @@ cargo build --release
 
 ## Technical Architecture
 
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the layers and the rules between them.
+
 ```
 src/
-+-- main.rs           # Entry point: mod declarations, main(), run(), dispatch
-+-- lib.rs            # Library crate root: module re-exports for benchmarks
-+-- cli.rs            # CLI definitions: clap Parser, Commands enum, help text
-+-- cleaner.rs        # Core cleaning operations + smart clean engine
-+-- console.rs        # Windows console management (attach/alloc, ANSI, notifications)
-+-- context_menu.rs   # Desktop context menu integration (registry keys)
-+-- display.rs        # Terminal formatting: banner, status, clean output
-+-- gui/              # egui graphical interface module
-|   +-- mod.rs        # Module entry, run_gui() launcher
-|   +-- app.rs        # Core app state, eframe::App impl, sidebar, layout routing
-|   +-- persistence.rs # Settings I/O, Win32 file dialogs, autostart (Task Scheduler)
-|   +-- theme.rs      # Colour palette, spacing, dark/light themes
-|   +-- tray.rs       # System tray icon with context menu
-|   +-- widgets.rs    # Reusable UI components (cards, stat labels, toggle)
-|   +-- panels/       # One file per tab
-|       +-- about.rs      # App info, developer profile
-|       +-- dashboard.rs  # Memory overview + one-click cleaning
-|       +-- monitor.rs    # Auto-clean configuration
-|       +-- processes.rs  # Sortable grouped process memory table
-|       +-- settings.rs   # Appearance, integration, backup & restore
-+-- monitor.rs        # Continuous monitoring loop with auto-clean
-+-- ntapi.rs          # NT Native API FFI (NtSetSystemInformation)
-+-- privilege.rs      # Windows privilege management + admin check
-+-- stats.rs          # Memory statistics (GlobalMemoryStatusEx, GetPerformanceInfo)
++-- main.rs             # Entry point: calls app::run()
++-- lib.rs              # Crate root: layer overview, lint gates
++-- app.rs              # Launcher: GUI or CLI, console setup, exit codes
++-- strings.rs          # All user-facing text
++-- platform/           # Every Win32/NT call; the only unsafe code
+|   +-- nt.rs           # NtSetSystemInformation / NtQuerySystemInformation
+|   +-- memory.rs       # Memory status, page lists, file cache
+|   +-- process.rs      # Process list, memory counters, working-set trim
+|   +-- privilege.rs    # Admin check, Se*Privilege
+|   +-- registry.rs     # Registry keys (RegKey, Hive)
+|   +-- task_scheduler.rs # Logon tasks via schtasks.exe
+|   +-- console.rs      # Console attach/alloc, ANSI, Ctrl+C
+|   +-- window.rs       # Window lookup, cloaking, theming
+|   +-- notify.rs       # Balloon notifications
+|   +-- shell.rs        # Unelevated URL launch
+|   +-- ...             # handle, identity, instance, dialog, paths, time, wide
++-- memory/             # Snapshots, per-process usage, byte formatting
++-- engine/             # Cleaning engine
+|   +-- system.rs       # MemorySystem trait + WindowsMemory
+|   +-- operations.rs   # Individual operations
+|   +-- smart.rs        # Level chains, leftover sweep, dry-run plan
+|   +-- settle.rs       # Waiting for the kernel to settle
+|   +-- report.rs       # CleanResult / SmartCleanResult
+|   +-- auto_clean.rs   # Auto-clean policy shared by CLI and GUI
+|   +-- level.rs, progress.rs, fake.rs + tests.rs (simulation tests)
++-- integration/        # Context menu, logon-task autostart
++-- cli/                # args, commands, display, monitor, notification
++-- gui/                # egui interface
+    +-- mod.rs          # run_gui() launcher
+    +-- app/            # App state + eframe loop, cleaning, background, tray events
+    +-- settings.rs     # Persisted settings, defaults, valid ranges
+    +-- persistence.rs  # Settings file I/O, import/export
+    +-- sidebar.rs      # Navigation
+    +-- theme.rs, tray.rs, widgets.rs
+    +-- panels/         # about, dashboard, monitor, processes, settings
+tests/
++-- architecture.rs     # Enforces the layering and the unsafe boundary
 ```
 
 ### APIs Used

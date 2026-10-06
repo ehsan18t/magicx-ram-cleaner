@@ -3,7 +3,7 @@ name = "magicx-ram-cleaner"
 version = "1.0.1"
 edition = "2024"
 authors = ["MagicX"]
-description = "The most powerful Windows RAM cleaner — CLI + GUI in a single portable exe. Surpasses EmptyStandbyList with granular control over every memory subsystem"
+description = "Windows RAM cleaner (CLI + GUI, single portable exe) with control over standby, modified, working-set, file-cache, registry and page-combining memory"
 license = "MIT"
 readme = "README.md"
 keywords = ["ram", "memory", "cleaner", "windows", "standby-list"]
@@ -72,10 +72,10 @@ raw-window-handle = "0.6"
 OriginalFilename = "magicx-ram-cleaner.exe"
 ProductName = "MagicX RAM Cleaner"
 FileDescription = "MagicX RAM Cleaner"
-LegalCopyright = "Copyright \u00a9 2025 MagicX — MIT License"
+LegalCopyright = "Copyright \u00a9 2025 MagicX. MIT License"
 CompanyName = "MagicX"
 InternalName = "magicx-ram-cleaner"
-Comments = "Surpasses EmptyStandbyList with granular control over every Windows memory subsystem"
+Comments = "Frees Windows RAM: standby, modified, working-set, file-cache, registry and page-combining memory"
 
 [build-dependencies]
 embed-manifest = "1"

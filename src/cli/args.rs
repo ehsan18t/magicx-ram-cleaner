@@ -25,11 +25,11 @@ pub const STYLES: Styles = Styles::styled()
 
 /// Long description shown for `magicx-ram-cleaner --help`.
 pub const LONG_ABOUT: &str = "\
-MagicX RAM Cleaner \x1b[90m-\x1b[0m The most powerful Windows RAM cleaner CLI.
+MagicX RAM Cleaner \x1b[90m-\x1b[0m frees Windows RAM from the command line.
 
 \
-Provides unmatched control over Windows memory management, surpassing \
-EmptyStandbyList with granular control over every memory subsystem.
+Purges the standby list, flushes modified pages, trims working sets, and \
+flushes the file and registry caches, individually or as one smart clean.
 
 \
 \x1b[1;36mFEATURES:\x1b[0m
@@ -196,10 +196,10 @@ Repository:  \x1b[36mhttps://github.com/ehsan18t/magicx-ram-cleaner\x1b[0m
   \
 Run \x1b[32mmagicx-ram-cleaner <command> --help\x1b[0m for detailed command information.";
 
-/// `MagicX` RAM Cleaner: the most powerful Windows RAM cleaner.
+/// `MagicX` RAM Cleaner command line.
 ///
-/// Surpasses `EmptyStandbyList` with granular control, smart cleaning levels,
-/// detailed diagnostics, and monitoring with auto-clean.
+/// Individual memory operations, smart cleaning levels, detailed
+/// diagnostics, and monitoring with auto-clean.
 ///
 /// REQUIRES: Run as Administrator (right-click → Run as administrator).
 #[derive(Parser)]
@@ -207,7 +207,7 @@ Run \x1b[32mmagicx-ram-cleaner <command> --help\x1b[0m for detailed command info
     name = "magicx-ram-cleaner",
     version,
     styles = STYLES,
-    about = "MagicX RAM Cleaner: the most powerful Windows RAM cleaner CLI",
+    about = "MagicX RAM Cleaner: frees Windows RAM by purging standby, flushing modified pages and trimming working sets",
     long_about = LONG_ABOUT,
     after_help = AFTER_HELP_SHORT,
     after_long_help = AFTER_HELP_LONG,
@@ -368,8 +368,6 @@ pub enum Commands {
     ///
     /// Tells Windows to release its file system cache, freeing the
     /// RAM used to cache recently-read files. Requires `SeIncreaseQuotaPrivilege`.
-    ///
-    /// This is unique to `MagicX` - `EmptyStandbyList` cannot do this.
     #[command(verbatim_doc_comment)]
     FlushCache {
         /// Show detailed progress.
@@ -382,8 +380,6 @@ pub enum Commands {
     /// Forces Windows to write all cached registry modifications to disk,
     /// freeing the RAM used for registry hive caching. Included automatically
     /// in aggressive and nuclear cleaning levels.
-    ///
-    /// This is unique to `MagicX` - `EmptyStandbyList` cannot do this.
     #[command(verbatim_doc_comment)]
     FlushRegistry {
         /// Show detailed progress.
@@ -397,7 +393,6 @@ pub enum Commands {
     /// copy-on-write, freeing duplicate pages. Windows 10+ only.
     ///
     /// This can take several seconds on systems with lots of RAM.
-    /// Unique to `MagicX` - `EmptyStandbyList` cannot do this.
     #[command(verbatim_doc_comment)]
     Combine {
         /// Show detailed progress.

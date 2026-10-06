@@ -13,7 +13,7 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// Register (or replace) task `name` from a Task Scheduler XML definition.
 ///
 /// schtasks reads the definition from a file, on behalf of this elevated
-/// process. The file therefore lives in a [`PrivateTempDir`] that a
+/// process. The file therefore lives in a private temporary folder that a
 /// non-elevated process of the same user cannot tamper with; otherwise it
 /// could swap the XML and get an arbitrary elevated task registered.
 pub fn register_from_xml(name: &str, xml: &str) -> Result<()> {

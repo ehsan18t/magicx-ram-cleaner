@@ -61,7 +61,7 @@ pub enum MemoryListCommand {
     /// Capture and reset PTE accessed bits (diagnostic).
     CaptureAndResetAccessedBits = 1,
     /// Empty working sets of ALL processes system-wide (kernel-level).
-    /// More powerful than per-process `EmptyWorkingSet` - hits all processes
+    /// Unlike per-process `EmptyWorkingSet`, reaches all processes
     /// including ones you can't open with `PROCESS_SET_QUOTA`.
     EmptyWorkingSets = 2,
     /// Flush modified page list - write dirty pages to disk/pagefile.

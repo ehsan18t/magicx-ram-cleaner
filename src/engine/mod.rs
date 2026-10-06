@@ -1,15 +1,15 @@
 //! # Cleaning engine
 //!
 //! Decides *what* to do to free memory and measures the effect; the
-//! operating system work itself goes through a [`MemorySystem`]
-//! ([`WindowsMemory`] in production).
+//! operating system work itself goes through a [`MemorySystem`](crate::engine::MemorySystem)
+//! ([`WindowsMemory`](crate::engine::WindowsMemory) in production).
 //!
-//! A [`Cleaner`] runs either single operations (purge standby, flush the
-//! modified list, empty working sets, ...) or a whole [`CleanLevel`] via
-//! [`Cleaner::smart_clean`]. Every operation captures a snapshot before it
+//! A [`Cleaner`](crate::engine::Cleaner) runs either single operations (purge standby, flush the
+//! modified list, empty working sets, ...) or a whole [`CleanLevel`](crate::engine::CleanLevel) via
+//! [`Cleaner::smart_clean`](crate::engine::Cleaner::smart_clean). Every operation captures a snapshot before it
 //! runs, waits for the kernel to settle afterwards, and returns a
-//! [`CleanResult`] with the change in both *available* and *free* memory.
-//! The engine never prints; it reports [`Progress`] events instead.
+//! [`CleanResult`](crate::engine::CleanResult) with the change in both *available* and *free* memory.
+//! The engine never prints; it reports [`Progress`](crate::engine::Progress) events instead.
 
 pub mod auto_clean;
 mod level;

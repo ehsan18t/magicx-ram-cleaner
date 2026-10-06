@@ -17,91 +17,60 @@
 
 //! # `MagicX` RAM Cleaner
 //!
-//! The most powerful Windows RAM cleaner. CLI + GUI in a single portable exe.
-//! Surpasses `EmptyStandbyList` with granular control over every memory subsystem.
+//! A Windows RAM cleaner: CLI and GUI in a single portable exe, with control
+//! over the standby, modified, working-set, file-cache, registry and
+//! page-combining memory subsystems.
 //!
-//! Double-click the binary (or run without arguments) to launch the built-in
-//! egui graphical interface with a real-time dashboard, one-click cleaning,
-//! process inspector, and system-tray integration. Pass a CLI subcommand
-//! (e.g. `clean`, `status`, `monitor`) for scriptable, terminal-based usage.
+//! Double-click the binary (or run it without arguments) for the egui
+//! interface; pass a subcommand (`clean`, `status`, `monitor`, ...) for the
+//! scriptable CLI.
 //!
-//! This library crate exposes internal modules for benchmarking and testing.
-//! `MagicX` RAM Cleaner is a **binary crate** - this `lib.rs` exists to
-//! enable `criterion` benchmarks in `benches/`.
-//!
-//! **Do not depend on this as a library.** The public API is unstable and
-//! may change without notice.
+//! This library exists so the binary, tests and `criterion` benchmarks share
+//! one code base. **Do not depend on it as a library**: the API is unstable.
 //!
 //! ## Architecture
 //!
+//! Layers, from the entry point down. A module may only depend on modules
+//! below it (`strings` holds user-facing text and is usable everywhere).
+//!
 //! ```text
-//! ┌──────────────────────────────────────────────────────────────┐
-//! │                    MagicX RAM Cleaner                        │
-//! ├──────────┬──────────────┬───────────────┬───────────────────┤
-//! │   CLI    │  Cleaner     │  Monitor      │  Display          │
-//! │ (cli.rs) │  Engine      │  Loop (CLI)   │  Formatting       │
-//! ├──────────┤              ├───────────────┤                   │
-//! │ Console  │  Context     │  GUI (egui)   │  Stats            │
-//! │ (ANSI)   │  Menu        │  + Tray Icon  │  (MemorySnapshot) │
-//! │          │              │  + Auto-Clean │                   │
-//! │          │              │  + Settings   │                   │
-//! ├──────────┴──────────────┴───────────────┴───────────────────┤
-//! │               NT Native API Bindings (ntapi)                │
-//! │      NtSetSystemInformation / NtQuerySystemInformation      │
-//! ├─────────────────────────────────────────────────────────────┤
-//! │               Win32 API  (windows-sys)                      │
-//! │  GlobalMemoryStatusEx, SetSystemFileCacheSize,              │
-//! │  K32EmptyWorkingSet, SetProcessWorkingSetSizeEx             │
-//! ├─────────────────────────────────────────────────────────────┤
-//! │               Privilege Manager                              │
-//! │  SeProfileSingleProcessPrivilege, SeIncreaseQuotaPrivilege  │
-//! └─────────────────────────────────────────────────────────────┘
+//! app ──────────────────────── launcher: GUI or CLI, console, exit codes
+//!  ├─ cli ──────────────────── arguments, dispatch, terminal output, monitor
+//!  └─ gui ──────────────────── egui app, tray icon, settings
+//!       │
+//!       ├─ integration ─────── context menu, logon-task autostart
+//!       ├─ engine ──────────── levels, operations, leftover sweep, measurement,
+//!       │                      auto-clean policy (behind the MemorySystem trait)
+//!       └─ memory ──────────── snapshots, per-process usage, byte formatting
+//!            │
+//!            platform ──────── every Win32 / NT call; the only `unsafe` code
 //! ```
 //!
-//! ## Why `MagicX` is better than `EmptyStandbyList`
-//!
-//! | Feature | EmptyStandbyList | MagicX |
-//! |---|---|---|
-//! | Standby list purge | ✓ | ✓ |
-//! | Low-priority only purge | ✓ | ✓ |
-//! | Working set empty | ✓ | ✓ (kernel-level AND per-process) |
-//! | Modified list flush | ✓ | ✓ |
-//! | File cache flush | ✗ | ✓ |
-//! | Registry cache flush | ✗ | ✓ |
-//! | Memory combining/dedup | ✗ | ✓ |
-//! | Smart multi-step cleaning | ✗ | ✓ (4 levels) |
-//! | Before/after reporting | ✗ | ✓ |
-//! | Detailed memory list stats | ✗ | ✓ (per-priority breakdown) |
-//! | Monitoring with auto-clean | ✗ | ✓ (CLI + GUI) |
-//! | JSON output | ✗ | ✓ |
-//! | Optimal operation ordering | ✗ | ✓ |
-//! | Second-pass cleaning | ✗ | ✓ |
-//! | Built-in GUI | ✗ | ✓ (egui dashboard, tray icon, settings) |
-//! | Desktop context menu | ✗ | ✓ (right-click submenu) |
+//! See `docs/ARCHITECTURE.md` for the reasoning behind these boundaries.
 
 /// Every Win32 and NT call: the only layer allowed to use `unsafe`.
 #[allow(unsafe_code)]
 pub mod platform;
 
+/// Memory domain types: system snapshots, per-process usage, byte formatting.
+pub mod memory;
+
 /// The cleaning engine: levels, operations, leftover sweep and measurement.
 pub mod engine;
-
-/// Centralised user-facing text constants for CLI and GUI.
-pub mod strings;
-
-/// Application launcher: chooses GUI or CLI, console setup, exit codes.
-pub mod app;
-
-/// Command-line interface: arguments, dispatch, output and the monitor.
-pub mod cli;
 
 /// Windows integration: Explorer context menu and logon-task autostart.
 pub mod integration;
 
-/// Memory domain types: system snapshots, per-process usage, byte formatting.
-pub mod memory;
+/// Command-line interface: arguments, dispatch, output and the monitor.
+pub mod cli;
 
 /// egui-based graphical user interface with dashboard, system-tray icon,
 /// auto-clean monitoring, process inspector, and persistent settings.
 /// Launched when the binary is executed with no CLI subcommand.
 pub mod gui;
+
+/// Application launcher: chooses GUI or CLI, console setup, exit codes.
+pub mod app;
+
+/// Centralised user-facing text constants for CLI and GUI.
+pub mod strings;

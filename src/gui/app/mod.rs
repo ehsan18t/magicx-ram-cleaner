@@ -124,8 +124,7 @@ pub struct MagicXApp {
     /// start/stop transitions and log them once.
     prev_monitor_active: bool,
 
-    /// Monitor log messages, oldest first, capped at
-    /// [`MONITOR_LOG_CAPACITY`] lines.
+    /// Monitor log messages, oldest first, capped at 500 lines.
     pub monitor_log: VecDeque<String>,
 
     /// User settings.
