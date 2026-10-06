@@ -122,9 +122,6 @@ pub mod levels {
 
 /// Strings used by the graphical user interface.
 pub mod gui {
-    /// Window title for the main eframe viewport.
-    pub const WINDOW_TITLE: &str = "MagicX RAM Cleaner";
-
     /// Tooltip of the button that expands or collapses the navigation pane.
     pub const NAV_TOGGLE: &str = "Expand or collapse navigation";
 

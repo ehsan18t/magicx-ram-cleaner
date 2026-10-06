@@ -7,12 +7,10 @@
 
 use anyhow::{Context, Result};
 
+use crate::ids::{AUTOSTART_TASK_NAME, LEGACY_RUN_VALUE};
 use crate::platform::registry::{self, Hive};
 use crate::platform::{identity, task_scheduler};
 use crate::strings;
-
-/// Task Scheduler task name used for the autostart logon task.
-const AUTOSTART_TASK_NAME: &str = strings::APP_NAME;
 
 /// Registry key of the legacy `HKCU\...\Run` autostart value.
 const LEGACY_RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -39,7 +37,7 @@ pub fn set_enabled(enabled: bool) -> Result<()> {
         task_scheduler::delete(AUTOSTART_TASK_NAME)?;
     }
     // Named binding avoids `let_underscore_drop`; removal is best-effort.
-    let _legacy = registry::delete_value(Hive::CurrentUser, LEGACY_RUN_KEY, strings::APP_NAME);
+    let _legacy = registry::delete_value(Hive::CurrentUser, LEGACY_RUN_KEY, LEGACY_RUN_VALUE);
     Ok(())
 }
 

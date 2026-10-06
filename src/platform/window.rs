@@ -137,30 +137,60 @@ pub fn cloak_window(hwnd: isize) {
 ///
 /// 1. Remove `WS_EX_TOOLWINDOW` / add `WS_EX_APPWINDOW` - taskbar and
 ///    Alt-Tab presence restored.
-/// 2. `SW_RESTORE` - un-minimizes to the previous size and position.
-/// 3. `SetForegroundWindow` - brings the window to the front.
+/// 2. [`bring_to_front`] - un-minimizes (keeping a maximized window
+///    maximized) and brings the window to the front.
 ///
 /// Does nothing when `hwnd` is `0`.
 pub fn uncloak_window(hwnd: isize) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GWL_EXSTYLE, GetWindowLongPtrW, SW_RESTORE, SetForegroundWindow, SetWindowLongPtrW,
-        ShowWindow, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+        GWL_EXSTYLE, GetWindowLongPtrW, SetWindowLongPtrW, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
     };
 
     if hwnd == 0 {
         return;
     }
 
-    // SAFETY: All calls operate on our own main-window handle, which is
-    // valid for the process lifetime.  The sequence is
-    // style-restore → un-minimize → foreground, each a standard Win32 call.
+    // SAFETY: Both calls operate on our own main-window handle, which is
+    // valid for the process lifetime, and only change its extended style.
     unsafe {
         let ex = GetWindowLongPtrW(hwnd as *mut _, GWL_EXSTYLE);
         #[allow(clippy::cast_possible_wrap)]
         let new_ex = (ex & !(WS_EX_TOOLWINDOW as isize)) | WS_EX_APPWINDOW as isize;
         SetWindowLongPtrW(hwnd as *mut _, GWL_EXSTYLE, new_ex);
-        ShowWindow(hwnd as *mut _, SW_RESTORE);
-        SetForegroundWindow(hwnd as *mut _);
+    }
+    bring_to_front(hwnd);
+}
+
+/// Show `hwnd` and bring it to the front, waking its event loop.
+///
+/// A minimized window is restored (to maximized, if it was maximized before
+/// minimizing). A window that is already showing keeps its size: `SW_RESTORE`
+/// on a maximized window would shrink it back to its normal size.
+///
+/// Does nothing when `hwnd` is `0`.
+pub fn bring_to_front(hwnd: isize) {
+    use windows_sys::Win32::Graphics::Gdi::InvalidateRect;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        IsIconic, SW_RESTORE, SW_SHOW, SetForegroundWindow, ShowWindow,
+    };
+
+    if hwnd == 0 {
+        return;
+    }
+    let hwnd = hwnd as windows_sys::Win32::Foundation::HWND;
+    // SAFETY: `hwnd` is a top-level window handle; these calls only change
+    // its show state, z-order and paint state. Invalidating the client area
+    // queues a WM_PAINT, which wakes the owning event loop so it notices the
+    // change without waiting for its next scheduled repaint.
+    unsafe {
+        let show = if IsIconic(hwnd) != 0 {
+            SW_RESTORE
+        } else {
+            SW_SHOW
+        };
+        ShowWindow(hwnd, show);
+        SetForegroundWindow(hwnd);
+        InvalidateRect(hwnd, std::ptr::null(), 0);
     }
 }
 

@@ -74,3 +74,6 @@ pub mod app;
 
 /// Centralised user-facing text constants for CLI and GUI.
 pub mod strings;
+
+/// Fixed names the app is looked up by (window title, task name).
+pub mod ids;

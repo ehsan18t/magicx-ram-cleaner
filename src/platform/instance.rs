@@ -4,13 +4,10 @@ use std::os::windows::io::OwnedHandle;
 
 use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
 use windows_sys::Win32::System::Threading::CreateMutexW;
-use windows_sys::Win32::UI::WindowsAndMessaging::{
-    PostMessageW, SW_RESTORE, SetForegroundWindow, ShowWindow, WM_PAINT,
-};
 
 use super::handle::owned_or_null;
 use super::wide::to_wide;
-use super::window::find_app_window;
+use super::window::{bring_to_front, find_app_window};
 
 /// Mutex name, scoped to the current user's session.
 const MUTEX_NAME: &str = "Local\\MagicXRamCleanerSingleInstance";
@@ -51,17 +48,5 @@ impl SingleInstance {
 
 /// Bring the already running instance's window to the front.
 fn restore_existing_window() {
-    let hwnd = find_app_window(crate::strings::APP_NAME);
-    if hwnd == 0 {
-        return;
-    }
-    // SAFETY: `hwnd` is a top-level window handle; these calls only change
-    // its state. SW_RESTORE un-minimises it, SetForegroundWindow brings it in
-    // front, and WM_PAINT wakes its event loop so the instance notices the
-    // visibility change without waiting for its next scheduled repaint.
-    unsafe {
-        ShowWindow(hwnd as _, SW_RESTORE);
-        SetForegroundWindow(hwnd as _);
-        PostMessageW(hwnd as _, WM_PAINT, 0, 0);
-    }
+    bring_to_front(find_app_window(crate::ids::WINDOW_TITLE));
 }

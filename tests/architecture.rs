@@ -4,7 +4,8 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-/// Each layer and the layers it may use (besides itself and `strings`).
+/// Each layer and the layers it may use (besides itself and the shared
+/// `strings` and `ids` modules).
 /// Mirrors the table in `docs/ARCHITECTURE.md`.
 const ALLOWED: &[(&str, &[&str])] = &[
     ("platform", &[]),
@@ -20,7 +21,7 @@ const ALLOWED: &[(&str, &[&str])] = &[
 ];
 
 /// Shared modules every layer may use.
-const SHARED: &[&str] = &["strings"];
+const SHARED: &[&str] = &["strings", "ids"];
 
 fn src_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("src")

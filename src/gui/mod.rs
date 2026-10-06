@@ -74,7 +74,6 @@ mod widgets;
 use anyhow::{Context, Result};
 use eframe::egui;
 
-use crate::strings;
 
 /// Load the application icon from the embedded PNG for use as the window icon.
 fn load_window_icon() -> Option<egui::IconData> {
@@ -114,7 +113,7 @@ pub fn run_gui() -> Result<()> {
     let mut viewport = egui::ViewportBuilder::default()
         .with_inner_size([860.0, 600.0])
         .with_min_inner_size([620.0, 500.0])
-        .with_title(strings::gui::WINDOW_TITLE)
+        .with_title(crate::ids::WINDOW_TITLE)
         // Start hidden and reveal on first frame to avoid flash.
         .with_visible(false);
 
@@ -128,7 +127,7 @@ pub fn run_gui() -> Result<()> {
     };
 
     eframe::run_native(
-        "MagicX RAM Cleaner",
+        crate::ids::WINDOW_TITLE,
         native_options,
         Box::new(|cc| Ok(Box::new(app::MagicXApp::new(cc)?))),
     )

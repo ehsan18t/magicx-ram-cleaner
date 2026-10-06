@@ -26,7 +26,6 @@ use super::settings::GuiSettings;
 use super::{fonts, nav, theme, tray};
 use crate::engine::auto_clean::AutoCleanPolicy;
 use crate::memory::{MemorySnapshot, ProcessMemoryInfo};
-use crate::strings;
 
 mod appearance;
 mod background;
@@ -474,7 +473,7 @@ fn window_hwnd(cc: &eframe::CreationContext<'_>) -> isize {
             RawWindowHandle::Win32(win32) => Some(win32.hwnd.get()),
             _ => None,
         })
-        .unwrap_or_else(|| crate::platform::window::find_app_window(strings::APP_NAME))
+        .unwrap_or_else(|| crate::platform::window::find_app_window(crate::ids::WINDOW_TITLE))
 }
 
 impl eframe::App for MagicXApp {
