@@ -3,12 +3,13 @@
 //! Central [`SettingsManager`] for all [`super::app::GuiSettings`] I/O.
 //!
 //! Handles loading, saving, importing, exporting, and Windows system
-//! integration (autostart registry entry).
+//! integration (autostart logon task).
 //!
 //! The default persistence path is `settings.json` next to the running executable.
 //! Import and export open native Win32 file-picker dialogs (COMDLG32).
-//! Autostart writes/removes a value under
-//! `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` via the registry API.
+//! Autostart creates/removes a Task Scheduler logon task via `schtasks.exe`.
+//! A `HKCU\...\Run` value cannot be used: Windows silently refuses to launch
+//! `requireAdministrator` executables from it at logon.
 //!
 //! Gracefully falls back to [`Default`] on any read error so a missing or
 //! corrupted file never prevents the app from starting.
@@ -130,13 +131,20 @@ fn pick_open_path() -> Option<PathBuf> {
 
 // ─── Low-Level I/O ────────────────────────────────────────────────────────────
 
-/// Deserialise [`GuiSettings`] from a JSON file.
+/// Deserialise [`GuiSettings`] from a JSON file and clamp it to valid ranges.
 fn read_settings_file(path: &Path) -> Result<GuiSettings, String> {
     let content = std::fs::read_to_string(path).map_err(|e| format!("Cannot read file: {e}"))?;
-    serde_json::from_str(&content).map_err(|e| format!("Invalid settings file: {e}"))
+    let mut settings: GuiSettings =
+        serde_json::from_str(&content).map_err(|e| format!("Invalid settings file: {e}"))?;
+    settings.sanitize();
+    Ok(settings)
 }
 
 /// Serialise `settings` as pretty JSON to `path`, creating parent directories.
+///
+/// The JSON is first written to a sibling `<name>.tmp` file which is then
+/// renamed over `path`, so a crash or power loss mid-write never leaves a
+/// truncated settings file behind.
 fn write_settings_file(path: &Path, settings: &GuiSettings) -> Result<(), String> {
     if let Some(parent) = path.parent()
         && std::fs::create_dir_all(parent).is_err()
@@ -147,7 +155,339 @@ fn write_settings_file(path: &Path, settings: &GuiSettings) -> Result<(), String
     let json =
         serde_json::to_string_pretty(settings).map_err(|e| format!("Serialisation error: {e}"))?;
 
-    std::fs::write(path, json).map_err(|e| format!("Cannot write file: {e}"))
+    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(".tmp");
+    let tmp_path = path.with_file_name(tmp_name);
+
+    std::fs::write(&tmp_path, json).map_err(|e| format!("Cannot write file: {e}"))?;
+    std::fs::rename(&tmp_path, path).map_err(|e| {
+        // Named binding avoids `let_underscore_drop`; cleanup is best-effort.
+        let _cleanup = std::fs::remove_file(&tmp_path);
+        format!("Cannot replace file: {e}")
+    })
+}
+
+// ─── Autostart Helpers ────────────────────────────────────────────────────────
+
+/// Task Scheduler task name used for the autostart logon task.
+const AUTOSTART_TASK_NAME: &str = strings::APP_NAME;
+
+/// `CREATE_NO_WINDOW` process creation flag: keeps `schtasks.exe` from
+/// flashing a console window.
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Run `schtasks.exe` with `args` without showing a console window.
+///
+/// Returns `Ok(())` on a zero exit status, or an error string that includes
+/// the `schtasks` stderr (falling back to stdout) otherwise.
+fn run_schtasks(args: &[&std::ffi::OsStr]) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+
+    // Use the absolute System32 path so an elevated process never runs a
+    // `schtasks.exe` planted earlier on PATH.
+    let exe = std::env::var_os("SystemRoot").map_or_else(
+        || PathBuf::from("schtasks.exe"),
+        |root| PathBuf::from(root).join("System32").join("schtasks.exe"),
+    );
+
+    let output = std::process::Command::new(exe)
+        .args(args)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("Cannot run schtasks.exe: {e}"))?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let detail = if stderr.trim().is_empty() {
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    } else {
+        stderr.trim().to_owned()
+    };
+    Err(format!("schtasks.exe failed ({}): {detail}", output.status))
+}
+
+/// Escape the five XML special characters in `s`.
+fn xml_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Build the Task Scheduler XML for the autostart logon task.
+///
+/// Uses explicit settings instead of plain `schtasks /SC ONLOGON` flags,
+/// whose defaults would stop the app after 72 hours and refuse to start it
+/// on battery power.
+fn autostart_task_xml(user: &str, exe: &str) -> String {
+    let app = xml_escape(strings::APP_NAME);
+    let user = xml_escape(user);
+    let exe = xml_escape(exe);
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Starts {app} when you sign in.</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>{user}</UserId>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>{user}</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <Enabled>true</Enabled>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{exe}</Command>
+    </Exec>
+  </Actions>
+</Task>
+"#
+    )
+}
+
+/// Create (or replace) the autostart logon task for the running executable.
+fn create_autostart_task() -> Result<(), String> {
+    let exe = canonical_exe_path()?;
+
+    let user_name = std::env::var("USERNAME").map_err(|_| "USERNAME is not set".to_owned())?;
+    let user = match std::env::var("USERDOMAIN") {
+        Ok(domain) if !domain.is_empty() => format!("{domain}\\{user_name}"),
+        _ => user_name,
+    };
+
+    // schtasks expects the XML file in UTF-16 LE with a byte-order mark,
+    // matching the encoding declared in the XML prolog.
+    let xml = autostart_task_xml(&user, &exe);
+    let mut bytes = Vec::with_capacity(2 + xml.len() * 2);
+    bytes.extend_from_slice(&[0xFF, 0xFE]);
+    for unit in xml.encode_utf16() {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+
+    // The XML is read by schtasks on behalf of this elevated process, so it
+    // must live where a non-elevated process of the same user cannot swap it
+    // (which would register an arbitrary elevated logon task).
+    let dir = PrivateTempDir::create()?;
+    let xml_path = dir.path.join("task.xml");
+    {
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&xml_path)
+            .map_err(|e| format!("Cannot create task XML: {e}"))?;
+        file.write_all(&bytes)
+            .map_err(|e| format!("Cannot write task XML: {e}"))?;
+    }
+
+    // `dir` removes the file and directory when dropped, on every path.
+    run_schtasks(&[
+        "/Create".as_ref(),
+        "/TN".as_ref(),
+        AUTOSTART_TASK_NAME.as_ref(),
+        "/XML".as_ref(),
+        xml_path.as_os_str(),
+        "/F".as_ref(),
+    ])
+}
+
+/// Canonical path of the running executable, without the `\\?\` prefix for
+/// ordinary drive-letter paths (Task Scheduler expects a plain path).
+fn canonical_exe_path() -> Result<String, String> {
+    let exe = std::env::current_exe()
+        .and_then(std::fs::canonicalize)
+        .map_err(|e| format!("Cannot resolve executable path: {e}"))?;
+    let exe_str = exe
+        .to_str()
+        .ok_or_else(|| "Executable path contains non-UTF-8 characters".to_owned())?;
+    let plain = exe_str
+        .strip_prefix(r"\\?\")
+        .filter(|rest| rest.as_bytes().get(1) == Some(&b':'))
+        .unwrap_or(exe_str);
+    Ok(plain.to_owned())
+}
+
+/// A freshly created temporary directory that only `SYSTEM` and the
+/// Administrators group can access. Removed with its contents on drop.
+struct PrivateTempDir {
+    /// Full path of the directory.
+    path: PathBuf,
+}
+
+impl PrivateTempDir {
+    /// Create a new uniquely named directory under `%TEMP%` with a protected
+    /// DACL. Fails if the directory already exists; it is never reused.
+    fn create() -> Result<Self, String> {
+        use std::hash::{BuildHasher, Hasher};
+
+        use windows_sys::Win32::Foundation::LocalFree;
+        use windows_sys::Win32::Security::Authorization::{
+            ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+        };
+        use windows_sys::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
+        use windows_sys::Win32::Storage::FileSystem::CreateDirectoryW;
+
+        // Protected DACL (no inheritance from %TEMP%): full access for
+        // SYSTEM and Administrators only, inherited by the file inside.
+        const SDDL: &str = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)";
+
+        let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+        hasher.write_u32(std::process::id());
+        if let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+            hasher.write_u128(now.as_nanos());
+        }
+        let path = std::env::temp_dir().join(format!("magicx-{:016x}", hasher.finish()));
+
+        let sddl_wide = to_wide(SDDL);
+        let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+        // SAFETY: `sddl_wide` is a valid null-terminated UTF-16 string and
+        // `descriptor` receives a LocalAlloc'd descriptor on success, freed below.
+        let ok = unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                sddl_wide.as_ptr(),
+                SDDL_REVISION_1,
+                &raw mut descriptor,
+                std::ptr::null_mut(),
+            )
+        };
+        if ok == 0 {
+            return Err(format!(
+                "Cannot build security descriptor: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+
+        let sa = SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: descriptor,
+            bInheritHandle: 0,
+        };
+        let path_wide = to_wide(&path.to_string_lossy());
+        // SAFETY: `path_wide` is null-terminated and `sa` points at a valid
+        // descriptor for the duration of the call. CreateDirectoryW fails
+        // (ERROR_ALREADY_EXISTS) rather than reusing an existing directory.
+        let created = unsafe { CreateDirectoryW(path_wide.as_ptr(), &raw const sa) };
+        let create_err = std::io::Error::last_os_error();
+        // SAFETY: `descriptor` was allocated by the conversion call above and
+        // is not used after this point.
+        unsafe { LocalFree(descriptor) };
+
+        if created == 0 {
+            return Err(format!(
+                "Cannot create private temp directory: {create_err}"
+            ));
+        }
+        Ok(Self { path })
+    }
+}
+
+impl Drop for PrivateTempDir {
+    fn drop(&mut self) {
+        // Named binding avoids `let_underscore_drop`; cleanup is best-effort.
+        let _cleanup = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+/// Delete the autostart logon task. A missing task counts as success.
+fn delete_autostart_task() -> Result<(), String> {
+    // Query first so "task does not exist" is detected by exit status
+    // rather than by parsing localised `schtasks` error text.
+    if !SettingsManager::is_autostart_enabled() {
+        return Ok(());
+    }
+    run_schtasks(&[
+        "/Delete".as_ref(),
+        "/TN".as_ref(),
+        AUTOSTART_TASK_NAME.as_ref(),
+        "/F".as_ref(),
+    ])
+}
+
+/// Owned registry key handle that is closed on drop.
+struct RegKeyGuard(windows_sys::Win32::System::Registry::HKEY);
+
+impl Drop for RegKeyGuard {
+    fn drop(&mut self) {
+        // SAFETY: the guard is only constructed around a handle returned by a
+        // successful `RegOpenKeyExW` call, and it is closed exactly once here.
+        unsafe { windows_sys::Win32::System::Registry::RegCloseKey(self.0) };
+    }
+}
+
+/// Remove the legacy `HKCU\...\Run` autostart value written by older versions.
+///
+/// A missing key or value counts as success.
+fn remove_legacy_run_entry() -> Result<(), String> {
+    use windows_sys::Win32::System::Registry::{
+        HKEY_CURRENT_USER, KEY_SET_VALUE, RegDeleteValueW, RegOpenKeyExW,
+    };
+
+    /// `ERROR_FILE_NOT_FOUND`: the key or value does not exist.
+    const NOT_FOUND: u32 = 2;
+    const RUN_SUBKEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+
+    let subkey_wide = to_wide(RUN_SUBKEY);
+    let value_wide = to_wide(strings::APP_NAME);
+    let mut hkey: windows_sys::Win32::System::Registry::HKEY = std::ptr::null_mut();
+
+    // SAFETY: `RegOpenKeyExW` is a standard Win32 registry call.
+    // `hkey` is zero-initialised and receives a valid handle on success.
+    // All wide-string slices are null-terminated and live for the full call.
+    let rc = unsafe {
+        RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            subkey_wide.as_ptr(),
+            0,
+            KEY_SET_VALUE,
+            &raw mut hkey,
+        )
+    };
+    if rc == NOT_FOUND {
+        return Ok(());
+    }
+    if rc != 0 {
+        return Err(format!(
+            "RegOpenKeyExW failed (code {rc}): cannot access legacy Run registry key"
+        ));
+    }
+    let key = RegKeyGuard(hkey);
+
+    // SAFETY: `key.0` is a valid open handle and `value_wide` is a valid
+    // null-terminated UTF-16 string.
+    let w = unsafe { RegDeleteValueW(key.0, value_wide.as_ptr()) };
+    if w == 0 || w == NOT_FOUND {
+        Ok(())
+    } else {
+        Err(format!(
+            "RegDeleteValueW failed (code {w}) on legacy Run value"
+        ))
+    }
 }
 
 // ─── Settings Manager ─────────────────────────────────────────────────────────
@@ -162,17 +502,19 @@ pub struct SettingsManager;
 impl SettingsManager {
     /// Load [`GuiSettings`] from the default exe-directory path.
     ///
-    /// Returns [`GuiSettings::default`] if the file is absent, unreadable,
-    /// or contains incompatible JSON. Unknown fields are silently ignored so
-    /// existing files survive schema additions across app versions.
-    pub fn load() -> GuiSettings {
+    /// - `Ok(Some(settings))` - loaded and sanitised.
+    /// - `Ok(None)` - no settings file exists yet (first run).
+    /// - `Err(msg)` - the file exists but is unreadable or not valid JSON.
+    ///
+    /// Unknown fields are silently ignored and missing fields take their
+    /// default values, so existing files survive schema changes across app
+    /// versions.
+    pub fn load() -> Result<Option<GuiSettings>, String> {
         let path = default_settings_path();
-
-        let Ok(content) = std::fs::read_to_string(&path) else {
-            return GuiSettings::default();
-        };
-
-        serde_json::from_str(&content).unwrap_or_default()
+        if !path.exists() {
+            return Ok(None);
+        }
+        read_settings_file(&path).map(Some)
     }
 
     /// Save `settings` to the default exe-directory path.
@@ -201,7 +543,7 @@ impl SettingsManager {
 
     /// Import settings from a user-chosen file via a native Open dialog.
     ///
-    /// - `Ok(Some(settings))` - loaded successfully from the chosen file.
+    /// - `Ok(Some(settings))` - loaded (and sanitised) from the chosen file.
     /// - `Ok(None)` - user cancelled the dialog.
     /// - `Err(msg)` - file was chosen but could not be read or parsed.
     pub fn import() -> Result<Option<GuiSettings>, String> {
@@ -211,88 +553,37 @@ impl SettingsManager {
         read_settings_file(&path).map(Some)
     }
 
-    /// Write or remove the Windows autostart registry entry for this executable.
+    /// Create or remove the Windows autostart logon task for this executable.
     ///
-    /// When `enabled` is `true`, creates (or updates) the value
-    /// `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\MagicX RAM Cleaner`
-    /// pointing to the running executable's full path.
+    /// When `enabled` is `true`, registers (or replaces) a Task Scheduler task
+    /// named after the app that launches the running executable with highest
+    /// privileges when the current user signs in.
     ///
-    /// When `enabled` is `false`, removes the value if it exists.
+    /// When `enabled` is `false`, deletes that task if it exists.
+    ///
+    /// In both cases the legacy `HKCU\...\Run` value written by older versions
+    /// is removed, since Windows never honours it for this elevated app.
     ///
     /// # Errors
     ///
-    /// Returns an error string if the registry key cannot be opened or the
-    /// value operation fails.
+    /// Returns an error string (including `schtasks` output) if the task
+    /// cannot be created or deleted, or the legacy value cannot be removed.
     pub fn set_autostart(enabled: bool) -> Result<(), String> {
-        use windows_sys::Win32::System::Registry::{
-            HKEY_CURRENT_USER, KEY_WRITE, REG_SZ, RegCloseKey, RegDeleteValueW, RegOpenKeyExW,
-            RegSetValueExW,
-        };
-
-        const RUN_SUBKEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-        const VALUE_NAME: &str = strings::APP_NAME;
-
-        let subkey_wide = to_wide(RUN_SUBKEY);
-        let value_wide = to_wide(VALUE_NAME);
-        let mut hkey: windows_sys::Win32::System::Registry::HKEY = std::ptr::null_mut();
-
-        // SAFETY: `RegOpenKeyExW` is a standard Win32 registry call.
-        // `hkey` is zero-initialised and receives a valid handle on success.
-        // All wide-string slices are null-terminated and live for the full call.
-        let rc = unsafe {
-            RegOpenKeyExW(
-                HKEY_CURRENT_USER,
-                subkey_wide.as_ptr(),
-                0,
-                KEY_WRITE,
-                &raw mut hkey,
-            )
-        };
-        if rc != 0 {
-            return Err(format!(
-                "RegOpenKeyExW failed (code {rc}): cannot access autostart registry key"
-            ));
-        }
-
-        let result = if enabled {
-            let exe = std::env::current_exe()
-                .map_err(|e| format!("Cannot resolve executable path: {e}"))?;
-            let exe_str = exe
-                .to_str()
-                .ok_or_else(|| "Executable path contains non-UTF-8 characters".to_owned())?;
-            let data = to_wide(exe_str);
-            // REG_SZ value length in bytes, including the null terminator.
-            let byte_count = (data.len() * 2) as u32;
-            // SAFETY: `data` is a valid null-terminated UTF-16 buffer.
-            // `byte_count` correctly encodes its byte length for the REG_SZ type.
-            let w = unsafe {
-                RegSetValueExW(
-                    hkey,
-                    value_wide.as_ptr(),
-                    0,
-                    REG_SZ,
-                    data.as_ptr().cast(),
-                    byte_count,
-                )
-            };
-            if w == 0 {
-                Ok(())
-            } else {
-                Err(format!("RegSetValueExW failed (code {w})"))
-            }
+        if enabled {
+            create_autostart_task()?;
         } else {
-            // SAFETY: `value_wide` is a valid null-terminated UTF-16 string.
-            let w = unsafe { RegDeleteValueW(hkey, value_wide.as_ptr()) };
-            // ERROR_FILE_NOT_FOUND (2) - value was never set; treat as success.
-            if w == 0 || w == 2 {
-                Ok(())
-            } else {
-                Err(format!("RegDeleteValueW failed (code {w})"))
-            }
-        };
+            delete_autostart_task()?;
+        }
+        remove_legacy_run_entry()
+    }
 
-        // SAFETY: `hkey` is a valid open registry handle obtained above.
-        unsafe { RegCloseKey(hkey) };
-        result
+    /// Whether the autostart logon task currently exists.
+    pub fn is_autostart_enabled() -> bool {
+        run_schtasks(&[
+            "/Query".as_ref(),
+            "/TN".as_ref(),
+            AUTOSTART_TASK_NAME.as_ref(),
+        ])
+        .is_ok()
     }
 }

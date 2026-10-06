@@ -114,6 +114,18 @@ fn draw_integration(ui: &mut egui::Ui, app: &mut MagicXApp) {
             });
         });
 
+        // Tray icon creation can fail (e.g. Explorer not running); without
+        // an icon the close button quits instead of hiding, so say why.
+        if app.settings.minimize_to_tray
+            && let Some(err) = &app.tray_error
+        {
+            ui.label(
+                egui::RichText::new(format!("Tray icon unavailable: {err}"))
+                    .size(10.0)
+                    .color(theme::RED),
+            );
+        }
+
         ui.add_space(6.0);
 
         // ── Launch at Startup ─────────────────────────────────────
@@ -140,9 +152,9 @@ fn draw_integration(ui: &mut egui::Ui, app: &mut MagicXApp) {
                 Ok(()) => {
                     app.settings_status = Some((
                         if app.settings.auto_start {
-                            "Autostart enabled - registered in HKCU\\Run".to_owned()
+                            "Autostart enabled: logon task created in Task Scheduler".to_owned()
                         } else {
-                            "Autostart disabled - removed from HKCU\\Run".to_owned()
+                            "Autostart disabled: logon task removed from Task Scheduler".to_owned()
                         },
                         false,
                         std::time::Instant::now(),
@@ -393,28 +405,7 @@ fn draw_backup(ui: &mut egui::Ui, app: &mut MagicXApp) {
                 .on_hover_text(strings::gui::settings::TOOLTIP_IMPORT)
                 .clicked()
             {
-                match SettingsManager::import() {
-                    Ok(Some(new_settings)) => {
-                        // Sync autostart registry entry to match the imported
-                        // preference (the checkbox handler only fires on
-                        // direct UI toggles, not bulk setting changes).
-                        let _sync = SettingsManager::set_autostart(new_settings.auto_start);
-                        app.settings = new_settings;
-                        app.settings_status = Some((
-                            strings::gui::settings::MSG_IMPORT_OK.to_owned(),
-                            false,
-                            std::time::Instant::now(),
-                        ));
-                    }
-                    Ok(None) => {} // user cancelled
-                    Err(e) => {
-                        app.settings_status = Some((
-                            format!("Import failed: {e}"),
-                            true,
-                            std::time::Instant::now(),
-                        ));
-                    }
-                }
+                import_settings(app);
             }
         });
 
@@ -425,4 +416,42 @@ fn draw_backup(ui: &mut egui::Ui, app: &mut MagicXApp) {
             ui.label(egui::RichText::new(msg.as_str()).size(11.0).color(color));
         }
     });
+}
+
+/// Import settings from a user-chosen file and apply them.
+///
+/// Also syncs the autostart task and the monitor state, which only follow
+/// direct UI toggles otherwise, and reports the outcome in the status banner.
+fn import_settings(app: &mut MagicXApp) {
+    match SettingsManager::import() {
+        Ok(Some(new_settings)) => {
+            let sync = SettingsManager::set_autostart(new_settings.auto_start);
+            app.settings = new_settings;
+            app.monitor_active = app.settings.auto_clean_enabled;
+            app.settings_status = Some(match sync {
+                Ok(()) => (
+                    strings::gui::settings::MSG_IMPORT_OK.to_owned(),
+                    false,
+                    std::time::Instant::now(),
+                ),
+                Err(e) => {
+                    // Keep the checkbox truthful about the task.
+                    app.settings.auto_start = SettingsManager::is_autostart_enabled();
+                    (
+                        format!("Settings imported, but autostart sync failed: {e}"),
+                        true,
+                        std::time::Instant::now(),
+                    )
+                }
+            });
+        }
+        Ok(None) => {} // user cancelled
+        Err(e) => {
+            app.settings_status = Some((
+                format!("Import failed: {e}"),
+                true,
+                std::time::Instant::now(),
+            ));
+        }
+    }
 }

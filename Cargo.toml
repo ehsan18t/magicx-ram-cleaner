@@ -65,6 +65,8 @@ egui-phosphor = { version = "0.12", features = ["regular"] }
 tray-icon = "0.21"
 image = { version = "0.25", default-features = false, features = ["png", "ico"] }
 ab_glyph = "0.2"
+# Same version eframe uses; gives access to the native HWND of the eframe window.
+raw-window-handle = "0.6"
 
 [package.metadata.winresource]
 OriginalFilename = "magicx-ram-cleaner.exe"

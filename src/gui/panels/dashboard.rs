@@ -89,13 +89,14 @@ fn draw_info_card(ui: &mut egui::Ui, snap: &stats::MemorySnapshot, dark: bool) {
                 theme::ACCENT,
                 dark,
             );
+            // Commit charge is already shown in the overview above, so this
+            // slot shows the standby cache that the clean levels purge.
             widgets::stat_label(
                 ui,
-                strings::gui::dashboard::LABEL_PAGE_FILE,
-                &format!(
-                    "{} / {}",
-                    stats::format_bytes(snap.total_page_file - snap.available_page_file),
-                    stats::format_bytes(snap.total_page_file)
+                strings::gui::dashboard::LABEL_STANDBY,
+                &snap.standby_bytes().map_or_else(
+                    || strings::gui::dashboard::VALUE_UNKNOWN.to_owned(),
+                    stats::format_bytes,
                 ),
                 theme::YELLOW,
                 dark,
@@ -400,11 +401,7 @@ fn draw_result_success(
     });
 
     ui.add_space(4.0);
-    let freed_str = if result.total_freed > 0 {
-        stats::format_bytes(result.total_freed as u64)
-    } else {
-        "0 B".to_string()
-    };
+    let freed_str = stats::format_bytes(result.reclaimed_bytes().max(0) as u64);
 
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 20.0;
@@ -439,6 +436,24 @@ fn draw_result_success(
             theme::YELLOW,
             dark,
         );
+        // Purging standby moves Free but not Available, so show it too.
+        if let (Some(before), Some(after)) = (
+            result.overall_before.free_bytes(),
+            result.overall_after.free_bytes(),
+        ) {
+            widgets::stat_label(
+                ui,
+                strings::gui::dashboard::LABEL_FREE_RAM,
+                &format!(
+                    "{} {} {}",
+                    stats::format_bytes(before),
+                    ph::ARROW_RIGHT,
+                    stats::format_bytes(after)
+                ),
+                theme::GREEN,
+                dark,
+            );
+        }
     });
 
     ui.add_space(6.0);
@@ -468,20 +483,17 @@ fn draw_operation_list(ui: &mut egui::Ui, results: &[crate::cleaner::CleanResult
                     .color(theme::text_color(dark)),
             );
 
-            if r.freed_bytes > 0 {
+            let reclaimed = r.reclaimed_bytes();
+            if reclaimed != 0 {
+                let color = if reclaimed > 0 {
+                    theme::GREEN
+                } else {
+                    theme::YELLOW
+                };
                 ui.label(
-                    egui::RichText::new(format!("+{}", stats::format_bytes(r.freed_bytes as u64)))
-                        .color(theme::GREEN)
+                    egui::RichText::new(stats::format_signed_bytes(reclaimed))
+                        .color(color)
                         .size(10.5),
-                );
-            } else if r.freed_bytes < 0 {
-                ui.label(
-                    egui::RichText::new(format!(
-                        "-{}",
-                        stats::format_bytes(r.freed_bytes.unsigned_abs())
-                    ))
-                    .color(theme::YELLOW)
-                    .size(10.5),
                 );
             }
 

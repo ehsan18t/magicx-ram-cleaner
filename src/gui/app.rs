@@ -25,8 +25,20 @@ use super::{panels, theme, tray};
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-/// Maximum number of memory history samples kept in the ring buffer.
-const HISTORY_CAPACITY: usize = 300;
+/// Maximum number of lines kept in the monitor activity log.
+const MONITOR_LOG_CAPACITY: usize = 500;
+
+/// Upper bound for the auto-clean cooldown backoff multiplier.
+const MAX_COOLDOWN_BACKOFF: u32 = 8;
+
+/// Valid range of the monitor threshold slider (percent).
+const THRESHOLD_RANGE: std::ops::RangeInclusive<u32> = 50..=99;
+
+/// Valid range of the monitor cooldown slider (seconds).
+const COOLDOWN_RANGE_SECS: std::ops::RangeInclusive<u64> = 10..=300;
+
+/// Valid range of the "Show top" process count slider.
+const TOP_PROCESSES_RANGE: std::ops::RangeInclusive<usize> = 5..=50;
 
 /// How often the background stats thread captures a snapshot (ms).
 const STATS_POLL_INTERVAL_MS: u64 = 1000;
@@ -63,23 +75,15 @@ pub enum Panel {
     About,
 }
 
-/// A timestamped memory snapshot for the history chart.
-#[derive(Clone)]
-pub struct HistoryPoint {
-    /// Seconds since the GUI was launched.
-    pub elapsed_secs: f64,
-    /// Used physical memory in bytes.
-    pub used_bytes: u64,
-    /// Available physical memory in bytes.
-    pub available_bytes: u64,
-}
-
 /// Persistent user settings.
 ///
 /// Contains several independent boolean preferences; no meaningful two-variant
 /// enum reduction exists without obscuring what each field controls.
+///
+/// Fields missing from a saved file take their [`Default`] values.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct GuiSettings {
     /// Minimize to the system tray when the close button is clicked.
     ///
@@ -89,12 +93,11 @@ pub struct GuiSettings {
     pub minimize_to_tray: bool,
     /// Launch automatically at Windows startup (current user only).
     ///
-    /// Writes (or removes) a value under
-    /// `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+    /// Creates (or removes) a Task Scheduler logon task.
     pub auto_start: bool,
-    /// Auto-clean threshold percentage (0 = disabled).
+    /// Auto-clean threshold percentage (50 to 99).
     pub monitor_threshold: u32,
-    /// Cooldown between auto-cleans (seconds).
+    /// Cooldown between auto-cleans (10 to 300 seconds).
     pub monitor_cooldown_secs: u64,
     /// Default cleaning level.
     pub default_clean_level: CleanLevel,
@@ -108,8 +111,25 @@ pub struct GuiSettings {
     ///
     /// Persisted so the monitor resumes automatically when the app is
     /// restarted.
-    #[serde(default)]
     pub auto_clean_enabled: bool,
+}
+
+impl GuiSettings {
+    /// Clamp numeric settings to the ranges their sliders allow.
+    ///
+    /// Applied after loading or importing a file, which may have been edited
+    /// by hand or written by another version.
+    pub fn sanitize(&mut self) {
+        self.monitor_threshold = self
+            .monitor_threshold
+            .clamp(*THRESHOLD_RANGE.start(), *THRESHOLD_RANGE.end());
+        self.monitor_cooldown_secs = self
+            .monitor_cooldown_secs
+            .clamp(*COOLDOWN_RANGE_SECS.start(), *COOLDOWN_RANGE_SECS.end());
+        self.top_process_count = self
+            .top_process_count
+            .clamp(*TOP_PROCESSES_RANGE.start(), *TOP_PROCESSES_RANGE.end());
+    }
 }
 
 impl Default for GuiSettings {
@@ -134,6 +154,8 @@ pub struct CleanResultMsg {
     pub result: std::result::Result<SmartCleanResult, String>,
     /// Which level was requested.
     pub level: CleanLevel,
+    /// `true` when the clean was started by monitor auto-clean.
+    pub auto: bool,
 }
 
 // ─── Application State ───────────────────────────────────────────────────────
@@ -148,9 +170,6 @@ pub struct MagicXApp {
 
     /// Latest memory snapshot (updated by background thread).
     pub latest_snapshot: Arc<Mutex<Option<MemorySnapshot>>>,
-
-    /// Memory usage history ring buffer (updated by background thread).
-    pub history: Arc<Mutex<VecDeque<HistoryPoint>>>,
 
     /// Background stats thread shutdown signal.
     stats_running: Arc<AtomicBool>,
@@ -184,16 +203,30 @@ pub struct MagicXApp {
     pub last_clean_result: Option<CleanResultMsg>,
 
     /// Top processes list (refreshed periodically).
-    pub top_processes: Arc<Mutex<Vec<ProcessMemoryInfo>>>,
+    ///
+    /// `None` until the first background query completes, so the panel can
+    /// show a loading state instead of an empty table.
+    pub top_processes: Arc<Mutex<Option<Vec<ProcessMemoryInfo>>>>,
 
     /// Last time processes were refreshed.
     last_process_refresh: Instant,
 
+    /// `true` while a process-list refresh thread is running, so refreshes
+    /// never overlap.
+    process_refresh_in_flight: Arc<AtomicBool>,
+
     /// Whether monitoring auto-clean is active.
     pub monitor_active: bool,
 
-    /// Last time auto-clean triggered (for cooldown).
+    /// Last time an auto-clean finished (for cooldown).
     last_auto_clean: Option<Instant>,
+
+    /// Cooldown multiplier for the next auto-clean (1, 2, 4 or 8).
+    ///
+    /// Doubles each time an auto-clean finishes with memory load still at or
+    /// above the threshold, and resets to 1 once load drops below it, so a
+    /// futile clean is not repeated back to back.
+    auto_clean_backoff: u32,
 
     /// Last time a periodic status line was appended to the monitor log.
     ///
@@ -205,14 +238,21 @@ pub struct MagicXApp {
     /// start/stop transitions and log them once.
     prev_monitor_active: bool,
 
-    /// Monitor log messages.
-    pub monitor_log: Vec<String>,
+    /// Monitor log messages, oldest first, capped at
+    /// [`MONITOR_LOG_CAPACITY`] lines.
+    pub monitor_log: VecDeque<String>,
 
     /// User settings.
     pub settings: GuiSettings,
 
     /// Shadow copy of settings used to detect changes and trigger auto-save.
     settings_snapshot: GuiSettings,
+
+    /// `true` when settings changed but have not been written to disk yet.
+    ///
+    /// Saving is deferred while a widget is being dragged (e.g. a slider) so
+    /// the file is not rewritten on every frame.
+    settings_dirty: bool,
 
     /// Process sort column (0=name, 1=count, 2=memory, 3=peak).
     pub process_sort_col: usize,
@@ -242,6 +282,12 @@ pub struct MagicXApp {
     /// otherwise.  Dropping this value removes the tray icon from the
     /// notification area.
     tray_handle: Option<tray::TrayHandle>,
+
+    /// Error from the last failed attempt to create the tray icon.
+    ///
+    /// Shown in the Settings panel; `None` when the icon was created or is
+    /// not wanted.
+    pub tray_error: Option<String>,
 
     /// Whether the window is currently hidden to the system tray.
     hidden_to_tray: bool,
@@ -286,24 +332,21 @@ impl MagicXApp {
 
         // Load persisted settings before applying the theme so the window
         // starts in the user's preferred mode without a one-frame flash.
-        let settings = super::persistence::SettingsManager::load();
+        let (settings, settings_status) = load_settings_and_sync_autostart();
 
         // Register and configure both themes, then activate the saved one.
         configure_themes(&cc.egui_ctx, settings.dark_mode);
 
         let (clean_tx, clean_rx) = mpsc::channel();
         let latest_snapshot = Arc::new(Mutex::new(None));
-        let history = Arc::new(Mutex::new(VecDeque::with_capacity(HISTORY_CAPACITY)));
         let stats_running = Arc::new(AtomicBool::new(true));
         let needs_repaint = Arc::new(AtomicBool::new(true));
         let needs_capture = Arc::new(AtomicBool::new(true));
-        let top_processes = Arc::new(Mutex::new(Vec::new()));
+        let top_processes = Arc::new(Mutex::new(None));
 
         // Spawn background stats collection thread
-        let start_time = Instant::now();
         {
             let snapshot_ref = Arc::clone(&latest_snapshot);
-            let history_ref = Arc::clone(&history);
             let running_ref = Arc::clone(&stats_running);
             let repaint_ref = Arc::clone(&needs_repaint);
             let capture_ref = Arc::clone(&needs_capture);
@@ -315,11 +358,9 @@ impl MagicXApp {
                     .spawn(move || {
                         stats_thread(
                             &snapshot_ref,
-                            &history_ref,
                             &running_ref,
                             &repaint_ref,
                             &capture_ref,
-                            start_time,
                             &ctx,
                         );
                     })
@@ -330,11 +371,11 @@ impl MagicXApp {
         // Capture dark_mode before settings is moved into Self.
         let initial_dark_mode = settings.dark_mode;
 
-        // Look up our own HWND so the tray-watcher thread can post a synthetic
-        // WM_PAINT message that wakes eframe even when WS_VISIBLE is cleared.
-        // FindWindowW succeeds here because the window is already created by
-        // eframe before the app_creator closure is called.
-        let hwnd = crate::console::find_app_window(strings::APP_NAME);
+        // Take our own HWND from eframe so the tray-watcher thread can post a
+        // synthetic WM_PAINT message that wakes eframe even when WS_VISIBLE
+        // is cleared. A title lookup (FindWindowW) could match an unrelated
+        // window with the same title, such as an Explorer folder.
+        let hwnd = window_hwnd(cc);
 
         // Force Windows dark mode at the process level so native menus
         // and the title bar match the user's in-app theme from the start.
@@ -344,20 +385,18 @@ impl MagicXApp {
         // Initialize tray icon if minimize-to-tray was previously enabled.
         // Pass the egui context and HWND so the watcher thread can call
         // request_repaint() to wake the event loop on tray events.
-        let tray_handle = if settings.minimize_to_tray {
-            tray::TrayHandle::new(cc.egui_ctx.clone(), hwnd, initial_dark_mode).ok()
+        let (tray_handle, tray_error) = if settings.minimize_to_tray {
+            match tray::TrayHandle::new(cc.egui_ctx.clone(), hwnd, initial_dark_mode) {
+                Ok(handle) => (Some(handle), None),
+                Err(e) => (None, Some(e)),
+            }
         } else {
-            None
+            (None, None)
         };
-
-        // Sync Windows autostart registry entry with the last saved preference.
-        let _sync_autostart =
-            super::persistence::SettingsManager::set_autostart(settings.auto_start);
 
         Ok(Self {
             active_panel: Panel::Dashboard,
             latest_snapshot,
-            history,
             stats_running,
             needs_repaint,
             needs_capture,
@@ -369,20 +408,24 @@ impl MagicXApp {
             last_process_refresh: Instant::now()
                 .checked_sub(Duration::from_secs(PROCESS_REFRESH_SECS + 1))
                 .unwrap_or_else(Instant::now),
+            process_refresh_in_flight: Arc::new(AtomicBool::new(false)),
             monitor_active: settings.auto_clean_enabled,
             last_auto_clean: None,
+            auto_clean_backoff: 1,
             last_monitor_status_log: None,
             prev_monitor_active: false,
-            monitor_log: Vec::new(),
+            monitor_log: VecDeque::with_capacity(MONITOR_LOG_CAPACITY),
             settings_snapshot: settings.clone(),
+            settings_dirty: false,
             settings,
             process_sort_col: 2,
             process_sort_asc: false,
             process_search: String::new(),
             last_applied_dark: initial_dark_mode,
             window_revealed: false,
-            settings_status: None,
+            settings_status,
             tray_handle,
+            tray_error,
             hidden_to_tray: false,
             hide_requested_at: None,
             quit_requested: false,
@@ -391,8 +434,16 @@ impl MagicXApp {
         })
     }
 
-    /// Start a cleaning operation on a background thread.
+    /// Start a manual cleaning operation on a background thread.
     pub fn start_clean(&mut self, level: CleanLevel) {
+        self.spawn_clean(level, false);
+    }
+
+    /// Start a cleaning operation on a background thread.
+    ///
+    /// `auto` marks cleans triggered by the monitor so the result is logged
+    /// and the cooldown applied only for those.
+    fn spawn_clean(&mut self, level: CleanLevel, auto: bool) {
         if self.cleaning_in_progress {
             return;
         }
@@ -403,62 +454,120 @@ impl MagicXApp {
         if let Err(e) = std::thread::Builder::new()
             .name("gui-clean".into())
             .spawn(move || {
-                let result = cleaner::smart_clean(level, false, &[]).map_err(|e| format!("{e:#}"));
-                drop(tx.send(CleanResultMsg { result, level }));
+                // Catch a panic so a result is always sent; otherwise
+                // `cleaning_in_progress` would stay set forever.
+                let result = std::panic::catch_unwind(|| {
+                    cleaner::smart_clean(level, false, &[]).map_err(|e| format!("{e:#}"))
+                })
+                .unwrap_or_else(|_| Err("clean worker panicked".to_owned()));
+                drop(tx.send(CleanResultMsg {
+                    result,
+                    level,
+                    auto,
+                }));
             })
         {
-            self.cleaning_in_progress = false;
             drop(self.clean_tx.send(CleanResultMsg {
                 result: Err(format!("failed to spawn clean thread: {e}")),
                 level,
+                auto,
             }));
         }
     }
 
-    /// Poll for completed cleaning results.
-    ///
-    /// When monitoring is active the result is also logged to the
-    /// activity log exactly once (here, not in `logic()`).
-    fn poll_clean_results(&mut self) {
-        if let Ok(msg) = self.clean_rx.try_recv() {
-            self.cleaning_in_progress = false;
-
-            // Log auto-clean outcome to the monitor activity log.
-            if self.monitor_active {
-                let log_msg = match &msg.result {
-                    Ok(r) => format!(
-                        "Auto-clean complete: freed {}",
-                        stats::format_bytes(if r.total_freed > 0 {
-                            r.total_freed as u64
-                        } else {
-                            0
-                        }),
-                    ),
-                    Err(e) => format!("Auto-clean failed: {e}"),
-                };
-                self.monitor_log.push(log_msg);
-            }
-
-            self.last_clean_result = Some(msg);
+    /// Append a line to the monitor activity log, dropping the oldest line
+    /// once [`MONITOR_LOG_CAPACITY`] is reached.
+    fn push_monitor_log(&mut self, msg: String) {
+        if self.monitor_log.len() >= MONITOR_LOG_CAPACITY {
+            self.monitor_log.pop_front();
         }
+        self.monitor_log.push_back(msg);
     }
 
-    /// Refresh the process list if enough time has passed.
-    fn maybe_refresh_processes(&mut self) {
-        if self.last_process_refresh.elapsed() >= Duration::from_secs(PROCESS_REFRESH_SECS) {
-            self.last_process_refresh = Instant::now();
-            let procs_ref = Arc::clone(&self.top_processes);
-            drop(
-                std::thread::Builder::new()
-                    .name("gui-procs".into())
-                    .spawn(move || {
-                        if let Ok(procs) = stats::query_all_processes()
-                            && let Ok(mut lock) = procs_ref.lock()
-                        {
-                            *lock = procs;
-                        }
-                    }),
+    /// Poll for completed cleaning results.
+    ///
+    /// Auto-clean results are logged to the activity log exactly once (here,
+    /// not in `logic()`) and start the cooldown, with backoff when the clean
+    /// did not bring memory load below the threshold.
+    fn poll_clean_results(&mut self) {
+        let Ok(msg) = self.clean_rx.try_recv() else {
+            return;
+        };
+        self.cleaning_in_progress = false;
+
+        if msg.auto {
+            let log_msg = match &msg.result {
+                Ok(r) => format!(
+                    "Auto-clean complete: freed {}",
+                    stats::format_bytes(r.reclaimed_bytes().max(0) as u64),
+                ),
+                Err(e) => format!("Auto-clean failed: {e}"),
+            };
+            self.push_monitor_log(log_msg);
+
+            // Start the cooldown when the clean finishes, not when it starts,
+            // so a long clean does not eat into the cooldown.
+            self.last_auto_clean = Some(Instant::now());
+
+            let load_after = msg.result.as_ref().map_or_else(
+                |_| {
+                    self.latest_snapshot
+                        .lock()
+                        .ok()
+                        .and_then(|s| s.as_ref().map(|s| s.memory_load_percent))
+                },
+                |r| Some(r.overall_after.memory_load_percent),
             );
+            if load_after.is_some_and(|load| load >= self.settings.monitor_threshold) {
+                self.auto_clean_backoff = (self.auto_clean_backoff * 2).min(MAX_COOLDOWN_BACKOFF);
+                let msg = format!(
+                    "Memory load still at or above {}%; next auto-clean in {}s.",
+                    self.settings.monitor_threshold,
+                    self.effective_cooldown().as_secs(),
+                );
+                self.push_monitor_log(msg);
+            } else {
+                self.auto_clean_backoff = 1;
+            }
+        }
+
+        self.last_clean_result = Some(msg);
+    }
+
+    /// Cooldown before the next auto-clean: the configured cooldown times
+    /// the current backoff multiplier.
+    fn effective_cooldown(&self) -> Duration {
+        Duration::from_secs(
+            self.settings
+                .monitor_cooldown_secs
+                .saturating_mul(u64::from(self.auto_clean_backoff)),
+        )
+    }
+
+    /// Refresh the process list if enough time has passed and no refresh is
+    /// already running.
+    fn maybe_refresh_processes(&mut self) {
+        if self.last_process_refresh.elapsed() < Duration::from_secs(PROCESS_REFRESH_SECS)
+            || self.process_refresh_in_flight.swap(true, Ordering::AcqRel)
+        {
+            return;
+        }
+        self.last_process_refresh = Instant::now();
+        let procs_ref = Arc::clone(&self.top_processes);
+        let in_flight = Arc::clone(&self.process_refresh_in_flight);
+        let spawned = std::thread::Builder::new()
+            .name("gui-procs".into())
+            .spawn(move || {
+                if let Ok(procs) = stats::query_all_processes()
+                    && let Ok(mut lock) = procs_ref.lock()
+                {
+                    *lock = Some(procs);
+                }
+                in_flight.store(false, Ordering::Release);
+            });
+        if spawned.is_err() {
+            self.process_refresh_in_flight
+                .store(false, Ordering::Release);
         }
     }
 
@@ -473,9 +582,9 @@ impl MagicXApp {
             return;
         }
 
-        // Check cooldown
+        // Check cooldown (scaled by backoff after futile cleans).
         if let Some(last) = self.last_auto_clean
-            && last.elapsed() < Duration::from_secs(self.settings.monitor_cooldown_secs)
+            && last.elapsed() < self.effective_cooldown()
         {
             return;
         }
@@ -494,18 +603,19 @@ impl MagicXApp {
                     self.settings.monitor_threshold,
                     self.settings.default_clean_level.title_case_name(),
                 );
-                self.monitor_log.push(msg);
-                self.last_auto_clean = Some(Instant::now());
+                self.push_monitor_log(msg);
                 self.last_monitor_status_log = Some(Instant::now());
-                self.start_clean(self.settings.default_clean_level);
+                self.spawn_clean(self.settings.default_clean_level, true);
             } else {
+                self.auto_clean_backoff = 1;
+
                 // Periodic heartbeat so the user knows the monitor is alive.
                 let should_log = self
                     .last_monitor_status_log
                     .is_none_or(|t| t.elapsed() >= Duration::from_secs(60));
 
                 if should_log {
-                    self.monitor_log.push(format!(
+                    self.push_monitor_log(format!(
                         "Checked: memory at {load}%, below threshold {}%. No action needed.",
                         self.settings.monitor_threshold,
                     ));
@@ -515,14 +625,18 @@ impl MagicXApp {
         }
     }
 
-    /// Poll the tray icon event queues and dispatch any pending [`TrayAction`].
+    /// Poll the tray icon event queues and dispatch every pending [`TrayAction`].
     ///
     /// Called every frame from [`eframe::App::logic`].
     fn poll_tray_events(&mut self, ctx: &egui::Context) {
-        let Some(action) = self.tray_handle.as_ref().and_then(tray::TrayHandle::poll) else {
-            return;
-        };
-        match action {
+        while let Some(action) = self.tray_handle.as_ref().and_then(tray::TrayHandle::poll) {
+            self.handle_tray_action(ctx, &action);
+        }
+    }
+
+    /// Apply a single [`TrayAction`] received from the tray watcher thread.
+    fn handle_tray_action(&mut self, ctx: &egui::Context, action: &tray::TrayAction) {
+        match *action {
             tray::TrayAction::Show => {
                 crate::console::uncloak_window(self.hwnd);
                 self.hidden_to_tray = false;
@@ -564,16 +678,32 @@ impl MagicXApp {
         // glyphs must match the app's dark_mode, not the OS theme.
         if tray_changed {
             if self.settings.minimize_to_tray {
-                self.tray_handle =
-                    tray::TrayHandle::new(ctx.clone(), self.hwnd, self.settings.dark_mode).ok();
+                self.rebuild_tray(ctx);
             } else {
                 self.tray_handle = None;
+                self.tray_error = None;
                 // Uncloak if the window was hidden while the setting was on.
                 if self.hidden_to_tray {
                     crate::console::uncloak_window(self.hwnd);
                     self.hidden_to_tray = false;
                 }
             }
+        }
+    }
+
+    /// (Re)create the tray icon for the current theme.
+    ///
+    /// The old handle is dropped first so its icon and watcher thread are
+    /// gone before the new ones register. A failure is kept in
+    /// [`Self::tray_error`] for the Settings panel.
+    fn rebuild_tray(&mut self, ctx: &egui::Context) {
+        self.tray_handle = None;
+        match tray::TrayHandle::new(ctx.clone(), self.hwnd, self.settings.dark_mode) {
+            Ok(handle) => {
+                self.tray_handle = Some(handle);
+                self.tray_error = None;
+            }
+            Err(e) => self.tray_error = Some(e),
         }
     }
 
@@ -598,9 +728,8 @@ impl MagicXApp {
             crate::console::set_title_bar_dark_mode(self.hwnd, self.settings.dark_mode);
 
             if self.settings.minimize_to_tray {
-                self.tray_handle =
-                    tray::TrayHandle::new(ui.ctx().clone(), self.hwnd, self.settings.dark_mode)
-                        .ok();
+                let ctx = ui.ctx().clone();
+                self.rebuild_tray(&ctx);
             }
         }
 
@@ -620,6 +749,77 @@ impl MagicXApp {
         draw_sidebar(ui, self);
         draw_main_panel(ui, self);
     }
+
+    /// Save settings to disk after the user changes anything.
+    ///
+    /// Writes are deferred while the pointer is dragging a widget (e.g. a
+    /// slider) so the file is not rewritten every frame; the final value is
+    /// saved on the first frame after release, and always on exit.
+    fn persist_settings_if_changed(&mut self, ctx: &egui::Context) {
+        if self.settings != self.settings_snapshot {
+            self.settings_snapshot = self.settings.clone();
+            self.settings_dirty = true;
+        }
+        if self.settings_dirty && !ctx.egui_is_using_pointer() {
+            super::persistence::SettingsManager::save(&self.settings);
+            self.settings_dirty = false;
+        }
+    }
+}
+
+/// Load persisted settings and bring the autostart task in line with them.
+///
+/// Returns the settings plus an optional status message for the Settings
+/// panel. Autostart is only synced from a file that was actually loaded: when
+/// the file is missing or corrupt, `auto_start` is instead read back from the
+/// existing logon task so the user's autostart is never wiped.
+fn load_settings_and_sync_autostart() -> (GuiSettings, Option<(String, bool, Instant)>) {
+    use super::persistence::SettingsManager;
+
+    match SettingsManager::load() {
+        Ok(Some(settings)) => {
+            let status = SettingsManager::set_autostart(settings.auto_start)
+                .err()
+                .map(|e| (format!("Autostart sync failed: {e}"), true, Instant::now()));
+            (settings, status)
+        }
+        Ok(None) => {
+            let settings = GuiSettings {
+                auto_start: SettingsManager::is_autostart_enabled(),
+                ..GuiSettings::default()
+            };
+            (settings, None)
+        }
+        Err(e) => {
+            let settings = GuiSettings {
+                auto_start: SettingsManager::is_autostart_enabled(),
+                ..GuiSettings::default()
+            };
+            let status = (
+                format!("Settings file could not be loaded, using defaults. {e}"),
+                true,
+                Instant::now(),
+            );
+            (settings, Some(status))
+        }
+    }
+}
+
+/// Native `HWND` of the eframe main window, as `isize`.
+///
+/// Taken from eframe's raw window handle. Falls back to a title lookup only
+/// if eframe cannot provide a Win32 handle, which does not happen on the
+/// native Windows backend.
+fn window_hwnd(cc: &eframe::CreationContext<'_>) -> isize {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    cc.window_handle()
+        .ok()
+        .and_then(|handle| match handle.as_raw() {
+            RawWindowHandle::Win32(win32) => Some(win32.hwnd.get()),
+            _ => None,
+        })
+        .unwrap_or_else(|| crate::console::find_app_window(strings::APP_NAME))
 }
 
 impl eframe::App for MagicXApp {
@@ -639,9 +839,14 @@ impl eframe::App for MagicXApp {
         // ── Close intercept ─────────────────────────────────────────
         // When minimize-to-tray is active and the user has not explicitly
         // selected "Quit" from the tray menu, hide the window instead of
-        // closing it.
+        // closing it. Requires a live tray icon, otherwise the window would
+        // vanish with no way to bring it back.
         let close_requested = ctx.input(|i| i.viewport().close_requested());
-        if close_requested && self.settings.minimize_to_tray && !self.quit_requested {
+        if close_requested
+            && self.settings.minimize_to_tray
+            && self.tray_handle.is_some()
+            && !self.quit_requested
+        {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             // Cloak the window instead of hiding it (SW_HIDE) or using the
             // eframe Visible(false) API.  Both of those clear WS_VISIBLE,
@@ -681,16 +886,18 @@ impl eframe::App for MagicXApp {
         // Detect monitor start / stop transitions.
         if self.monitor_active != self.prev_monitor_active {
             if self.monitor_active {
-                self.monitor_log.push(format!(
+                self.push_monitor_log(format!(
                     "Monitoring started: threshold {}%, cooldown {}s, level {}",
                     self.settings.monitor_threshold,
                     self.settings.monitor_cooldown_secs,
                     self.settings.default_clean_level.title_case_name(),
                 ));
-                // Immediately eligible for a status heartbeat.
+                // Immediately eligible for a status heartbeat, with a fresh
+                // cooldown backoff.
                 self.last_monitor_status_log = None;
+                self.auto_clean_backoff = 1;
             } else {
-                self.monitor_log.push("Monitoring stopped.".to_owned());
+                self.push_monitor_log("Monitoring stopped.".to_owned());
             }
             self.prev_monitor_active = self.monitor_active;
         }
@@ -712,35 +919,26 @@ impl eframe::App for MagicXApp {
         self.needs_capture
             .store(window_visible || self.monitor_active, Ordering::Release);
 
-        // When the window is hidden to tray or minimized, schedule
-        // low-frequency wake-ups instead of rendering.
-        if self.hidden_to_tray {
-            // The window is cloaked (minimized tool window with
-            // WS_VISIBLE), so eframe's event loop stays in
-            // ControlFlow::Wait instead of the buggy ControlFlow::Poll
-            // that fires for truly invisible windows (egui#7776).
-            // request_repaint_after() properly gates wakeups; the event
-            // loop blocks at the kernel level until the timeout expires
-            // or a tray-thread request_repaint() wakes it.
-            ctx.request_repaint_after(Duration::from_secs(1));
-        } else if self.monitor_active {
-            // Window is minimized but auto-clean is enabled.
-            // Schedule a low-frequency wake-up so the threshold check
-            // in handle_monitor_auto_clean() runs without the stats
-            // thread having to call request_repaint() (which would
-            // cause unnecessary rendering work).
+        // When the window is hidden to tray or minimized with auto-clean
+        // enabled, schedule a low-frequency wake-up so the threshold check
+        // in handle_monitor_auto_clean() runs without the stats thread
+        // having to call request_repaint() (which would cause unnecessary
+        // rendering work). With monitoring off, no timer is scheduled: the
+        // tray watcher and a second instance wake the loop explicitly.
+        //
+        // A tray-hidden window is cloaked (minimized tool window with
+        // WS_VISIBLE), so eframe's event loop stays in ControlFlow::Wait
+        // instead of the buggy ControlFlow::Poll that fires for truly
+        // invisible windows (egui#7776), and request_repaint_after()
+        // properly gates wakeups.
+        if !window_visible && self.monitor_active {
             ctx.request_repaint_after(Duration::from_secs(2));
         }
 
         // ── Settings sync ────────────────────────────────────────────
-        // Sync tray handle and autostart registry when settings change.
+        // Sync the tray handle when settings change.
         self.sync_integration_settings(ctx);
-
-        // Persist settings immediately whenever the user changes anything.
-        if self.settings != self.settings_snapshot {
-            super::persistence::SettingsManager::save(&self.settings);
-            self.settings_snapshot = self.settings.clone();
-        }
+        self.persist_settings_if_changed(ctx);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -823,11 +1021,9 @@ fn configure_themes(ctx: &egui::Context, dark_mode: bool) {
 /// Background thread that periodically captures memory snapshots.
 fn stats_thread(
     snapshot: &Arc<Mutex<Option<MemorySnapshot>>>,
-    history: &Arc<Mutex<VecDeque<HistoryPoint>>>,
     running: &Arc<AtomicBool>,
     needs_repaint: &Arc<AtomicBool>,
     needs_capture: &Arc<AtomicBool>,
-    start_time: Instant,
     ctx: &egui::Context,
 ) {
     while running.load(Ordering::Acquire) {
@@ -838,20 +1034,8 @@ fn stats_thread(
         if needs_capture.load(Ordering::Acquire)
             && let Ok(snap) = MemorySnapshot::capture()
         {
-            let point = HistoryPoint {
-                elapsed_secs: start_time.elapsed().as_secs_f64(),
-                used_bytes: snap.used_physical,
-                available_bytes: snap.available_physical,
-            };
-
             if let Ok(mut lock) = snapshot.lock() {
                 *lock = Some(snap);
-            }
-            if let Ok(mut lock) = history.lock() {
-                if lock.len() >= HISTORY_CAPACITY {
-                    lock.pop_front();
-                }
-                lock.push_back(point);
             }
 
             // Only request a repaint when the window is actually visible.
@@ -891,7 +1075,7 @@ fn draw_sidebar(ui: &mut egui::Ui, app: &mut MagicXApp) {
             egui::Frame::new()
                 .fill(theme::sidebar_bg(dark))
                 .inner_margin(egui::Margin::symmetric(8, 10))
-                .stroke(egui::Stroke::new(0.5, theme::border_color(dark))),
+                .stroke(egui::Stroke::new(0.5_f32, theme::border_color(dark))),
         )
         .show_inside(ui, |ui| {
             draw_sidebar_brand(ui);

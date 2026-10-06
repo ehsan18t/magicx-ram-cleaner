@@ -88,10 +88,17 @@ pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     draw_toolbar(ui, app);
     ui.add_space(8.0);
 
-    let procs = app.top_processes.lock().ok().map(|p| p.clone());
+    let procs = app.top_processes.lock().ok().and_then(|p| p.clone());
 
     let Some(procs) = procs else {
-        ui.spinner();
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label(
+                egui::RichText::new(strings::gui::processes::LOADING)
+                    .size(12.0)
+                    .color(theme::muted_color(dark)),
+            );
+        });
         return;
     };
 

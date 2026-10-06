@@ -1873,6 +1873,7 @@ dependencies = [
  "egui_extras",
  "embed-manifest",
  "image",
+ "raw-window-handle",
  "serde",
  "serde_json",
  "tray-icon",

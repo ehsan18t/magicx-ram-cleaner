@@ -162,9 +162,6 @@ pub mod gui {
         /// Stat label: total physical RAM.
         pub const LABEL_TOTAL_RAM: &str = "Total RAM";
 
-        /// Stat label: page file usage.
-        pub const LABEL_PAGE_FILE: &str = "Page File";
-
         /// Stat label: system thread count.
         pub const LABEL_THREADS: &str = "Threads";
 
@@ -176,6 +173,17 @@ pub mod gui {
 
         /// Stat label: available memory.
         pub const LABEL_AVAILABLE: &str = "Available";
+
+        // ── GUI fix additions ──────────────────────────────────────────
+
+        /// Stat label: standby cache size.
+        pub const LABEL_STANDBY: &str = "Standby Cache";
+
+        /// Stat label: free (zeroed + free list) memory before and after a clean.
+        pub const LABEL_FREE_RAM: &str = "Free RAM";
+
+        /// Shown in place of a value that is not available.
+        pub const VALUE_UNKNOWN: &str = "n/a";
     }
 
     /// Monitor panel strings.
@@ -246,6 +254,11 @@ pub mod gui {
 
         /// Sort column human-readable names (indexed by column).
         pub const COL_NAMES: [&str; 4] = ["name", "count", "memory", "peak"];
+
+        // ── GUI fix additions ──────────────────────────────────────────
+
+        /// Shown until the first process query completes.
+        pub const LOADING: &str = "Loading processes...";
     }
 
     /// Settings panel strings.
@@ -499,7 +512,7 @@ pub mod cli {
     pub const SECTION_COMMIT: &str = "Commit Charge";
 
     /// Page file section header.
-    pub const SECTION_PAGE_FILE: &str = "Page File";
+    pub const SECTION_PAGE_FILE: &str = "Commit Limit (RAM + Page File)";
 
     /// Kernel memory pools section header.
     pub const SECTION_KERNEL: &str = "Kernel Memory Pools";

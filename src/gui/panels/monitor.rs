@@ -166,11 +166,14 @@ fn draw_log_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
                     .color(theme::muted_color(dark)),
             );
         } else {
+            // Lay out only the rows in view; each row is one truncated line
+            // (full text on hover) so rows have a fixed height.
+            let row_height = ui.text_style_height(&egui::TextStyle::Body);
             egui::ScrollArea::vertical()
                 .max_height(120.0)
                 .stick_to_bottom(true)
-                .show(ui, |ui| {
-                    for msg in &app.monitor_log {
+                .show_rows(ui, row_height, app.monitor_log.len(), |ui, rows| {
+                    for msg in app.monitor_log.range(rows) {
                         let is_error = msg.contains("failed")
                             || msg.contains("Failed")
                             || msg.contains("error")
@@ -181,7 +184,10 @@ fn draw_log_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
                         } else {
                             theme::muted_color(dark)
                         };
-                        ui.label(egui::RichText::new(msg).size(10.5).color(color));
+                        ui.add(
+                            egui::Label::new(egui::RichText::new(msg).size(10.5).color(color))
+                                .truncate(),
+                        );
                     }
                 });
         }
