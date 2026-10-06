@@ -1,6 +1,6 @@
 //! # Settings Manager
 //!
-//! Central [`SettingsManager`] for all [`super::app::GuiSettings`] I/O.
+//! Central [`SettingsManager`] for all [`super::settings::GuiSettings`] I/O.
 //!
 //! Handles loading, saving, importing and exporting. (Autostart is Windows
 //! integration, see [`crate::integration::autostart`].)
@@ -13,7 +13,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::app::GuiSettings;
+use super::settings::GuiSettings;
 use crate::platform::dialog;
 
 use crate::strings;

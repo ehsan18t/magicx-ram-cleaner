@@ -20,6 +20,7 @@ use crate::memory;
 use crate::strings;
 
 use super::super::app::MagicXApp;
+use super::super::settings::TOP_PROCESSES_RANGE;
 use super::super::{theme, widgets};
 
 /// Row height for comfortable reading.
@@ -280,23 +281,13 @@ fn draw_toolbar(ui: &mut egui::Ui, app: &mut MagicXApp) {
                 .color(theme::muted_color(dark)),
         );
         ui.add_space(4.0);
-        let mut count_f32 = app.settings.top_process_count as f32;
-        let slider = egui::Slider::new(&mut count_f32, 5.0..=50.0)
-            .step_by(5.0)
-            .show_value(true)
-            .integer()
-            .suffix(" programs")
-            .text("");
-        if ui.add(slider).changed() {
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "slider is clamped to 5..=50"
-            )]
-            {
-                app.settings.top_process_count = count_f32 as usize;
-            }
-        }
+        ui.add(
+            egui::Slider::new(&mut app.settings.top_process_count, TOP_PROCESSES_RANGE)
+                .step_by(5.0)
+                .show_value(true)
+                .suffix(" programs")
+                .text(""),
+        );
 
         // ── Right: search box ──────────────────────────────────────────────
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

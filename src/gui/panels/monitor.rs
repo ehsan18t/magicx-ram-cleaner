@@ -10,6 +10,7 @@ use crate::engine::CleanLevel;
 use crate::strings;
 
 use super::super::app::MagicXApp;
+use super::super::settings::{COOLDOWN_RANGE_SECS, THRESHOLD_RANGE};
 use super::super::{theme, widgets};
 
 /// Draw the monitoring panel.
@@ -75,20 +76,11 @@ fn draw_config_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
                     .size(12.0)
                     .color(theme::text_color(dark)),
             );
-            let mut threshold_f32 = app.settings.monitor_threshold as f32;
-            let slider = egui::Slider::new(&mut threshold_f32, 50.0..=99.0)
-                .suffix("%")
-                .step_by(1.0);
-            ui.add(slider);
-            // Safe truncation: slider is clamped to 50..=99 which fits in u32.
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "slider is clamped to 50..=99"
-            )]
-            {
-                app.settings.monitor_threshold = threshold_f32 as u32;
-            }
+            ui.add(
+                egui::Slider::new(&mut app.settings.monitor_threshold, THRESHOLD_RANGE)
+                    .suffix("%")
+                    .step_by(1.0),
+            );
         });
 
         ui.add_space(4.0);
@@ -100,19 +92,11 @@ fn draw_config_card(ui: &mut egui::Ui, app: &mut MagicXApp, dark: bool) {
                     .size(12.0)
                     .color(theme::text_color(dark)),
             );
-            let mut cooldown_f32 = app.settings.monitor_cooldown_secs as f32;
-            let slider = egui::Slider::new(&mut cooldown_f32, 10.0..=300.0)
-                .suffix("s")
-                .step_by(5.0);
-            ui.add(slider);
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "slider is clamped to 10..=300"
-            )]
-            {
-                app.settings.monitor_cooldown_secs = cooldown_f32 as u64;
-            }
+            ui.add(
+                egui::Slider::new(&mut app.settings.monitor_cooldown_secs, COOLDOWN_RANGE_SECS)
+                    .suffix("s")
+                    .step_by(5.0),
+            );
         });
 
         ui.add_space(4.0);

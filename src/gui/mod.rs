@@ -44,6 +44,8 @@
 pub mod app;
 mod panels;
 pub(super) mod persistence;
+pub mod settings;
+mod sidebar;
 pub mod theme;
 mod tray;
 mod widgets;

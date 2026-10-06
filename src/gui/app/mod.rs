@@ -4,57 +4,34 @@
 //! management, and the main layout (sidebar + panel routing).
 
 use std::collections::VecDeque;
+
 use std::sync::atomic::{AtomicBool, Ordering};
+
 use std::sync::mpsc::{Receiver, Sender};
+
 use std::sync::{Arc, Mutex, mpsc};
+
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
 
 use eframe::egui;
 use egui::{FontFamily, FontId, TextStyle};
-use egui_phosphor::regular as ph;
 
-use serde::{Deserialize, Serialize};
-
-use crate::engine::auto_clean::{AutoCleanPolicy, Decision};
-use crate::engine::{self, CleanLevel, SmartCleanResult};
-use crate::memory::{self, MemorySnapshot, ProcessMemoryInfo};
+use self::background::{PROCESS_REFRESH_SECS, stats_thread};
+pub use self::cleaning::CleanResultMsg;
+use self::cleaning::MONITOR_LOG_CAPACITY;
+use super::settings::GuiSettings;
+use super::{sidebar, theme, tray};
+use crate::engine::auto_clean::AutoCleanPolicy;
+use crate::memory::{MemorySnapshot, ProcessMemoryInfo};
 use crate::strings;
 
-use super::{panels, theme, tray};
+mod background;
+mod cleaning;
+mod tray_events;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-
-/// Maximum number of lines kept in the monitor activity log.
-const MONITOR_LOG_CAPACITY: usize = 500;
-
-/// Valid range of the monitor threshold slider (percent).
-const THRESHOLD_RANGE: std::ops::RangeInclusive<u32> = 50..=99;
-
-/// Valid range of the monitor cooldown slider (seconds).
-const COOLDOWN_RANGE_SECS: std::ops::RangeInclusive<u64> = 10..=300;
-
-/// Valid range of the "Show top" process count slider.
-const TOP_PROCESSES_RANGE: std::ops::RangeInclusive<usize> = 5..=50;
-
-/// How often the background stats thread captures a snapshot (ms).
-const STATS_POLL_INTERVAL_MS: u64 = 1000;
-
-/// How often the process list refreshes (seconds).
-const PROCESS_REFRESH_SECS: u64 = 5;
-
-/// Default monitor threshold percentage.
-const DEFAULT_THRESHOLD: u32 = 80;
-
-/// Default monitor cooldown in seconds.
-const DEFAULT_COOLDOWN_SECS: u64 = 30;
-
-/// Default auto-clean level.
-const DEFAULT_CLEAN_LEVEL: CleanLevel = CleanLevel::Aggressive;
-
-/// Default number of top processes to display.
-const DEFAULT_TOP_PROCESSES: usize = 20;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -71,89 +48,6 @@ pub enum Panel {
     Settings,
     /// Application information, credits, and links.
     About,
-}
-
-/// Persistent user settings.
-///
-/// Contains several independent boolean preferences; no meaningful two-variant
-/// enum reduction exists without obscuring what each field controls.
-///
-/// Fields missing from a saved file take their [`Default`] values.
-#[allow(clippy::struct_excessive_bools)]
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct GuiSettings {
-    /// Minimize to the system tray when the close button is clicked.
-    ///
-    /// When enabled, clicking ✕ hides the window to the notification area
-    /// rather than quitting. The tray icon provides "Open" and "Quit" actions.
-    #[serde(alias = "tray_enabled")]
-    pub minimize_to_tray: bool,
-    /// Launch automatically at Windows startup (current user only).
-    ///
-    /// Creates (or removes) a Task Scheduler logon task.
-    pub auto_start: bool,
-    /// Auto-clean threshold percentage (50 to 99).
-    pub monitor_threshold: u32,
-    /// Cooldown between auto-cleans (10 to 300 seconds).
-    pub monitor_cooldown_secs: u64,
-    /// Default cleaning level.
-    pub default_clean_level: CleanLevel,
-    /// Number of top processes to show.
-    pub top_process_count: usize,
-    /// Theme preference (`true` = dark).
-    pub dark_mode: bool,
-    /// Show tooltip with level details on circle hover (`true` = enabled).
-    pub show_level_tooltips: bool,
-    /// Whether auto-clean monitoring is enabled.
-    ///
-    /// Persisted so the monitor resumes automatically when the app is
-    /// restarted.
-    pub auto_clean_enabled: bool,
-}
-
-impl GuiSettings {
-    /// Clamp numeric settings to the ranges their sliders allow.
-    ///
-    /// Applied after loading or importing a file, which may have been edited
-    /// by hand or written by another version.
-    pub fn sanitize(&mut self) {
-        self.monitor_threshold = self
-            .monitor_threshold
-            .clamp(*THRESHOLD_RANGE.start(), *THRESHOLD_RANGE.end());
-        self.monitor_cooldown_secs = self
-            .monitor_cooldown_secs
-            .clamp(*COOLDOWN_RANGE_SECS.start(), *COOLDOWN_RANGE_SECS.end());
-        self.top_process_count = self
-            .top_process_count
-            .clamp(*TOP_PROCESSES_RANGE.start(), *TOP_PROCESSES_RANGE.end());
-    }
-}
-
-impl Default for GuiSettings {
-    fn default() -> Self {
-        Self {
-            minimize_to_tray: false,
-            auto_start: false,
-            monitor_threshold: DEFAULT_THRESHOLD,
-            monitor_cooldown_secs: DEFAULT_COOLDOWN_SECS,
-            default_clean_level: DEFAULT_CLEAN_LEVEL,
-            top_process_count: DEFAULT_TOP_PROCESSES,
-            dark_mode: true,
-            show_level_tooltips: true,
-            auto_clean_enabled: false,
-        }
-    }
-}
-
-/// Result of a background cleaning operation sent back to the UI thread.
-pub struct CleanResultMsg {
-    /// The cleaning result (or error string).
-    pub result: std::result::Result<SmartCleanResult, String>,
-    /// Which level was requested.
-    pub level: CleanLevel,
-    /// `true` when the clean was started by monitor auto-clean.
-    pub auto: bool,
 }
 
 // ─── Application State ───────────────────────────────────────────────────────
@@ -428,222 +322,6 @@ impl MagicXApp {
         })
     }
 
-    /// Start a manual cleaning operation on a background thread.
-    pub fn start_clean(&mut self, level: CleanLevel) {
-        self.spawn_clean(level, false);
-    }
-
-    /// Start a cleaning operation on a background thread.
-    ///
-    /// `auto` marks cleans triggered by the monitor so the result is logged
-    /// and the cooldown applied only for those.
-    fn spawn_clean(&mut self, level: CleanLevel, auto: bool) {
-        if self.cleaning_in_progress {
-            return;
-        }
-        self.cleaning_in_progress = true;
-        self.last_clean_result = None;
-
-        let tx = self.clean_tx.clone();
-        if let Err(e) = std::thread::Builder::new()
-            .name("gui-clean".into())
-            .spawn(move || {
-                // Catch a panic so a result is always sent; otherwise
-                // `cleaning_in_progress` would stay set forever. This only
-                // matters in dev builds: the release profile uses
-                // `panic = "abort"`, where a panic ends the process instead.
-                let result = std::panic::catch_unwind(|| {
-                    engine::Cleaner::silent(&engine::WindowsMemory)
-                        .smart_clean(level, &[])
-                        .map_err(|e| format!("{e:#}"))
-                })
-                .unwrap_or_else(|_| Err("clean worker panicked".to_owned()));
-                drop(tx.send(CleanResultMsg {
-                    result,
-                    level,
-                    auto,
-                }));
-            })
-        {
-            drop(self.clean_tx.send(CleanResultMsg {
-                result: Err(format!("failed to spawn clean thread: {e}")),
-                level,
-                auto,
-            }));
-        }
-    }
-
-    /// Append a line to the monitor activity log, dropping the oldest line
-    /// once [`MONITOR_LOG_CAPACITY`] is reached.
-    fn push_monitor_log(&mut self, msg: String) {
-        if self.monitor_log.len() >= MONITOR_LOG_CAPACITY {
-            self.monitor_log.pop_front();
-        }
-        self.monitor_log.push_back(msg);
-    }
-
-    /// Poll for completed cleaning results.
-    ///
-    /// Auto-clean results are logged to the activity log exactly once (here,
-    /// not in `logic()`) and start the cooldown, with backoff when the clean
-    /// did not bring memory load below the threshold.
-    fn poll_clean_results(&mut self) {
-        let Ok(msg) = self.clean_rx.try_recv() else {
-            return;
-        };
-        self.cleaning_in_progress = false;
-
-        if msg.auto {
-            let log_msg = match &msg.result {
-                Ok(r) => format!(
-                    "Auto-clean complete: freed {}",
-                    memory::format_bytes(r.reclaimed_bytes().max(0) as u64),
-                ),
-                Err(e) => format!("Auto-clean failed: {e}"),
-            };
-            self.push_monitor_log(log_msg);
-
-            let load_after = msg.result.as_ref().map_or_else(
-                |_| {
-                    self.latest_snapshot
-                        .lock()
-                        .ok()
-                        .and_then(|s| s.as_ref().map(|s| s.memory_load_percent))
-                },
-                |r| Some(r.overall_after.memory_load_percent),
-            );
-            self.sync_auto_clean_limits();
-            if self.auto_clean.record_clean(Instant::now(), load_after) {
-                let msg = format!(
-                    "Memory load still at or above {}%; next auto-clean in {}s.",
-                    self.settings.monitor_threshold,
-                    self.auto_clean.effective_cooldown().as_secs(),
-                );
-                self.push_monitor_log(msg);
-            }
-        }
-
-        self.last_clean_result = Some(msg);
-    }
-
-    /// Apply the current threshold and cooldown settings to the policy.
-    const fn sync_auto_clean_limits(&mut self) {
-        self.auto_clean.set_limits(
-            self.settings.monitor_threshold,
-            Duration::from_secs(self.settings.monitor_cooldown_secs),
-        );
-    }
-
-    /// Refresh the process list if enough time has passed and no refresh is
-    /// already running.
-    fn maybe_refresh_processes(&mut self) {
-        if self.last_process_refresh.elapsed() < Duration::from_secs(PROCESS_REFRESH_SECS)
-            || self.process_refresh_in_flight.swap(true, Ordering::AcqRel)
-        {
-            return;
-        }
-        self.last_process_refresh = Instant::now();
-        let procs_ref = Arc::clone(&self.top_processes);
-        let in_flight = Arc::clone(&self.process_refresh_in_flight);
-        let spawned = std::thread::Builder::new()
-            .name("gui-procs".into())
-            .spawn(move || {
-                if let Ok(procs) = memory::query_all_processes()
-                    && let Ok(mut lock) = procs_ref.lock()
-                {
-                    *lock = Some(procs);
-                }
-                in_flight.store(false, Ordering::Release);
-            });
-        if spawned.is_err() {
-            self.process_refresh_in_flight
-                .store(false, Ordering::Release);
-        }
-    }
-
-    /// Handle auto-clean in monitor mode.
-    ///
-    /// Checks the current memory load against the configured threshold and
-    /// triggers a clean when exceeded.  Also emits periodic heartbeat
-    /// messages to the activity log so the user can see the monitor is
-    /// actively checking (every 60 seconds).
-    fn handle_monitor_auto_clean(&mut self) {
-        if !self.monitor_active || self.cleaning_in_progress {
-            return;
-        }
-
-        let load = self
-            .latest_snapshot
-            .lock()
-            .ok()
-            .and_then(|s| s.as_ref().map(|s| s.memory_load_percent));
-        let Some(load) = load else {
-            return;
-        };
-
-        self.sync_auto_clean_limits();
-        match self.auto_clean.decide(load, Instant::now()) {
-            Decision::Clean => {
-                let msg = format!(
-                    "Memory load {load}% >= threshold {}%, auto-cleaning ({})...",
-                    self.settings.monitor_threshold,
-                    self.settings.default_clean_level.title_case_name(),
-                );
-                self.push_monitor_log(msg);
-                self.last_monitor_status_log = Some(Instant::now());
-                self.spawn_clean(self.settings.default_clean_level, true);
-            }
-            Decision::CoolingDown => {}
-            Decision::BelowThreshold => {
-                // Periodic heartbeat so the user knows the monitor is alive.
-                let should_log = self
-                    .last_monitor_status_log
-                    .is_none_or(|t| t.elapsed() >= Duration::from_secs(60));
-                if should_log {
-                    self.push_monitor_log(format!(
-                        "Checked: memory at {load}%, below threshold {}%. No action needed.",
-                        self.settings.monitor_threshold,
-                    ));
-                    self.last_monitor_status_log = Some(Instant::now());
-                }
-            }
-        }
-    }
-
-    /// Poll the tray icon event queues and dispatch every pending [`TrayAction`].
-    ///
-    /// Called every frame from [`eframe::App::logic`].
-    fn poll_tray_events(&mut self, ctx: &egui::Context) {
-        while let Some(action) = self.tray_handle.as_ref().and_then(tray::TrayHandle::poll) {
-            self.handle_tray_action(ctx, &action);
-        }
-    }
-
-    /// Apply a single [`TrayAction`] received from the tray watcher thread.
-    fn handle_tray_action(&mut self, ctx: &egui::Context, action: &tray::TrayAction) {
-        match *action {
-            tray::TrayAction::Show => {
-                crate::platform::window::uncloak_window(self.hwnd);
-                self.hidden_to_tray = false;
-            }
-            tray::TrayAction::Clean(level) => {
-                crate::platform::window::uncloak_window(self.hwnd);
-                self.hidden_to_tray = false;
-                self.active_panel = Panel::Dashboard;
-                self.start_clean(level);
-            }
-            tray::TrayAction::Navigate(panel) => {
-                crate::platform::window::uncloak_window(self.hwnd);
-                self.hidden_to_tray = false;
-                self.active_panel = panel;
-            }
-            tray::TrayAction::Quit => {
-                self.quit_requested = true;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            }
-        }
-    }
-
     /// Synchronise the tray handle when the user changes the minimise-to-tray
     /// setting.
     ///
@@ -673,22 +351,6 @@ impl MagicXApp {
                     self.hidden_to_tray = false;
                 }
             }
-        }
-    }
-
-    /// (Re)create the tray icon for the current theme.
-    ///
-    /// The old handle is dropped first so its icon and watcher thread are
-    /// gone before the new ones register. A failure is kept in
-    /// [`Self::tray_error`] for the Settings panel.
-    fn rebuild_tray(&mut self, ctx: &egui::Context) {
-        self.tray_handle = None;
-        match tray::TrayHandle::new(ctx.clone(), self.hwnd, self.settings.dark_mode) {
-            Ok(handle) => {
-                self.tray_handle = Some(handle);
-                self.tray_error = None;
-            }
-            Err(e) => self.tray_error = Some(e),
         }
     }
 
@@ -731,8 +393,8 @@ impl MagicXApp {
         }
 
         // ── Layout ───────────────────────────────────────────
-        draw_sidebar(ui, self);
-        draw_main_panel(ui, self);
+        sidebar::draw_sidebar(ui, self);
+        sidebar::draw_main_panel(ui, self);
     }
 
     /// Save settings to disk after the user changes anything.
@@ -1006,194 +668,6 @@ fn configure_themes(ctx: &egui::Context, dark_mode: bool) {
 
 // ─── Background Stats Thread ─────────────────────────────────────────────────
 
-/// Background thread that periodically captures memory snapshots.
-fn stats_thread(
-    snapshot: &Arc<Mutex<Option<MemorySnapshot>>>,
-    running: &Arc<AtomicBool>,
-    needs_repaint: &Arc<AtomicBool>,
-    needs_capture: &Arc<AtomicBool>,
-    ctx: &egui::Context,
-) {
-    while running.load(Ordering::Acquire) {
-        // Only capture when the UI is visible or the monitor needs
-        // logic() to run for auto-clean threshold checks.  When the
-        // window is hidden/minimized with monitoring off, skip all
-        // work - no Win32 calls, no mutex locks, no repaints.
-        if needs_capture.load(Ordering::Acquire)
-            && let Ok(snap) = MemorySnapshot::capture()
-        {
-            if let Ok(mut lock) = snapshot.lock() {
-                *lock = Some(snap);
-            }
-
-            // Only request a repaint when the window is actually visible.
-            // When the monitor is running but the window is hidden, we
-            // still capture data above for threshold checks, but skip
-            // the repaint to avoid unnecessary UI wake-ups and CPU usage.
-            if needs_repaint.load(Ordering::Acquire) {
-                ctx.request_repaint();
-            }
-        }
-
-        std::thread::sleep(Duration::from_millis(STATS_POLL_INTERVAL_MS));
-    }
-}
-
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 
-/// Navigation items: `(panel, icon, label)`.
-///
-/// Icons are sourced from the Phosphor icon font (`egui_phosphor::regular`),
-/// which is registered at startup in [`MagicXApp::new`].
-const NAV_ITEMS: [(Panel, &str, &str); 4] = [
-    (Panel::Dashboard, ph::GAUGE, strings::tray::NAV_DASHBOARD),
-    (Panel::Monitor, ph::ACTIVITY, strings::tray::NAV_MONITOR),
-    (Panel::Processes, ph::CPU, strings::tray::NAV_PROCESSES),
-    (Panel::Settings, ph::GEAR, strings::tray::NAV_SETTINGS),
-];
-
-/// Draw the sidebar with navigation and branding.
-fn draw_sidebar(ui: &mut egui::Ui, app: &mut MagicXApp) {
-    let dark = app.settings.dark_mode;
-
-    egui::Panel::left("sidebar")
-        .resizable(false)
-        .exact_size(theme::SIDEBAR_WIDTH)
-        .frame(
-            egui::Frame::new()
-                .fill(theme::sidebar_bg(dark))
-                .inner_margin(egui::Margin::symmetric(8, 10))
-                .stroke(egui::Stroke::new(0.5_f32, theme::border_color(dark))),
-        )
-        .show_inside(ui, |ui| {
-            draw_sidebar_brand(ui);
-            ui.add_space(8.0);
-            draw_sidebar_nav(ui, app);
-            // Pin the About button to the bottom of the sidebar.
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-                let selected = app.active_panel == Panel::About;
-                draw_nav_button(
-                    ui,
-                    ph::INFO,
-                    strings::gui::about::TITLE,
-                    selected,
-                    dark,
-                    || {
-                        app.active_panel = Panel::About;
-                    },
-                );
-            });
-        });
-}
-
-/// Draw a compact `MX` monogram badge at the top of the sidebar.
-///
-/// Replaces the full word-mark to save horizontal space in the icon-rail layout.
-fn draw_sidebar_brand(ui: &mut egui::Ui) {
-    ui.vertical_centered(|ui| {
-        let badge_size = egui::vec2(36.0, 36.0);
-        let (rect, _) = ui.allocate_exact_size(badge_size, egui::Sense::hover());
-        ui.painter().rect_filled(
-            rect,
-            egui::CornerRadius::same(10),
-            theme::ACCENT.gamma_multiply(0.18),
-        );
-        ui.painter().text(
-            rect.center(),
-            egui::Align2::CENTER_CENTER,
-            strings::MONOGRAM,
-            egui::FontId::proportional(13.0),
-            theme::ACCENT,
-        );
-    });
-}
-
-/// Draw the navigation buttons.
-fn draw_sidebar_nav(ui: &mut egui::Ui, app: &mut MagicXApp) {
-    let dark = app.settings.dark_mode;
-    for (panel, icon, label) in NAV_ITEMS {
-        let selected = app.active_panel == panel;
-        draw_nav_button(ui, icon, label, selected, dark, || {
-            app.active_panel = panel;
-        });
-        ui.add_space(2.0);
-    }
-}
-
-/// Draw a single icon-only navigation button.
-///
-/// The button fills the sidebar width and is square (height == [`theme::SIDEBAR_BUTTON_HEIGHT`]).
-/// A pill-shaped background highlights the active or hovered state.
-/// Hovering reveals a tooltip with the full panel name.
-fn draw_nav_button(
-    ui: &mut egui::Ui,
-    icon: &str,
-    label: &str,
-    selected: bool,
-    dark: bool,
-    on_click: impl FnOnce(),
-) {
-    let desired_size = egui::vec2(ui.available_width(), theme::SIDEBAR_BUTTON_HEIGHT);
-    let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
-    let response = response.on_hover_text(label);
-
-    if response.clicked() {
-        on_click();
-    }
-
-    let hovered = response.hovered();
-    let painter = ui.painter();
-
-    // Rounded pill background for active / hovered state.
-    let pill = rect.shrink(4.0);
-    if selected {
-        painter.rect_filled(
-            pill,
-            egui::CornerRadius::same(8),
-            theme::ACCENT.gamma_multiply(0.20),
-        );
-    } else if hovered {
-        painter.rect_filled(
-            pill,
-            egui::CornerRadius::same(8),
-            theme::ACCENT.gamma_multiply(0.08),
-        );
-    }
-
-    // Icon colour: accent when active, primary text on hover, muted otherwise.
-    let icon_color = if selected {
-        theme::ACCENT
-    } else if hovered {
-        theme::text_color(dark)
-    } else {
-        theme::muted_color(dark)
-    };
-
-    painter.text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        icon,
-        egui::FontId::proportional(20.0),
-        icon_color,
-    );
-}
-
 // ─── Main Content ────────────────────────────────────────────────────────────
-
-/// Draw the main content area based on the active panel.
-fn draw_main_panel(ui: &mut egui::Ui, app: &mut MagicXApp) {
-    let dark = app.settings.dark_mode;
-    egui::CentralPanel::default()
-        .frame(egui::Frame::new().fill(theme::bg_color(dark)))
-        .show_inside(ui, |ui| {
-            egui::ScrollArea::vertical()
-                .content_margin(egui::Margin::same(20))
-                .show(ui, |ui| match app.active_panel {
-                    Panel::Dashboard => panels::dashboard::draw(ui, app),
-                    Panel::Monitor => panels::monitor::draw(ui, app),
-                    Panel::Processes => panels::processes::draw(ui, app),
-                    Panel::Settings => panels::settings::draw(ui, app),
-                    Panel::About => panels::about::draw(ui, app),
-                });
-        });
-}
