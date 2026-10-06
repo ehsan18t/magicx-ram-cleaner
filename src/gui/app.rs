@@ -455,7 +455,9 @@ impl MagicXApp {
             .name("gui-clean".into())
             .spawn(move || {
                 // Catch a panic so a result is always sent; otherwise
-                // `cleaning_in_progress` would stay set forever.
+                // `cleaning_in_progress` would stay set forever. This only
+                // matters in dev builds: the release profile uses
+                // `panic = "abort"`, where a panic ends the process instead.
                 let result = std::panic::catch_unwind(|| {
                     cleaner::smart_clean(level, false, &[]).map_err(|e| format!("{e:#}"))
                 })
