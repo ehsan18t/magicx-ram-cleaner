@@ -263,11 +263,23 @@ pub fn configure_style(ctx: &egui::Context) {
     for theme in [egui::Theme::Dark, egui::Theme::Light] {
         ctx.style_mut_of(theme, |style| {
             style.text_styles = [
-                (TextStyle::Small, FontId::new(CAPTION, FontFamily::Proportional)),
+                (
+                    TextStyle::Small,
+                    FontId::new(CAPTION, FontFamily::Proportional),
+                ),
                 (TextStyle::Body, FontId::new(BODY, FontFamily::Proportional)),
-                (TextStyle::Button, FontId::new(BODY, FontFamily::Proportional)),
-                (TextStyle::Heading, FontId::new(TITLE, FontFamily::Proportional)),
-                (TextStyle::Monospace, FontId::new(CAPTION, FontFamily::Monospace)),
+                (
+                    TextStyle::Button,
+                    FontId::new(BODY, FontFamily::Proportional),
+                ),
+                (
+                    TextStyle::Heading,
+                    FontId::new(TITLE, FontFamily::Proportional),
+                ),
+                (
+                    TextStyle::Monospace,
+                    FontId::new(CAPTION, FontFamily::Monospace),
+                ),
             ]
             .into();
             style.spacing.item_spacing = egui::vec2(8.0, 6.0);
@@ -484,9 +496,18 @@ mod tests {
                     );
                 }
             }
-            assert!(contrast(p.on_accent, p.accent) >= 4.5, "dark={dark}: text on accent");
-            assert!(contrast(p.accent_text, p.bg) >= 4.5, "dark={dark}: accent text");
-            assert!(contrast(p.critical, p.card) >= 4.5, "dark={dark}: critical text");
+            assert!(
+                contrast(p.on_accent, p.accent) >= 4.5,
+                "dark={dark}: text on accent"
+            );
+            assert!(
+                contrast(p.accent_text, p.bg) >= 4.5,
+                "dark={dark}: accent text"
+            );
+            assert!(
+                contrast(p.critical, p.card) >= 4.5,
+                "dark={dark}: critical text"
+            );
         }
     }
 

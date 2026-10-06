@@ -44,13 +44,13 @@ pub fn section_header(ui: &mut egui::Ui, title: &str) {
     ui.add_space(6.0);
 }
 
-
 /// A thin horizontal divider across the available width.
 pub fn divider(ui: &mut egui::Ui) {
     let p = theme::palette();
     let (rect, _) =
         ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
-    ui.painter().rect_filled(rect, egui::CornerRadius::ZERO, p.divider);
+    ui.painter()
+        .rect_filled(rect, egui::CornerRadius::ZERO, p.divider);
 }
 
 /// Draw the keyboard focus ring around `rect` when `response` has focus.
@@ -105,18 +105,25 @@ pub fn settings_row(
         ui.add_space(2.0);
         ui.label(egui::RichText::new(icon).size(20.0).color(p.text));
         ui.add_space(10.0);
-        ui.vertical(|ui| {
-            ui.add_space(2.0);
-            ui.label(egui::RichText::new(title).size(theme::BODY).color(p.text));
-            if !description.is_empty() {
+        let title = egui::RichText::new(title).size(theme::BODY).color(p.text);
+        if description.is_empty() {
+            // A lone title centres on the row, level with the control.
+            ui.label(title);
+        } else {
+            ui.vertical(|ui| {
+                ui.add_space(2.0);
+                ui.label(title);
                 ui.label(
                     egui::RichText::new(description)
                         .size(theme::CAPTION)
                         .color(p.text_secondary),
                 );
-            }
-        });
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), add_control);
+            });
+        }
+        ui.with_layout(
+            egui::Layout::right_to_left(egui::Align::Center),
+            add_control,
+        );
     });
 }
 
@@ -131,9 +138,7 @@ pub fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
         *on = !*on;
         response.mark_changed();
     }
-    response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, *on, "")
-    });
+    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, *on, ""));
 
     if ui.is_rect_visible(rect) {
         let t = ui.ctx().animate_bool_with_time(response.id, *on, 0.12);
@@ -164,11 +169,18 @@ pub fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
 
 /// A segmented control: one choice out of a few, shown side by side.
 /// Returns the index the user clicked this frame, if any.
-pub fn segmented(ui: &mut egui::Ui, options: &[&str], selected: usize, enabled: bool) -> Option<usize> {
+pub fn segmented(
+    ui: &mut egui::Ui,
+    options: &[&str],
+    selected: usize,
+    enabled: bool,
+) -> Option<usize> {
     let p = theme::palette();
     let height = theme::CONTROL_HEIGHT;
-    let (track, _) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), height), egui::Sense::hover());
+    let (track, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), height),
+        egui::Sense::hover(),
+    );
     ui.painter().rect_filled(
         track,
         egui::CornerRadius::same(theme::CONTROL_RADIUS + 2),
@@ -180,7 +192,10 @@ pub fn segmented(ui: &mut egui::Ui, options: &[&str], selected: usize, enabled: 
     let mut clicked = None;
     for (i, label) in options.iter().enumerate() {
         let rect = egui::Rect::from_min_size(
-            egui::pos2(width.mul_add(i as f32, track.left() + 3.0), track.top() + 3.0),
+            egui::pos2(
+                width.mul_add(i as f32, track.left() + 3.0),
+                track.top() + 3.0,
+            ),
             egui::vec2(width, height - 6.0),
         );
         let sense = if enabled {
@@ -260,4 +275,14 @@ pub fn primary_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> egui::Re
         );
     }
     response
+}
+
+/// A standard (secondary) button.
+pub fn secondary_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
+    let p = theme::palette();
+    ui.add(
+        egui::Button::new(egui::RichText::new(label).size(theme::BODY).color(p.text))
+            .corner_radius(egui::CornerRadius::same(theme::CONTROL_RADIUS))
+            .min_size(egui::vec2(80.0, theme::CONTROL_HEIGHT)),
+    )
 }

@@ -61,7 +61,6 @@ serde_json = "1"
 # GUI framework (egui + eframe with glow renderer for smaller binary).
 # 0.36.2 at minimum: 0.36.0 and 0.36.1 busy-loop the event loop while waiting for a redraw.
 eframe = { version = "0.36.2", default-features = false, features = ["glow", "default_fonts"] }
-egui_extras = "0.36.2"
 # "subset" lets the GUI embed only the icons it uses (see gui::icons).
 egui-phosphor = { version = "0.14", default-features = false, features = ["subset"] }
 tray-icon = "0.21"

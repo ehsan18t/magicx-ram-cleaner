@@ -44,9 +44,6 @@ pub const REPO_SHORT: &str = "ehsan18t/magicx-ram-cleaner";
 /// Copyright notice.
 pub const COPYRIGHT: &str = "\u{00a9} 2026 MagicXMod";
 
-/// Three-letter monogram used in sidebar badges and hero cards.
-pub const MONOGRAM: &str = "MGX";
-
 // ─── Developer ───────────────────────────────────────────────────────────────
 
 /// Developer profile strings shown on the about page.
@@ -104,8 +101,7 @@ pub mod levels {
     pub const MODERATE_NAME: &str = "Moderate";
 
     /// What Moderate does, in plain words.
-    pub const MODERATE_DESC: &str =
-        "Writes changed pages to disk, then empties the standby cache. Apps keep running untouched.";
+    pub const MODERATE_DESC: &str = "Writes changed pages to disk, then empties the standby cache. Apps keep running untouched.";
 
     /// Aggressive level display name.
     pub const AGGRESSIVE_NAME: &str = "Aggressive";
@@ -226,34 +222,39 @@ pub mod gui {
         /// Panel title.
         pub const TITLE: &str = "Processes";
 
-        /// Table column: process name.
-        pub const COL_PROCESS: &str = "Process";
+        /// Column: program name.
+        pub const COL_PROCESS: &str = "Name";
 
-        /// Table column: instance count.
-        pub const COL_COUNT: &str = "Count";
+        /// Column: number of running instances.
+        pub const COL_COUNT: &str = "Instances";
 
-        /// Table column: private working set.
+        /// Column: private working set.
         pub const COL_MEMORY: &str = "Memory";
 
-        /// Table column: peak working set.
+        /// Column: peak working set.
         pub const COL_PEAK: &str = "Peak";
 
-        /// Toolbar label before the top-N slider.
-        pub const LABEL_SHOW_TOP: &str = "Show top";
+        /// Sort column names for the footer, indexed by column.
+        pub const COL_NAMES: [&str; 4] = ["name", "instances", "memory", "peak"];
 
-        /// Search box hint text.
-        pub const SEARCH_HINT: &str = "search\u{2026}";
+        /// Search box placeholder.
+        pub const SEARCH_HINT: &str = "Search programs";
 
         /// Clear-search button tooltip.
         pub const BTN_CLEAR_SEARCH: &str = "Clear search";
 
-        /// Sort column human-readable names (indexed by column).
-        pub const COL_NAMES: [&str; 4] = ["name", "count", "memory", "peak"];
-
-        // ── GUI fix additions ──────────────────────────────────────────
-
         /// Shown until the first process query completes.
-        pub const LOADING: &str = "Loading processes...";
+        pub const LOADING: &str = "Reading processes\u{2026}";
+
+        /// Row action that trims a program.
+        pub const BTN_TRIM: &str = "Trim";
+
+        /// Trim button tooltip.
+        pub const TOOLTIP_TRIM: &str = "Trim every instance of this program. Nothing is lost: it \
+             reloads pages as it needs them.";
+
+        /// Shown in the row while a trim runs.
+        pub const TRIMMING: &str = "Trimming\u{2026}";
     }
 
     /// Settings panel strings.
@@ -261,7 +262,7 @@ pub mod gui {
         /// Panel title.
         pub const TITLE: &str = "Settings";
 
-        /// Appearance section header.
+        /// Appearance group heading.
         pub const SECTION_APPEARANCE: &str = "Appearance";
 
         /// Theme row title.
@@ -273,68 +274,91 @@ pub mod gui {
         /// System theme option.
         pub const THEME_SYSTEM: &str = "System";
 
-        /// Dark theme button.
-        pub const THEME_DARK: &str = "Dark";
-
-        /// Light theme button.
+        /// Light theme option.
         pub const THEME_LIGHT: &str = "Light";
 
-        /// Integration section header.
-        pub const SECTION_INTEGRATION: &str = "Integration";
+        /// Dark theme option.
+        pub const THEME_DARK: &str = "Dark";
 
-        /// Tray checkbox label.
-        pub const LABEL_MINIMIZE_TO_TRAY: &str = "Minimize to Tray on Close";
+        /// Windows integration group heading.
+        pub const SECTION_INTEGRATION: &str = "Windows integration";
 
-        /// Tray checkbox description.
+        /// Tray row title.
+        pub const LABEL_MINIMIZE_TO_TRAY: &str = "Minimize to tray on close";
+
+        /// Tray row description.
         pub const DESC_MINIMIZE_TO_TRAY: &str =
-            "Clicking \u{00d7} hides to the notification area instead of quitting";
+            "Closing the window keeps the app running in the notification area";
 
-        /// Autostart checkbox label.
-        pub const LABEL_AUTOSTART: &str = "Launch at Windows Startup";
+        /// Autostart row title.
+        pub const LABEL_AUTOSTART: &str = "Start with Windows";
 
-        /// Autostart checkbox description.
-        pub const DESC_AUTOSTART: &str = "Registers in HKCU\\Run for the current user";
+        /// Autostart row description.
+        pub const DESC_AUTOSTART: &str =
+            "Starts when you sign in, through a Task Scheduler logon task";
 
-        /// Desktop context menu section header.
-        pub const SECTION_CONTEXT_MENU: &str = "Desktop Context Menu";
+        /// Context menu row title.
+        pub const LABEL_CONTEXT_MENU: &str = "Desktop context menu";
 
-        /// Context menu explanatory text.
-        pub const DESC_CONTEXT_MENU: &str = "Adds a \u{201c}MagicX RAM Cleaner\u{201d} submenu when right-clicking \
-             the Desktop or any folder background.";
+        /// Context menu row description.
+        pub const DESC_CONTEXT_MENU: &str =
+            "Adds MagicX RAM Cleaner to the right-click menu of the desktop and folders";
 
-        /// Context menu installed badge.
-        pub const STATUS_INSTALLED: &str = "\u{25cf} Installed";
+        /// Context menu status: installed.
+        pub const STATUS_INSTALLED: &str = "Installed";
 
-        /// Context menu not-installed badge.
-        pub const STATUS_NOT_INSTALLED: &str = "\u{25cb} Not installed";
+        /// Context menu status: not installed.
+        pub const STATUS_NOT_INSTALLED: &str = "Not installed";
+
+        /// Button that installs the context menu.
+        pub const BTN_INSTALL: &str = "Install";
+
+        /// Button that removes the context menu.
+        pub const BTN_REMOVE: &str = "Remove";
 
         /// Install button tooltip.
-        pub const TOOLTIP_INSTALL: &str = "Register context menu entries in the Windows registry";
+        pub const TOOLTIP_INSTALL: &str = "Add the context menu entries to the Windows registry";
 
         /// Remove button tooltip.
-        pub const TOOLTIP_REMOVE: &str = "Remove context menu entries from the Windows registry";
+        pub const TOOLTIP_REMOVE: &str =
+            "Remove the context menu entries from the Windows registry";
 
-        /// Backup section header.
-        pub const SECTION_BACKUP: &str = "Backup & Restore";
+        /// Backup group heading.
+        pub const SECTION_BACKUP: &str = "Backup";
 
-        /// Backup section description.
-        pub const DESC_BACKUP: &str =
-            "Export your settings to a JSON file or restore from a previous backup.";
+        /// Backup row title.
+        pub const LABEL_BACKUP: &str = "Settings file";
+
+        /// Backup row description.
+        pub const DESC_BACKUP: &str = "Save your settings to a file, or load them from one";
+
+        /// Export button.
+        pub const BTN_EXPORT: &str = "Export";
+
+        /// Import button.
+        pub const BTN_IMPORT: &str = "Import";
 
         /// Export button tooltip.
         pub const TOOLTIP_EXPORT: &str = "Save all settings to a JSON file";
 
         /// Import button tooltip.
-        pub const TOOLTIP_IMPORT: &str = "Load settings from a JSON backup file";
+        pub const TOOLTIP_IMPORT: &str = "Load settings from a JSON file";
 
-        /// Success: settings imported.
-        pub const MSG_IMPORT_OK: &str = "Settings imported successfully";
+        /// Confirmation: settings imported.
+        pub const MSG_IMPORT_OK: &str = "Settings imported";
 
-        /// Success: context menu installed.
-        pub const MSG_CTX_INSTALLED: &str = "Context menu installed successfully";
+        /// Confirmation: context menu installed.
+        pub const MSG_CTX_INSTALLED: &str = "Context menu installed";
 
-        /// Success: context menu removed.
-        pub const MSG_CTX_REMOVED: &str = "Context menu removed successfully";
+        /// Confirmation: context menu removed.
+        pub const MSG_CTX_REMOVED: &str = "Context menu removed";
+
+        /// Confirmation: autostart turned on.
+        pub const MSG_AUTOSTART_ON: &str = "MagicX RAM Cleaner will start when you sign in";
+
+        /// Confirmation: autostart turned off.
+        pub const MSG_AUTOSTART_OFF: &str =
+            "MagicX RAM Cleaner won\u{2019}t start when you sign in";
     }
 
     /// About panel strings.
@@ -342,53 +366,44 @@ pub mod gui {
         /// Panel title.
         pub const TITLE: &str = "About";
 
-        /// Project & License section header.
-        pub const SECTION_PROJECT: &str = "Project & License";
-
-        /// Developer section header.
+        /// Developer group heading.
         pub const SECTION_DEVELOPER: &str = "Developer";
 
-        /// "View on GitHub" button label.
+        /// Project group heading.
+        pub const SECTION_PROJECT: &str = "Project";
+
+        /// Button that opens the source repository.
         pub const BTN_VIEW_GITHUB: &str = "View on GitHub";
 
-        /// Platform metadata chip.
-        pub const CHIP_PLATFORM: &str = "Windows x86-64";
-
-        /// License metadata chip.
-        pub const CHIP_LICENSE: &str = "MIT License";
-
-        /// Info row: technology label.
+        /// Row: technology.
         pub const ROW_TECHNOLOGY: &str = "Technology";
 
-        /// Info row: technology value.
-        pub const VALUE_RUST: &str = "Rust";
+        /// Technology value.
+        pub const VALUE_TECHNOLOGY: &str = "Rust, 2024 edition";
 
-        /// Info row: edition value.
-        pub const VALUE_EDITION: &str = "2024 Edition";
-
-        /// Info row: platform label.
+        /// Row: platform.
         pub const ROW_PLATFORM: &str = "Platform";
 
-        /// Info row: platform value.
+        /// Platform value.
         pub const VALUE_PLATFORM: &str = "Windows x86-64";
 
-        /// Info row: repository label.
+        /// Row: repository.
         pub const ROW_REPOSITORY: &str = "Repository";
 
-        /// Info row: license label.
+        /// Row: license.
         pub const ROW_LICENSE: &str = "License";
 
-        /// Info row: license value.
+        /// License value.
         pub const VALUE_LICENSE: &str = "MIT";
 
-        /// Contribution banner heading.
-        pub const BANNER_HEADING: &str = "Open Source";
+        /// Row: open source.
+        pub const ROW_OPEN_SOURCE: &str = "Open source";
 
-        /// Contribution banner body.
-        pub const BANNER_BODY: &str = "Free and open-source software. Contributions, \
-             bug reports, and feature requests are welcome!";
+        /// Open source row description.
+        pub const DESC_OPEN_SOURCE: &str =
+            "Contributions, bug reports and feature requests are welcome.";
 
-        /// Social link labels.
+        /// Social link: GitHub.
         pub const SOCIAL_GITHUB: &str = "GitHub";
 
         /// Social link: `LinkedIn`.
@@ -400,7 +415,6 @@ pub mod gui {
         /// Social link: personal website.
         pub const SOCIAL_WEBSITE: &str = "Website";
     }
-
 
     /// Persistence / file dialog strings.
     pub mod persistence {

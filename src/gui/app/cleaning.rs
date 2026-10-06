@@ -146,8 +146,10 @@ impl MagicXApp {
             *progress = None;
         }
         if let Ok(r) = &msg.result
-            && let (Some(from), Some(to)) =
-                (r.overall_before.composition(), r.overall_after.composition())
+            && let (Some(from), Some(to)) = (
+                r.overall_before.composition(),
+                r.overall_after.composition(),
+            )
         {
             self.map_transition = Some(MapTransition {
                 from,

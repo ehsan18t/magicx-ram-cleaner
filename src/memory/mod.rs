@@ -267,7 +267,9 @@ mod tests {
     #[test]
     fn composition_adds_up_to_installed_ram() {
         const GIB: u64 = 1024 * 1024 * 1024;
-        let c = snapshot_with_lists(2, 5, 1).composition().expect("lists known");
+        let c = snapshot_with_lists(2, 5, 1)
+            .composition()
+            .expect("lists known");
         assert_eq!(c.free, 2 * GIB);
         assert_eq!(c.standby, 5 * GIB);
         assert_eq!(c.modified, GIB);
@@ -277,7 +279,9 @@ mod tests {
 
     #[test]
     fn composition_clamps_lists_that_overshoot_installed_ram() {
-        let c = snapshot_with_lists(10, 10, 10).composition().expect("lists known");
+        let c = snapshot_with_lists(10, 10, 10)
+            .composition()
+            .expect("lists known");
         assert_eq!(c.total(), 16 * 1024 * 1024 * 1024);
         assert_eq!(c.in_use, 0);
         assert_eq!(c.modified, 0);

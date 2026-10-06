@@ -249,7 +249,8 @@ fn draw_map(ui: &mut egui::Ui, p: &Palette, parts: &[Part], level: CleanLevel, h
         } else {
             (part.fraction * usable).max(2.0)
         };
-        let segment = egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(width, rect.height()));
+        let segment =
+            egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(width, rect.height()));
         let round = |first: bool, last: bool| egui::CornerRadius {
             nw: if first { 4 } else { 0 },
             sw: if first { 4 } else { 0 },
@@ -284,7 +285,8 @@ fn draw_legend(ui: &mut egui::Ui, p: &Palette, parts: &[Part]) {
         for (column, part) in columns.iter_mut().zip(parts) {
             column.spacing_mut().item_spacing.y = 2.0;
             column.horizontal(|ui| {
-                let (swatch, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+                let (swatch, _) =
+                    ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
                 ui.painter()
                     .rect_filled(swatch, egui::CornerRadius::same(2), p.list(part.list));
                 if part.list == MemoryList::Free {
@@ -400,7 +402,11 @@ fn draw_progress(ui: &mut egui::Ui, p: &Palette, progress: &CleanProgress) {
         .trim_end_matches("...")
         .trim_end_matches('\u{2026}');
     let label = if label.is_empty() { "Starting" } else { label };
-    let who = if progress.auto { "Auto-clean" } else { "Cleaning" };
+    let who = if progress.auto {
+        "Auto-clean"
+    } else {
+        "Cleaning"
+    };
     ui.horizontal(|ui| {
         ui.spinner();
         ui.label(
@@ -414,11 +420,14 @@ fn draw_progress(ui: &mut egui::Ui, p: &Palette, progress: &CleanProgress) {
         );
     });
     ui.add_space(6.0);
-    let (bar, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 4.0), egui::Sense::hover());
-    ui.painter().rect_filled(bar, egui::CornerRadius::same(2), p.well);
+    let (bar, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 4.0), egui::Sense::hover());
+    ui.painter()
+        .rect_filled(bar, egui::CornerRadius::same(2), p.well);
     let fraction = step as f32 / progress.total.max(step) as f32;
     let fill = egui::Rect::from_min_size(bar.min, egui::vec2(bar.width() * fraction, bar.height()));
-    ui.painter().rect_filled(fill, egui::CornerRadius::same(2), p.accent);
+    ui.painter()
+        .rect_filled(fill, egui::CornerRadius::same(2), p.accent);
     ui.ctx()
         .request_repaint_after(std::time::Duration::from_millis(100));
 }
@@ -429,7 +438,11 @@ fn draw_result(ui: &mut egui::Ui, p: &Palette, msg: &CleanResultMsg) {
         Ok(result) => draw_success(ui, p, msg, result),
         Err(e) => {
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(ph::WARNING_CIRCLE).size(16.0).color(p.critical));
+                ui.label(
+                    egui::RichText::new(ph::WARNING_CIRCLE)
+                        .size(16.0)
+                        .color(p.critical),
+                );
                 ui.add(
                     egui::Label::new(
                         egui::RichText::new(format!(
@@ -448,7 +461,11 @@ fn draw_result(ui: &mut egui::Ui, p: &Palette, msg: &CleanResultMsg) {
 /// A finished clean: amount freed, time taken, failures, and the steps.
 fn draw_success(ui: &mut egui::Ui, p: &Palette, msg: &CleanResultMsg, result: &SmartCleanResult) {
     let freed = memory::format_bytes(result.reclaimed_bytes().max(0) as u64);
-    let who = if msg.auto { "Auto-clean freed" } else { "Freed" };
+    let who = if msg.auto {
+        "Auto-clean freed"
+    } else {
+        "Freed"
+    };
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(ph::CHECK).size(16.0).color(p.success));
         ui.label(
@@ -535,8 +552,14 @@ fn draw_quick_stats(ui: &mut egui::Ui, p: &Palette, snap: &MemorySnapshot) {
                 memory::format_bytes(limit)
             ),
         ),
-        (text::STAT_PROCESSES, group_digits(u64::from(snap.process_count))),
-        (text::STAT_THREADS, group_digits(u64::from(snap.thread_count))),
+        (
+            text::STAT_PROCESSES,
+            group_digits(u64::from(snap.process_count)),
+        ),
+        (
+            text::STAT_THREADS,
+            group_digits(u64::from(snap.thread_count)),
+        ),
     ];
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 36.0;

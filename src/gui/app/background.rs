@@ -53,11 +53,12 @@ impl MagicXApp {
     /// Refresh the process list if enough time has passed and no refresh is
     /// already running.
     pub(super) fn maybe_refresh_processes(&mut self) {
-        if self.last_process_refresh.elapsed() < Duration::from_secs(PROCESS_REFRESH_SECS)
-            || self.process_refresh_in_flight.swap(true, Ordering::AcqRel)
-        {
+        let due = self.last_process_refresh.elapsed() >= Duration::from_secs(PROCESS_REFRESH_SECS)
+            || self.processes_stale.load(Ordering::Acquire);
+        if !due || self.process_refresh_in_flight.swap(true, Ordering::AcqRel) {
             return;
         }
+        self.processes_stale.store(false, Ordering::Release);
         self.last_process_refresh = Instant::now();
         let procs_ref = Arc::clone(&self.top_processes);
         let in_flight = Arc::clone(&self.process_refresh_in_flight);

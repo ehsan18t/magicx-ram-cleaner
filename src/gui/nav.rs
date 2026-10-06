@@ -199,7 +199,10 @@ fn nav_item(
     }
     widgets::focus_ring(ui, &response, rect, p);
 
-    let icon_center = egui::pos2(rect.left() + (theme::PANE_RAIL_WIDTH - 12.0) / 2.0, rect.center().y);
+    let icon_center = egui::pos2(
+        rect.left() + (theme::PANE_RAIL_WIDTH - 12.0) / 2.0,
+        rect.center().y,
+    );
     painter.text(
         icon_center,
         egui::Align2::CENTER_CENTER,
@@ -220,7 +223,9 @@ fn nav_item(
             text_rect.width(),
         ));
         let pos = egui::pos2(text_rect.left(), rect.center().y - galley.size().y / 2.0);
-        painter.with_clip_rect(text_rect).galley(pos, galley, p.text);
+        painter
+            .with_clip_rect(text_rect)
+            .galley(pos, galley, p.text);
     }
     response
 }

@@ -19,8 +19,9 @@ use eframe::egui;
 
 use self::appearance::Appearance;
 use self::background::{PROCESS_REFRESH_SECS, stats_thread};
-pub use self::cleaning::{CleanProgress, CleanResultMsg, MapTransition};
 use self::cleaning::MONITOR_LOG_CAPACITY;
+pub use self::cleaning::{CleanProgress, CleanResultMsg, MapTransition};
+pub use self::trim::TrimState;
 use super::settings::GuiSettings;
 use super::{fonts, nav, theme, tray};
 use crate::engine::auto_clean::AutoCleanPolicy;
@@ -31,6 +32,7 @@ mod appearance;
 mod background;
 mod cleaning;
 mod tray_events;
+mod trim;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -114,6 +116,13 @@ pub struct MagicXApp {
     /// `true` while a process-list refresh thread is running, so refreshes
     /// never overlap.
     process_refresh_in_flight: Arc<AtomicBool>,
+
+    /// Set when the process list is known to be out of date (after a trim),
+    /// so the next refresh runs without waiting for the interval.
+    processes_stale: Arc<AtomicBool>,
+
+    /// Running and recent trims on the Processes page.
+    pub trim_log: trim::SharedTrimLog,
 
     /// Whether monitoring auto-clean is active.
     pub monitor_active: bool,
@@ -296,6 +305,8 @@ impl MagicXApp {
                 .checked_sub(Duration::from_secs(PROCESS_REFRESH_SECS + 1))
                 .unwrap_or_else(Instant::now),
             process_refresh_in_flight: Arc::new(AtomicBool::new(false)),
+            processes_stale: Arc::new(AtomicBool::new(false)),
+            trim_log: Arc::default(),
             monitor_active: settings.auto_clean_enabled,
             auto_clean: AutoCleanPolicy::new(
                 settings.monitor_threshold,
