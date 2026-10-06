@@ -36,7 +36,7 @@ pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
         widgets::divider(ui);
         draw_autostart_row(ui, app);
         widgets::divider(ui);
-        draw_context_menu_row(ui, app, &p);
+        draw_context_menu_row(ui, app);
     });
 
     ui.add_space(theme::SECTION_SPACING);
@@ -121,37 +121,30 @@ fn draw_autostart_row(ui: &mut egui::Ui, app: &mut MagicXApp) {
     }
 }
 
-/// Desktop context menu: its status and one button that installs or removes it.
-fn draw_context_menu_row(ui: &mut egui::Ui, app: &mut MagicXApp, p: &Palette) {
+/// Desktop context menu: a switch that installs or removes it.
+fn draw_context_menu_row(ui: &mut egui::Ui, app: &mut MagicXApp) {
     let installed = app.context_menu_installed;
-    let mut clicked = false;
+    let mut wanted = installed;
+    let mut changed = false;
     widgets::settings_row(
         ui,
         ph::MOUSE_RIGHT_CLICK,
         text::LABEL_CONTEXT_MENU,
         text::DESC_CONTEXT_MENU,
         |ui| {
-            let (label, tooltip) = if installed {
-                (text::BTN_REMOVE, text::TOOLTIP_REMOVE)
+            let tooltip = if installed {
+                text::TOOLTIP_REMOVE
             } else {
-                (text::BTN_INSTALL, text::TOOLTIP_INSTALL)
+                text::TOOLTIP_INSTALL
             };
-            clicked = widgets::secondary_button(ui, label)
+            changed = widgets::toggle_switch(ui, &mut wanted)
                 .on_hover_text(tooltip)
-                .clicked();
-            let (status, color) = if installed {
-                (text::STATUS_INSTALLED, p.success)
-            } else {
-                (text::STATUS_NOT_INSTALLED, p.text_secondary)
-            };
-            ui.label(
-                egui::RichText::new(status)
-                    .size(theme::CAPTION)
-                    .color(color),
-            );
+                .changed();
         },
     );
-    if !clicked {
+    // The switch reflects the registry, so it only moves once the change
+    // succeeds.
+    if !changed {
         return;
     }
     if installed {

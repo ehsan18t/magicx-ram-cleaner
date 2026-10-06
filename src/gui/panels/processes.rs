@@ -15,7 +15,7 @@ use crate::memory;
 use crate::strings::gui::processes as text;
 
 use super::super::app::{MagicXApp, TrimState};
-use super::super::settings::TOP_PROCESS_CHOICES;
+use super::super::settings::TOP_PROCESSES_RANGE;
 use super::super::theme::{self, Palette};
 use super::super::widgets;
 
@@ -139,17 +139,15 @@ pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
 /// The Top N choice on the left, search on the right.
 fn draw_toolbar(ui: &mut egui::Ui, app: &mut MagicXApp, p: &Palette) {
     ui.horizontal(|ui| {
-        ui.allocate_ui(egui::vec2(210.0, theme::CONTROL_HEIGHT), |ui| {
-            let selected = TOP_PROCESS_CHOICES
-                .iter()
-                .position(|n| *n == app.settings.top_process_count)
-                .unwrap_or(1);
-            let labels = TOP_PROCESS_CHOICES.map(|n| format!("Top {n}"));
-            let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
-            if let Some(i) = widgets::segmented(ui, &labels, selected, true) {
-                app.settings.top_process_count = TOP_PROCESS_CHOICES[i];
-            }
-        });
+        ui.label(egui::RichText::new(text::LABEL_SHOW_TOP).color(p.text_secondary));
+        widgets::number_box(
+            ui,
+            "process-count",
+            &mut app.settings.top_process_count,
+            TOP_PROCESSES_RANGE,
+        )
+        .on_hover_text(text::TOOLTIP_SHOW_TOP);
+        ui.label(egui::RichText::new(text::LABEL_PROGRAMS).color(p.text_secondary));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             search_box(ui, app, p);
         });

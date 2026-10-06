@@ -58,8 +58,8 @@ Each statement is observable in the running app.
 10. When the kernel page lists cannot be read, the memory map shows In use and Available only, and the picker says no estimate is available.
 11. Red appears only for memory pressure (a load of 90% or higher) and for errors. The memory map and chart never turn red.
 12. The Monitor shows a 10-minute history chart in the memory-list colors with the auto-clean threshold drawn as a line, gaps where nothing was recorded, and an event list that shows what each auto-clean freed.
-13. The Processes page has a Top 10 / 20 / 50 selector, a search box with a built-in clear button, a highlighted row on hover, and a Trim button on the hovered row that reports the amount freed and any skipped instances. Rows also take keyboard focus, and Enter or Space trims the focused row.
-14. The Settings page uses rows with an icon, title, description and a control on the right. Toggle switches show on and off clearly. The context menu is one row with its status and one button.
+13. The Processes page has a "Show top N programs" box that takes any whole number from 1 to 9999, a search box with a built-in clear button, a highlighted row on hover, and a Trim button on the hovered row that reports the amount freed and any skipped instances. Rows also take keyboard focus, and Enter or Space trims the focused row.
+14. The Settings page uses rows with an icon, title, description and a control on the right. Toggle switches show on and off clearly. The context menu is one row with a switch, like the rows above it.
 15. Hidden in the tray with auto-clean off, the app does no periodic work, as before.
 16. Text in both themes meets WCAG AA contrast, and keyboard focus is always visible.
 

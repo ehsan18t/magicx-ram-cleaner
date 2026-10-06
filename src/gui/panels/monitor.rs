@@ -359,26 +359,22 @@ fn draw_rules(ui: &mut egui::Ui, app: &mut MagicXApp) {
         },
     );
     widgets::divider(ui);
-    // The level picker gets its own line so it never crowds the description.
     widgets::settings_row(
         ui,
         ph::SLIDERS,
         text::LABEL_CLEAN_LEVEL,
         text::DESC_CLEAN_LEVEL,
-        |_| {},
+        |ui| {
+            let options = LEVELS.map(|level| (level, level.title_case_name()));
+            widgets::dropdown(
+                ui,
+                "auto-clean-level",
+                &mut app.settings.default_clean_level,
+                &options,
+                120.0,
+            );
+        },
     );
-    ui.horizontal(|ui| {
-        ui.add_space(34.0);
-        let selected = LEVELS
-            .iter()
-            .position(|l| *l == app.settings.default_clean_level)
-            .unwrap_or(2);
-        let names = LEVELS.map(CleanLevel::title_case_name);
-        if let Some(i) = widgets::segmented(ui, &names, selected, true) {
-            app.settings.default_clean_level = LEVELS[i];
-        }
-    });
-    ui.add_space(6.0);
 }
 
 // ─── Activity ────────────────────────────────────────────────────────────────

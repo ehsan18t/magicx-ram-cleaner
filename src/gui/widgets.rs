@@ -362,12 +362,123 @@ pub fn slider(
         painter.circle_filled(center, dot, p.accent);
         focus_ring(ui, &response, rect, &p);
 
-        // The value sits on the left, as in Windows Settings.
-        ui.add_sized(
-            egui::vec2(52.0, theme::CONTROL_HEIGHT),
-            egui::Label::new(egui::RichText::new(format(*value)).color(p.text)),
+        // The value sits just left of the rail, right-aligned against it, as
+        // in Windows Settings.
+        let (label, _) = ui.allocate_exact_size(
+            egui::vec2(48.0, theme::CONTROL_HEIGHT),
+            egui::Sense::hover(),
+        );
+        ui.painter().text(
+            egui::pos2(label.right(), label.center().y),
+            egui::Align2::RIGHT_CENTER,
+            format(*value),
+            egui::FontId::proportional(theme::BODY),
+            p.text_secondary,
         );
         response
     })
     .inner
+}
+
+/// A Windows-style number box for whole numbers in `range`. Typing applies
+/// as soon as the text is a valid number; anything else is ignored, and the
+/// box shows the current value again once it loses focus. Up and Down step
+/// the value by one.
+pub fn number_box(
+    ui: &mut egui::Ui,
+    id_salt: &str,
+    value: &mut usize,
+    range: std::ops::RangeInclusive<usize>,
+) -> egui::Response {
+    let p = theme::palette();
+    let id = ui.make_persistent_id(id_salt);
+    let buffer_id = id.with("buffer");
+    let (min, max) = (*range.start(), *range.end());
+
+    let focused = ui.memory(|m| m.has_focus(id));
+    let mut text = if focused {
+        ui.data(|d| d.get_temp::<String>(buffer_id))
+            .unwrap_or_else(|| value.to_string())
+    } else {
+        value.to_string()
+    };
+    if focused {
+        // Up and Down step the value instead of moving the cursor or focus.
+        let (up, down) = ui.input_mut(|i| {
+            (
+                i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp),
+                i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
+            )
+        });
+        if up || down {
+            let stepped = if up {
+                value.saturating_add(1)
+            } else {
+                value.saturating_sub(1)
+            };
+            *value = stepped.clamp(min, max);
+            text = value.to_string();
+        }
+    }
+
+    let digits = max.to_string().len();
+    let response = ui.add(
+        egui::TextEdit::singleline(&mut text)
+            .id(id)
+            .char_limit(digits)
+            .desired_width(56.0)
+            .horizontal_align(egui::Align::Center)
+            .margin(egui::Margin::symmetric(6, 7)),
+    );
+    text.retain(|c| c.is_ascii_digit());
+    if let Ok(n) = text.parse::<usize>()
+        && range.contains(&n)
+        && n != *value
+    {
+        *value = n;
+    }
+    if response.has_focus() {
+        ui.data_mut(|d| d.insert_temp(buffer_id, text));
+    } else {
+        ui.data_mut(|d| d.remove::<String>(buffer_id));
+    }
+    if response.hovered() && !response.has_focus() {
+        ui.painter().rect_stroke(
+            response.rect,
+            egui::CornerRadius::same(theme::CONTROL_RADIUS),
+            egui::Stroke::new(1.0_f32, p.text_tertiary),
+            egui::StrokeKind::Inside,
+        );
+    }
+    response
+}
+
+/// A dropdown (combo box) for picking one of `options`, styled like the
+/// Windows 11 control: the menu marks the current choice with a quiet fill
+/// instead of an accent block.
+pub fn dropdown<T: PartialEq + Copy>(
+    ui: &mut egui::Ui,
+    id_salt: &str,
+    current: &mut T,
+    options: &[(T, &str)],
+    width: f32,
+) -> egui::Response {
+    let p = theme::palette();
+    let selected = options
+        .iter()
+        .find(|(option, _)| option == current)
+        .map_or("", |(_, label)| *label);
+    let response = egui::ComboBox::from_id_salt(id_salt)
+        .width(width)
+        .selected_text(egui::RichText::new(selected).color(p.text))
+        .show_ui(ui, |ui| {
+            ui.visuals_mut().selection.bg_fill = p.subtle;
+            ui.visuals_mut().selection.stroke = egui::Stroke::NONE;
+            for (option, label) in options {
+                ui.selectable_value(current, *option, *label);
+            }
+        })
+        .response;
+    focus_ring(ui, &response, response.rect, &p);
+    response
 }

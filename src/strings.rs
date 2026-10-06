@@ -254,6 +254,16 @@ pub mod gui {
         /// Sort column names for the footer, indexed by column.
         pub const COL_NAMES: [&str; 4] = ["name", "instances", "memory", "peak"];
 
+        /// Words before the program count box.
+        pub const LABEL_SHOW_TOP: &str = "Show top";
+
+        /// Word after the program count box.
+        pub const LABEL_PROGRAMS: &str = "programs";
+
+        /// Program count box tooltip.
+        pub const TOOLTIP_SHOW_TOP: &str =
+            "Any whole number from 1 to 9999. Up and Down change it by one.";
+
         /// Search box placeholder.
         pub const SEARCH_HINT: &str = "Search programs";
 
@@ -321,22 +331,10 @@ pub mod gui {
         pub const DESC_CONTEXT_MENU: &str =
             "Adds MagicX RAM Cleaner to the right-click menu of the desktop and folders";
 
-        /// Context menu status: installed.
-        pub const STATUS_INSTALLED: &str = "Installed";
+        /// Context menu switch tooltip while it is off.
+        pub const TOOLTIP_INSTALL: &str = "Turn on to add the entries to the Windows registry";
 
-        /// Context menu status: not installed.
-        pub const STATUS_NOT_INSTALLED: &str = "Not installed";
-
-        /// Button that installs the context menu.
-        pub const BTN_INSTALL: &str = "Install";
-
-        /// Button that removes the context menu.
-        pub const BTN_REMOVE: &str = "Remove";
-
-        /// Install button tooltip.
-        pub const TOOLTIP_INSTALL: &str = "Add the context menu entries to the Windows registry";
-
-        /// Remove button tooltip.
+        /// Context menu switch tooltip while it is on.
         pub const TOOLTIP_REMOVE: &str =
             "Remove the context menu entries from the Windows registry";
 

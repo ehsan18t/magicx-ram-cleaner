@@ -13,8 +13,8 @@ pub const THRESHOLD_RANGE: RangeInclusive<u32> = 50..=99;
 /// Valid range of the monitor cooldown slider (seconds).
 pub const COOLDOWN_RANGE_SECS: RangeInclusive<u64> = 10..=300;
 
-/// The "Top N" choices on the Processes page.
-pub const TOP_PROCESS_CHOICES: [usize; 3] = [10, 20, 50];
+/// Valid range of the Processes page's "Show top" count.
+pub const TOP_PROCESSES_RANGE: RangeInclusive<usize> = 1..=9999;
 
 /// Default monitor threshold percentage.
 pub const DEFAULT_THRESHOLD: u32 = 80;
@@ -114,11 +114,9 @@ impl GuiSettings {
         self.monitor_cooldown_secs = self
             .monitor_cooldown_secs
             .clamp(*COOLDOWN_RANGE_SECS.start(), *COOLDOWN_RANGE_SECS.end());
-        // Snap to the nearest choice; older versions allowed any count.
-        self.top_process_count = TOP_PROCESS_CHOICES
-            .into_iter()
-            .min_by_key(|choice| choice.abs_diff(self.top_process_count))
-            .unwrap_or(DEFAULT_TOP_PROCESSES);
+        self.top_process_count = self
+            .top_process_count
+            .clamp(*TOP_PROCESSES_RANGE.start(), *TOP_PROCESSES_RANGE.end());
     }
 }
 
@@ -162,7 +160,7 @@ mod tests {
         settings.sanitize();
         assert_eq!(settings.monitor_threshold, *THRESHOLD_RANGE.start());
         assert_eq!(settings.monitor_cooldown_secs, *COOLDOWN_RANGE_SECS.end());
-        assert_eq!(settings.top_process_count, TOP_PROCESS_CHOICES[0]);
+        assert_eq!(settings.top_process_count, *TOP_PROCESSES_RANGE.start());
     }
 
     #[test]
@@ -179,8 +177,8 @@ mod tests {
     }
 
     #[test]
-    fn top_process_count_snaps_to_the_nearest_choice() {
-        for (stored, expected) in [(5, 10), (15, 10), (25, 20), (35, 20), (45, 50), (500, 50)] {
+    fn top_process_count_keeps_any_count_within_the_range() {
+        for (stored, expected) in [(0, 1), (7, 7), (35, 35), (500, 500), (100_000, 9999)] {
             let mut settings = GuiSettings {
                 top_process_count: stored,
                 ..GuiSettings::default()
