@@ -10,7 +10,7 @@
 pub fn find_app_window(title: &str) -> isize {
     use windows_sys::Win32::UI::WindowsAndMessaging::{FindWindowExW, GetWindowThreadProcessId};
 
-    let Ok(own_exe) = std::env::current_exe() else {
+    let Some(own_exe) = std::env::current_exe().ok().map(|p| resolved(&p)) else {
         return 0;
     };
     let wide = super::wide::to_wide(title);
@@ -34,12 +34,21 @@ pub fn find_app_window(title: &str) -> isize {
         // SAFETY: `hwnd` is a window handle and `pid` a valid out pointer.
         unsafe { GetWindowThreadProcessId(hwnd, &raw mut pid) };
         let same_exe = super::process::image_path(pid)
-            .is_some_and(|path| path.as_os_str().eq_ignore_ascii_case(own_exe.as_os_str()));
+            .is_some_and(|path| resolved(&path).eq_ignore_ascii_case(&own_exe));
         if same_exe {
             return hwnd as isize;
         }
         previous = hwnd;
     }
+}
+
+/// `path` with junctions, symbolic links and 8.3 short names resolved, so two
+/// spellings of the same executable compare equal. Falls back to the path as
+/// given when it cannot be resolved.
+fn resolved(path: &std::path::Path) -> std::ffi::OsString {
+    std::fs::canonicalize(path)
+        .unwrap_or_else(|_| path.to_path_buf())
+        .into_os_string()
 }
 
 /// Check whether the application window is currently minimized (iconic).
