@@ -16,6 +16,7 @@ use anyhow::Result;
 use colored::Colorize;
 
 use crate::display;
+use crate::engine::auto_clean::{AutoCleanPolicy, Decision};
 use crate::engine::{self, CleanLevel};
 use crate::memory::MemorySnapshot;
 use crate::platform::console;
@@ -24,9 +25,6 @@ use crate::strings;
 /// Maximum consecutive auto-clean errors before the monitor aborts.
 /// Prevents infinite error-clean-error loops on a malfunctioning system.
 const MAX_CONSECUTIVE_ERRORS: u32 = 3;
-
-/// Upper bound for the cooldown backoff multiplier (see [`AutoCleanState`]).
-const MAX_COOLDOWN_MULTIPLIER: u32 = 8;
 
 /// Guard preventing concurrent [`run_monitor`] calls.
 ///
@@ -107,7 +105,11 @@ pub fn run_monitor(
     );
     println!("  {}\n", strings::cli::monitor::CTRL_C_HINT);
 
-    let mut state = AutoCleanState::default();
+    let mut state = MonitorState {
+        policy: threshold.map(|t| AutoCleanPolicy::new(t, cooldown)),
+        snapshot_errors: 0,
+        clean_errors: 0,
+    };
     let interval = std::time::Duration::from_secs(interval_secs);
 
     while !console::interrupted() {
@@ -120,13 +122,7 @@ pub fn run_monitor(
                 state.snapshot_errors = 0;
                 display::print_compact_status(&snapshot);
                 if let Some(thresh) = threshold {
-                    if snapshot.memory_load_percent >= thresh {
-                        handle_threshold_clean(
-                            thresh, &snapshot, auto_level, verbose, cooldown, &mut state,
-                        )?;
-                    } else {
-                        state.cooldown_multiplier = 1;
-                    }
+                    handle_threshold_clean(thresh, &snapshot, auto_level, verbose, &mut state)?;
                 }
             }
             Err(e) => record_error(&mut state.snapshot_errors, &e)?,
@@ -154,33 +150,17 @@ fn sleep_until(deadline: Instant) {
     }
 }
 
-/// Mutable auto-clean bookkeeping carried across monitor iterations.
+/// Mutable bookkeeping carried across monitor iterations.
 #[derive(Debug)]
-struct AutoCleanState {
-    /// When the last auto-clean finished.
-    last_clean: Option<Instant>,
+struct MonitorState {
+    /// Auto-clean timing rules; `None` when auto-clean is disabled.
+    policy: Option<AutoCleanPolicy>,
     /// Consecutive failed status queries (reset by a successful query).
     snapshot_errors: u32,
     /// Consecutive failed cleans (reset by a successful clean). Kept apart
     /// from `snapshot_errors` so the good status queries between cleans
     /// cannot mask a clean that keeps failing.
     clean_errors: u32,
-    /// Cooldown multiplier: doubles (up to [`MAX_COOLDOWN_MULTIPLIER`]) after
-    /// a clean that leaves memory load at or above the threshold, and resets
-    /// to 1 once load drops below it. Stops futile back-to-back cleans when
-    /// the load is held up by memory that cleaning cannot reclaim.
-    cooldown_multiplier: u32,
-}
-
-impl Default for AutoCleanState {
-    fn default() -> Self {
-        Self {
-            last_clean: None,
-            snapshot_errors: 0,
-            clean_errors: 0,
-            cooldown_multiplier: 1,
-        }
-    }
 }
 
 /// Count an error in `streak` and abort the monitor once
@@ -202,65 +182,60 @@ fn record_error(streak: &mut u32, error: &anyhow::Error) -> Result<()> {
     Ok(())
 }
 
-/// Handle threshold-triggered auto-cleaning for a single monitor iteration.
+/// Apply the auto-clean policy for a single monitor iteration.
 ///
-/// Checks whether the (backed-off) cooldown has elapsed since the last clean
-/// finished. If cooldown is active, prints a skip message. Otherwise executes
-/// [`engine::Cleaner::smart_clean`] and tracks consecutive errors, aborting the
-/// monitor after [`MAX_CONSECUTIVE_ERRORS`] consecutive failures.
+/// Prints a skip message while the (backed-off) cooldown is active, and
+/// otherwise runs [`engine::Cleaner::smart_clean`], tracking consecutive
+/// errors and aborting the monitor after [`MAX_CONSECUTIVE_ERRORS`].
 fn handle_threshold_clean(
     thresh: u32,
     snapshot: &MemorySnapshot,
     auto_level: CleanLevel,
     verbose: bool,
-    cooldown: std::time::Duration,
-    state: &mut AutoCleanState,
+    state: &mut MonitorState,
 ) -> Result<()> {
-    let effective_cooldown = cooldown.saturating_mul(state.cooldown_multiplier);
-    let in_cooldown = state
-        .last_clean
-        .is_some_and(|t| t.elapsed() < effective_cooldown);
-
-    if in_cooldown {
-        println!(
-            "  {} Memory {}% >= {}% but cooldown active - skipping",
-            "⏳".yellow(),
-            snapshot.memory_load_percent,
-            thresh
-        );
+    let Some(policy) = state.policy.as_mut() else {
         return Ok(());
+    };
+    let load = snapshot.memory_load_percent;
+    match policy.decide(load, Instant::now()) {
+        Decision::BelowThreshold => return Ok(()),
+        Decision::CoolingDown => {
+            println!(
+                "  {} Memory {load}% >= {thresh}% but cooldown active - skipping",
+                "⏳".yellow(),
+            );
+            return Ok(());
+        }
+        Decision::Clean => {}
     }
 
     println!(
-        "\n  {} Memory load {}% >= threshold {}% - auto-cleaning...",
+        "
+  {} Memory load {load}% >= threshold {thresh}% - auto-cleaning...",
         "⚠".yellow().bold(),
-        snapshot.memory_load_percent,
-        thresh
     );
     display::print_clean_start(auto_level);
 
     let outcome = engine::Cleaner::new(&engine::WindowsMemory, display::progress_printer(verbose))
         .smart_clean(auto_level, &[]);
-    // The cooldown runs from when the clean finished, so a clean longer than
-    // the cooldown cannot be followed immediately by another one.
-    state.last_clean = Some(Instant::now());
+    let load_after = outcome
+        .as_ref()
+        .ok()
+        .map(|output| output.overall_after.memory_load_percent);
+    if policy.record_clean(Instant::now(), load_after) {
+        println!(
+            "  {} Load is still above the threshold; next auto-clean in {}s at the earliest",
+            "⏳".yellow(),
+            policy.effective_cooldown().as_secs()
+        );
+    }
 
     match outcome {
         Ok(output) => {
             // Reset error streak on any successful execution
             state.clean_errors = 0;
             display::print_clean_summary(&output);
-            if output.overall_after.memory_load_percent >= thresh {
-                state.cooldown_multiplier =
-                    (state.cooldown_multiplier * 2).min(MAX_COOLDOWN_MULTIPLIER);
-                println!(
-                    "  {} Load is still above the threshold; next auto-clean in {}s at the earliest",
-                    "⏳".yellow(),
-                    cooldown.saturating_mul(state.cooldown_multiplier).as_secs()
-                );
-            } else {
-                state.cooldown_multiplier = 1;
-            }
         }
         Err(e) => record_error(&mut state.clean_errors, &e)?,
     }

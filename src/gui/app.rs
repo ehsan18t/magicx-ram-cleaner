@@ -17,6 +17,7 @@ use egui_phosphor::regular as ph;
 
 use serde::{Deserialize, Serialize};
 
+use crate::engine::auto_clean::{AutoCleanPolicy, Decision};
 use crate::engine::{self, CleanLevel, SmartCleanResult};
 use crate::memory::{self, MemorySnapshot, ProcessMemoryInfo};
 use crate::strings;
@@ -27,9 +28,6 @@ use super::{panels, theme, tray};
 
 /// Maximum number of lines kept in the monitor activity log.
 const MONITOR_LOG_CAPACITY: usize = 500;
-
-/// Upper bound for the auto-clean cooldown backoff multiplier.
-const MAX_COOLDOWN_BACKOFF: u32 = 8;
 
 /// Valid range of the monitor threshold slider (percent).
 const THRESHOLD_RANGE: std::ops::RangeInclusive<u32> = 50..=99;
@@ -218,15 +216,9 @@ pub struct MagicXApp {
     /// Whether monitoring auto-clean is active.
     pub monitor_active: bool,
 
-    /// Last time an auto-clean finished (for cooldown).
-    last_auto_clean: Option<Instant>,
-
-    /// Cooldown multiplier for the next auto-clean (1, 2, 4 or 8).
-    ///
-    /// Doubles each time an auto-clean finishes with memory load still at or
-    /// above the threshold, and resets to 1 once load drops below it, so a
-    /// futile clean is not repeated back to back.
-    auto_clean_backoff: u32,
+    /// Auto-clean timing rules (threshold, cooldown and backoff), shared
+    /// with the CLI monitor.
+    auto_clean: AutoCleanPolicy,
 
     /// Last time a periodic status line was appended to the monitor log.
     ///
@@ -410,8 +402,10 @@ impl MagicXApp {
                 .unwrap_or_else(Instant::now),
             process_refresh_in_flight: Arc::new(AtomicBool::new(false)),
             monitor_active: settings.auto_clean_enabled,
-            last_auto_clean: None,
-            auto_clean_backoff: 1,
+            auto_clean: AutoCleanPolicy::new(
+                settings.monitor_threshold,
+                Duration::from_secs(settings.monitor_cooldown_secs),
+            ),
             last_monitor_status_log: None,
             prev_monitor_active: false,
             monitor_log: VecDeque::with_capacity(MONITOR_LOG_CAPACITY),
@@ -509,10 +503,6 @@ impl MagicXApp {
             };
             self.push_monitor_log(log_msg);
 
-            // Start the cooldown when the clean finishes, not when it starts,
-            // so a long clean does not eat into the cooldown.
-            self.last_auto_clean = Some(Instant::now());
-
             let load_after = msg.result.as_ref().map_or_else(
                 |_| {
                     self.latest_snapshot
@@ -522,30 +512,26 @@ impl MagicXApp {
                 },
                 |r| Some(r.overall_after.memory_load_percent),
             );
-            if load_after.is_some_and(|load| load >= self.settings.monitor_threshold) {
-                self.auto_clean_backoff = (self.auto_clean_backoff * 2).min(MAX_COOLDOWN_BACKOFF);
+            self.sync_auto_clean_limits();
+            if self.auto_clean.record_clean(Instant::now(), load_after) {
                 let msg = format!(
                     "Memory load still at or above {}%; next auto-clean in {}s.",
                     self.settings.monitor_threshold,
-                    self.effective_cooldown().as_secs(),
+                    self.auto_clean.effective_cooldown().as_secs(),
                 );
                 self.push_monitor_log(msg);
-            } else {
-                self.auto_clean_backoff = 1;
             }
         }
 
         self.last_clean_result = Some(msg);
     }
 
-    /// Cooldown before the next auto-clean: the configured cooldown times
-    /// the current backoff multiplier.
-    fn effective_cooldown(&self) -> Duration {
-        Duration::from_secs(
-            self.settings
-                .monitor_cooldown_secs
-                .saturating_mul(u64::from(self.auto_clean_backoff)),
-        )
+    /// Apply the current threshold and cooldown settings to the policy.
+    const fn sync_auto_clean_limits(&mut self) {
+        self.auto_clean.set_limits(
+            self.settings.monitor_threshold,
+            Duration::from_secs(self.settings.monitor_cooldown_secs),
+        );
     }
 
     /// Refresh the process list if enough time has passed and no refresh is
@@ -586,22 +572,18 @@ impl MagicXApp {
             return;
         }
 
-        // Check cooldown (scaled by backoff after futile cleans).
-        if let Some(last) = self.last_auto_clean
-            && last.elapsed() < self.effective_cooldown()
-        {
-            return;
-        }
-
-        // Check threshold
         let load = self
             .latest_snapshot
             .lock()
             .ok()
             .and_then(|s| s.as_ref().map(|s| s.memory_load_percent));
+        let Some(load) = load else {
+            return;
+        };
 
-        if let Some(load) = load {
-            if load >= self.settings.monitor_threshold {
+        self.sync_auto_clean_limits();
+        match self.auto_clean.decide(load, Instant::now()) {
+            Decision::Clean => {
                 let msg = format!(
                     "Memory load {load}% >= threshold {}%, auto-cleaning ({})...",
                     self.settings.monitor_threshold,
@@ -610,14 +592,13 @@ impl MagicXApp {
                 self.push_monitor_log(msg);
                 self.last_monitor_status_log = Some(Instant::now());
                 self.spawn_clean(self.settings.default_clean_level, true);
-            } else {
-                self.auto_clean_backoff = 1;
-
+            }
+            Decision::CoolingDown => {}
+            Decision::BelowThreshold => {
                 // Periodic heartbeat so the user knows the monitor is alive.
                 let should_log = self
                     .last_monitor_status_log
                     .is_none_or(|t| t.elapsed() >= Duration::from_secs(60));
-
                 if should_log {
                     self.push_monitor_log(format!(
                         "Checked: memory at {load}%, below threshold {}%. No action needed.",
@@ -899,10 +880,9 @@ impl eframe::App for MagicXApp {
                     self.settings.monitor_cooldown_secs,
                     self.settings.default_clean_level.title_case_name(),
                 ));
-                // Immediately eligible for a status heartbeat, with a fresh
-                // cooldown backoff.
+                // Immediately eligible for a status heartbeat and a clean.
                 self.last_monitor_status_log = None;
-                self.auto_clean_backoff = 1;
+                self.auto_clean.reset();
             } else {
                 self.push_monitor_log("Monitoring stopped.".to_owned());
             }

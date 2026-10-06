@@ -11,6 +11,7 @@
 //! [`CleanResult`] with the change in both *available* and *free* memory.
 //! The engine never prints; it reports [`Progress`] events instead.
 
+pub mod auto_clean;
 mod level;
 mod operations;
 mod progress;
