@@ -30,9 +30,14 @@ pub enum ConsoleMode {
     /// host capturing output. Output goes to those handles and nothing waits
     /// for the user.
     Redirected,
-    /// Own console created by the OS (double-clicked the `.exe` or started
-    /// from a GUI launcher). Caller should [`pause_before_exit`].
+    /// Own console allocated for a launch from Explorer (double-clicked the
+    /// `.exe`, a shortcut or the Run dialog). The window would vanish on
+    /// exit, so the caller should [`pause_before_exit`].
     Standalone,
+    /// Own console allocated for any other launcher without a console, such
+    /// as Task Scheduler. Nobody may be there to press Enter (or the session
+    /// may not even be interactive), so the caller must not pause.
+    Allocated,
 }
 
 /// Attach to the parent terminal or allocate a fresh console for CLI mode.
@@ -45,8 +50,8 @@ pub enum ConsoleMode {
 /// 2. Tries `AttachConsole(ATTACH_PARENT_PROCESS)` - succeeds when launched
 ///    from cmd / `PowerShell` / Windows Terminal.
 /// 3. Without a parent console, keeps the inherited handles if there are any
-///    ([`ConsoleMode::Redirected`]); otherwise allocates a brand-new console
-///    (typical for standalone execution with CLI args).
+///    ([`ConsoleMode::Redirected`]); otherwise allocates a brand-new console,
+///    reported as [`ConsoleMode::Standalone`] only when Explorer launched us.
 /// 4. Points every standard handle that was not inherited at the console.
 #[must_use]
 pub fn setup_cli_console() -> ConsoleMode {
@@ -75,7 +80,11 @@ pub fn setup_cli_console() -> ConsoleMode {
         unsafe {
             AllocConsole();
         }
-        ConsoleMode::Standalone
+        if launched_by_explorer() {
+            ConsoleMode::Standalone
+        } else {
+            ConsoleMode::Allocated
+        }
     };
 
     if mode != ConsoleMode::Redirected {
@@ -84,6 +93,51 @@ pub fn setup_cli_console() -> ConsoleMode {
         bind_std_handle(STD_ERROR_HANDLE, inherited_err, b"CONOUT$\0");
     }
     mode
+}
+
+/// Whether the parent process is `explorer.exe`, i.e. the user started us
+/// from the shell (double-click, shortcut, Run dialog) and is watching.
+fn launched_by_explorer() -> bool {
+    parent_process_name().is_some_and(|name| name.eq_ignore_ascii_case("explorer.exe"))
+}
+
+/// Executable name of this process's parent, via a Toolhelp snapshot.
+///
+/// Returns `None` if the snapshot fails or the parent has already exited.
+fn parent_process_name() -> Option<String> {
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+        TH32CS_SNAPPROCESS,
+    };
+
+    // SAFETY: Standard documented call; the handle is owned by the guard.
+    let raw = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if raw == INVALID_HANDLE_VALUE {
+        return None;
+    }
+    let snapshot = crate::stats::HandleGuard::new(raw);
+
+    let mut entries: Vec<(u32, u32, String)> = Vec::new();
+    // SAFETY: PROCESSENTRY32W is plain data; zeroing it and setting dwSize is
+    // the documented initialisation.
+    let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+    entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+    // SAFETY: `snapshot` is a valid Toolhelp snapshot and `entry` is sized.
+    let mut more = unsafe { Process32FirstW(snapshot.raw(), &raw mut entry) } != 0;
+    while more {
+        entries.push((
+            entry.th32ProcessID,
+            entry.th32ParentProcessID,
+            crate::stats::extract_exe_name(&entry.szExeFile),
+        ));
+        // SAFETY: As above.
+        more = unsafe { Process32NextW(snapshot.raw(), &raw mut entry) } != 0;
+    }
+
+    let own_pid = std::process::id();
+    let parent_pid = entries.iter().find(|e| e.0 == own_pid)?.1;
+    entries.into_iter().find(|e| e.0 == parent_pid).map(|e| e.2)
 }
 
 /// Return the standard handle `which` if the parent passed in a usable one

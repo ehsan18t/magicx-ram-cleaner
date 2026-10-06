@@ -52,7 +52,7 @@ These flags can be used with **any** subcommand:
 
 Exit codes: `0` all operations succeeded, `1` one or more operations failed, `2` fatal error, invalid arguments or missing administrator privileges.
 
-Output redirection and pipes work as expected (`status --json > mem.json`, `... | ConvertFrom-Json`), and when the tool runs with captured output but no console (a scheduled task, a script host), it never opens a window or waits for Enter.
+Output redirection and pipes work as expected (`status --json > mem.json`, `... | ConvertFrom-Json`), and when output is captured without a console (a script host, a scheduled task with redirected output) no window opens. The "Press Enter to exit" prompt only appears when the tool was started from Explorer (double-click, shortcut or the Run dialog), so scheduled tasks and other launchers never wait for input.
 
 MagicX is a single executable that also hosts the GUI, so it is built as a Windows GUI program. Interactive `cmd` and PowerShell therefore do not wait for it to finish: the prompt returns immediately and `%ERRORLEVEL%` / `$LASTEXITCODE` are not updated. When a script needs to wait for the result, use `start /wait magicx-ram-cleaner clean` in `cmd`, or `Start-Process magicx-ram-cleaner -ArgumentList clean -Wait -PassThru` in PowerShell (read `.ExitCode` from the result). Batch files and Task Scheduler always wait.
 
