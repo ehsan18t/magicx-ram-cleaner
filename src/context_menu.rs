@@ -36,9 +36,10 @@
 //! ID 1). Each sub-entry references a Phosphor glyph icon rendered during
 //! compilation and embedded with resource IDs 2–6.
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use colored::Colorize;
 
+use crate::platform::registry::{self, Hive, RegKey};
 use crate::strings;
 
 // ─── Registry key paths ──────────────────────────────────────────────────────
@@ -101,132 +102,6 @@ const ENTRIES: &[MenuEntry] = &[
     },
 ];
 
-// ─── Windows registry FFI ────────────────────────────────────────────────────
-
-// Minimal registry bindings from windows-sys.
-use windows_sys::Win32::System::Registry::{
-    HKEY, HKEY_CLASSES_ROOT, KEY_ALL_ACCESS, KEY_READ, REG_OPTION_NON_VOLATILE, REG_SZ,
-    RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegOpenKeyExW, RegSetValueExW,
-};
-
-/// RAII wrapper for a registry `HKEY`.
-struct RegKeyGuard {
-    hkey: HKEY,
-}
-
-impl RegKeyGuard {
-    /// Wrap a raw `HKEY`. The caller is responsible for providing a valid,
-    /// open key handle.
-    const fn new(hkey: HKEY) -> Self {
-        Self { hkey }
-    }
-
-    /// Borrow the raw handle.
-    const fn raw(&self) -> HKEY {
-        self.hkey
-    }
-}
-
-impl Drop for RegKeyGuard {
-    fn drop(&mut self) {
-        if !self.hkey.is_null() {
-            // SAFETY: hkey is a valid, open registry key that must be closed.
-            unsafe { RegCloseKey(self.hkey) };
-        }
-    }
-}
-
-use crate::platform::wide::to_wide;
-
-/// Open or create a registry key under `HKEY_CLASSES_ROOT`.
-///
-/// # Safety contract
-///
-/// All pointers passed to `RegCreateKeyExW` point to valid, properly sized
-/// stack/heap allocations. The returned handle is wrapped in `RegKeyGuard`
-/// for automatic cleanup.
-fn create_key(parent: HKEY, sub_path: &str) -> Result<RegKeyGuard> {
-    let wide = to_wide(sub_path);
-    let mut hkey: HKEY = std::ptr::null_mut();
-    let mut disposition: u32 = 0;
-    // SAFETY: All parameters are valid: wide is null-terminated UTF-16,
-    // hkey and disposition are valid stack-allocated output variables.
-    let rc = unsafe {
-        RegCreateKeyExW(
-            parent,
-            wide.as_ptr(),
-            0,
-            std::ptr::null_mut(),
-            REG_OPTION_NON_VOLATILE,
-            KEY_ALL_ACCESS,
-            std::ptr::null(),
-            &raw mut hkey,
-            &raw mut disposition,
-        )
-    };
-    if rc != 0 {
-        bail!("RegCreateKeyExW failed for '{sub_path}': error {rc}");
-    }
-    Ok(RegKeyGuard::new(hkey))
-}
-
-/// Set a `REG_SZ` (string) value on an open registry key.
-///
-/// `name` is the value name; use `""` for the default `(Default)` value.
-fn set_string(hkey: HKEY, name: &str, value: &str) -> Result<()> {
-    let wide_name = to_wide(name);
-    let wide_value = to_wide(value);
-    // Byte length including the null terminator (REG_SZ requires it).
-    let byte_len = (wide_value.len() * std::mem::size_of::<u16>()) as u32;
-    // SAFETY: wide_name and wide_value are valid null-terminated UTF-16 buffers.
-    // byte_len correctly reflects the buffer size in bytes.
-    let rc = unsafe {
-        RegSetValueExW(
-            hkey,
-            wide_name.as_ptr(),
-            0,
-            REG_SZ,
-            wide_value.as_ptr().cast(),
-            byte_len,
-        )
-    };
-    if rc != 0 {
-        bail!("RegSetValueExW failed for value '{name}': error {rc}");
-    }
-    Ok(())
-}
-
-/// Recursively delete a registry key and all its sub-keys.
-///
-/// `RegDeleteTreeW` requires `HKEY_CLASSES_ROOT` and the path to the key to
-/// delete. Returns `Ok(())` if the key does not exist (idempotent).
-fn delete_key_tree(parent: HKEY, sub_path: &str) -> Result<()> {
-    let wide = to_wide(sub_path);
-    // SAFETY: wide is a valid null-terminated UTF-16 string. HKEY_CLASSES_ROOT
-    // is a predefined root key that is always valid.
-    let rc = unsafe { RegDeleteTreeW(parent, wide.as_ptr()) };
-    // 2 = ERROR_FILE_NOT_FOUND - key already absent, treat as success
-    if rc != 0 && rc != 2 {
-        bail!("RegDeleteTreeW failed for '{sub_path}': error {rc}");
-    }
-    Ok(())
-}
-
-/// Check whether the root context menu key already exists.
-fn key_exists(parent: HKEY, sub_path: &str) -> bool {
-    let wide = to_wide(sub_path);
-    let mut hkey: HKEY = std::ptr::null_mut();
-    // SAFETY: wide is a valid null-terminated UTF-16 string.
-    let rc = unsafe { RegOpenKeyExW(parent, wide.as_ptr(), 0, KEY_READ, &raw mut hkey) };
-    if rc == 0 && !hkey.is_null() {
-        // SAFETY: hkey is a valid open key; drop to close it immediately.
-        let _guard = RegKeyGuard::new(hkey);
-        true
-    } else {
-        false
-    }
-}
-
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /// Install the `MagicX RAM Cleaner` context menu entries.
@@ -243,7 +118,7 @@ pub fn install(exe_path: &str) -> Result<()> {
     for root_path in ROOT_PATHS {
         if let Err(e) = install_at(exe_path, root_path) {
             for cleanup_path in ROOT_PATHS {
-                drop(delete_key_tree(HKEY_CLASSES_ROOT, cleanup_path));
+                drop(registry::delete_tree(Hive::ClassesRoot, cleanup_path));
             }
             return Err(e)
                 .with_context(|| format!("failed to install context menu at '{root_path}'"));
@@ -276,48 +151,53 @@ pub fn install(exe_path: &str) -> Result<()> {
 /// Write the cascading menu tree under a single registry root path.
 fn install_at(exe_path: &str, root_path: &str) -> Result<()> {
     // Remove any stale installation first for a clean slate
-    delete_key_tree(HKEY_CLASSES_ROOT, root_path)
+    registry::delete_tree(Hive::ClassesRoot, root_path)
         .context("failed to remove existing context menu entries")?;
 
     // ── Root submenu key ──────────────────────────────────────────────────
-    let root = create_key(HKEY_CLASSES_ROOT, root_path)
+    let root = RegKey::create(Hive::ClassesRoot, root_path)
         .context("failed to create root context menu key")?;
 
     // MUIVerb is the display name; do NOT set (Default) on the root key
     // because the shell interprets it as a verb name and an unexpected
     // value can prevent the cascading submenu from expanding.
-    set_string(root.raw(), "MUIVerb", strings::context_menu::ROOT_LABEL)
+    root.set_string("MUIVerb", strings::context_menu::ROOT_LABEL)
         .context("failed to set MUIVerb")?;
-    set_string(root.raw(), "SubCommands", "").context("failed to set SubCommands")?;
-    set_string(root.raw(), "Icon", &format!("{exe_path},-1")).context("failed to set root Icon")?;
+    root.set_string("SubCommands", "")
+        .context("failed to set SubCommands")?;
+    root.set_string("Icon", &format!("{exe_path},-1"))
+        .context("failed to set root Icon")?;
 
     // ── Shell sub-key ─────────────────────────────────────────────────────
     let shell_path = format!(r"{root_path}\Shell");
     let _shell =
-        create_key(HKEY_CLASSES_ROOT, &shell_path).context("failed to create Shell sub-key")?;
+        RegKey::create(Hive::ClassesRoot, &shell_path).context("failed to create Shell sub-key")?;
 
     // ── Individual entries ────────────────────────────────────────────────
     for entry in ENTRIES {
         let entry_path = format!(r"{shell_path}\{}", entry.key);
         let cmd_path = format!(r"{entry_path}\command");
 
-        let entry_key = create_key(HKEY_CLASSES_ROOT, &entry_path)
+        let entry_key = RegKey::create(Hive::ClassesRoot, &entry_path)
             .with_context(|| format!("failed to create entry key '{}'", entry.key))?;
 
         // Use MUIVerb for the display label (consistent with the root key).
-        set_string(entry_key.raw(), "MUIVerb", entry.label)
+        entry_key
+            .set_string("MUIVerb", entry.label)
             .with_context(|| format!("failed to set MUIVerb for '{}'", entry.key))?;
 
         // Reference the Phosphor glyph icon embedded in the exe at build time.
         let icon_value = format!("{exe_path},-{}", entry.icon_resource_id);
-        set_string(entry_key.raw(), "Icon", &icon_value)
+        entry_key
+            .set_string("Icon", &icon_value)
             .with_context(|| format!("failed to set icon for '{}'", entry.key))?;
 
-        let cmd_key = create_key(HKEY_CLASSES_ROOT, &cmd_path)
+        let cmd_key = RegKey::create(Hive::ClassesRoot, &cmd_path)
             .with_context(|| format!("failed to create command key for '{}'", entry.key))?;
 
         let command = format!(r#""{exe_path}" {}"#, entry.args);
-        set_string(cmd_key.raw(), "", &command)
+        cmd_key
+            .set_string("", &command)
             .with_context(|| format!("failed to set command for '{}'", entry.key))?;
     }
 
@@ -333,7 +213,7 @@ pub fn uninstall() -> Result<()> {
     let existed = is_installed();
 
     for root_path in ROOT_PATHS {
-        delete_key_tree(HKEY_CLASSES_ROOT, root_path)
+        registry::delete_tree(Hive::ClassesRoot, root_path)
             .with_context(|| format!("failed to remove context menu at '{root_path}'"))?;
     }
 
@@ -371,7 +251,7 @@ pub fn current_exe_path() -> Result<String> {
 pub fn is_installed() -> bool {
     ROOT_PATHS
         .iter()
-        .any(|path| key_exists(HKEY_CLASSES_ROOT, path))
+        .any(|path| registry::key_exists(Hive::ClassesRoot, path))
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -458,17 +338,5 @@ mod tests {
             ROOT_PATHS.len(),
             "ROOT_PATHS must not contain duplicates"
         );
-    }
-
-    #[test]
-    fn to_wide_roundtrip() {
-        let s = "MagicX RAM Cleaner";
-        let wide = to_wide(s);
-        // Last element must be null terminator
-        assert_eq!(*wide.last().unwrap(), 0u16);
-        // Round-trip back to UTF-8
-        let len = wide.iter().position(|&c| c == 0).unwrap_or(wide.len());
-        let back = String::from_utf16_lossy(&wide[..len]);
-        assert_eq!(back, s);
     }
 }

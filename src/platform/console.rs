@@ -285,3 +285,53 @@ pub fn enable_ansi_colors() {
         }
     }
 }
+
+// ─── Ctrl+C handling ─────────────────────────────────────────────────────────
+
+/// Set by the console control handler once Ctrl+C, Ctrl+Break or a console
+/// close has been requested.
+///
+/// Must be a `static`: `SetConsoleCtrlHandler` callbacks are `extern
+/// "system"` functions that cannot capture any state.
+static INTERRUPTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Console control handler: records the interrupt instead of letting Windows
+/// terminate the process.
+///
+/// Handles `CTRL_C_EVENT` (0), `CTRL_BREAK_EVENT` (1) and `CTRL_CLOSE_EVENT`
+/// (2). For `CTRL_CLOSE_EVENT` Windows terminates the process shortly after
+/// the handler returns, so only Ctrl+C / Ctrl+Break allow a graceful stop.
+unsafe extern "system" fn ctrl_handler(ctrl_type: u32) -> i32 {
+    if ctrl_type <= 2 {
+        INTERRUPTED.store(true, std::sync::atomic::Ordering::Release);
+        1 // TRUE: handled, prevent default process termination
+    } else {
+        0 // FALSE: not handled, pass to the next handler
+    }
+}
+
+/// Start turning Ctrl+C / Ctrl+Break into a flag polled with [`interrupted`]
+/// instead of terminating the process. Clears any earlier interrupt.
+///
+/// # Errors
+///
+/// Fails if the handler cannot be registered.
+pub fn watch_interrupts() -> anyhow::Result<()> {
+    use windows_sys::Win32::System::Console::SetConsoleCtrlHandler;
+
+    INTERRUPTED.store(false, std::sync::atomic::Ordering::Release);
+    // SAFETY: `ctrl_handler` is an `extern "system"` fn with the signature
+    // SetConsoleCtrlHandler expects, valid for the whole process lifetime.
+    let ok = unsafe { SetConsoleCtrlHandler(Some(ctrl_handler), 1) };
+    anyhow::ensure!(
+        ok != 0,
+        "SetConsoleCtrlHandler failed - cannot guarantee graceful shutdown"
+    );
+    Ok(())
+}
+
+/// Whether an interrupt arrived since [`watch_interrupts`] was called.
+#[must_use]
+pub fn interrupted() -> bool {
+    INTERRUPTED.load(std::sync::atomic::Ordering::Acquire)
+}

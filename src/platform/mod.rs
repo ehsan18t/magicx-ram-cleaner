@@ -10,14 +10,18 @@
 //! prompt or balloon tooltip).
 
 pub mod console;
+pub mod dialog;
 pub mod handle;
 pub mod instance;
 pub mod memory;
 pub mod notify;
 pub mod nt;
+pub mod paths;
 pub mod privilege;
 pub mod process;
+pub mod registry;
 pub mod shell;
+pub mod task_scheduler;
 pub mod time;
 pub mod wide;
 pub mod window;

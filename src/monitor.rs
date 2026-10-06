@@ -1,31 +1,23 @@
 //! # `MagicX` RAM Cleaner - Monitoring Mode
 //!
 //! Continuous monitoring with optional auto-clean when memory usage
-//! exceeds a configurable threshold. Uses Win32 `SetConsoleCtrlHandler`
-//! for graceful Ctrl+C shutdown.
+//! exceeds a configurable threshold, stopped gracefully with Ctrl+C (see
+//! [`console::watch_interrupts`]).
 //!
-//! ## Why global state is required
-//!
-//! Win32's `SetConsoleCtrlHandler` requires an `extern "system"` callback,
-//! which cannot capture any state (no closures, no `Arc`, no context pointer).
-//! Therefore the shutdown flag (`RUNNING`) **must** be a `static AtomicBool`.
-//! This is an inherent Win32 API limitation, not a design choice.
-//!
-//! `MONITOR_ACTIVE` is a separate guard that prevents concurrent calls to
-//! `run_monitor` - since all state is global, running two monitor loops
-//! simultaneously would produce undefined behaviour (both polling the same
-//! `RUNNING` flag, both registering the same ctrl handler). The guard is
-//! enforced via an RAII `MonitorGuard` that clears the flag on drop.
+//! The interrupt flag is process-global (a Win32 console handler cannot
+//! capture state), so `MONITOR_ACTIVE` guards against two monitor loops
+//! running at once and sharing it. The guard is released by an RAII
+//! `MonitorGuard` on every exit path.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use anyhow::Result;
 use colored::Colorize;
-use windows_sys::Win32::System::Console::SetConsoleCtrlHandler;
 
 use crate::cleaner::{self, CleanLevel};
 use crate::display;
+use crate::platform::console;
 use crate::stats::MemorySnapshot;
 use crate::strings;
 
@@ -36,16 +28,10 @@ const MAX_CONSECUTIVE_ERRORS: u32 = 3;
 /// Upper bound for the cooldown backoff multiplier (see [`AutoCleanState`]).
 const MAX_COOLDOWN_MULTIPLIER: u32 = 8;
 
-/// Global shutdown flag set to `false` by the console control handler.
-///
-/// Must be `static` because Win32 `SetConsoleCtrlHandler` callbacks are
-/// `extern "system"` functions that cannot capture any state.
-static RUNNING: AtomicBool = AtomicBool::new(true);
-
 /// Guard preventing concurrent [`run_monitor`] calls.
 ///
-/// Since `RUNNING` is process-global and the ctrl handler is process-wide,
-/// running two monitor loops simultaneously would corrupt shared state.
+/// The interrupt flag and console handler are process-wide, so running two
+/// monitor loops simultaneously would corrupt shared state.
 /// This flag is checked at entry and cleared on exit via [`MonitorGuard`].
 static MONITOR_ACTIVE: AtomicBool = AtomicBool::new(false);
 
@@ -59,22 +45,6 @@ struct MonitorGuard;
 impl Drop for MonitorGuard {
     fn drop(&mut self) {
         MONITOR_ACTIVE.store(false, Ordering::Release);
-    }
-}
-
-/// Win32 console control handler callback registered via `SetConsoleCtrlHandler`.
-///
-/// Handles `CTRL_C_EVENT` (0), `CTRL_BREAK_EVENT` (1), and `CTRL_CLOSE_EVENT` (2)
-/// by setting the `RUNNING` flag to `false` for graceful loop termination.
-/// For `CTRL_CLOSE_EVENT` Windows terminates the process shortly after the
-/// handler returns, so only Ctrl+C / Ctrl+Break reach the "stopped" message.
-unsafe extern "system" fn ctrl_handler(ctrl_type: u32) -> i32 {
-    // CTRL_C_EVENT = 0, CTRL_BREAK_EVENT = 1, CTRL_CLOSE_EVENT = 2
-    if ctrl_type <= 2 {
-        RUNNING.store(false, Ordering::Release);
-        1 // TRUE - handled, prevent default process termination
-    } else {
-        0 // FALSE - not handled, pass to next handler
     }
 }
 
@@ -115,16 +85,8 @@ pub fn run_monitor(
     // RAII guard: clears MONITOR_ACTIVE on all exit paths (success, error, panic)
     let _guard = MonitorGuard;
 
-    // Reset the RUNNING flag in case run_monitor is called more than once
-    RUNNING.store(true, Ordering::Release);
-
-    // Install Ctrl+C handler for graceful shutdown
-    // SAFETY: ctrl_handler is a valid extern "system" fn with the correct signature.
-    let handler_ok = unsafe { SetConsoleCtrlHandler(Some(ctrl_handler), 1) };
-    anyhow::ensure!(
-        handler_ok != 0,
-        "SetConsoleCtrlHandler failed - cannot guarantee graceful shutdown"
-    );
+    // Ctrl+C / Ctrl+Break end the loop gracefully instead of killing the process.
+    console::watch_interrupts()?;
 
     // Cooldown: skip auto-clean after the last clean to avoid
     // repeated cleaning when memory stays above the threshold.
@@ -148,7 +110,7 @@ pub fn run_monitor(
     let mut state = AutoCleanState::default();
     let interval = std::time::Duration::from_secs(interval_secs);
 
-    while RUNNING.load(Ordering::Acquire) {
+    while !console::interrupted() {
         let iteration_start = Instant::now();
 
         // A transient query failure should not end a long-running monitor;
@@ -183,7 +145,7 @@ pub fn run_monitor(
 /// check interval exact, including the time spent capturing and cleaning.
 fn sleep_until(deadline: Instant) {
     const TICK: std::time::Duration = std::time::Duration::from_millis(100);
-    while RUNNING.load(Ordering::Acquire) {
+    while !console::interrupted() {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             break;

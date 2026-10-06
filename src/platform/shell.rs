@@ -22,7 +22,6 @@ pub fn open_url_unelevated(url: &str) -> Result<()> {
         DuplicateTokenEx, SecurityImpersonation, TOKEN_ADJUST_DEFAULT, TOKEN_ADJUST_SESSIONID,
         TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_QUERY, TokenPrimary,
     };
-    use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
     use windows_sys::Win32::System::Threading::{
         CreateProcessWithTokenW, OpenProcess, OpenProcessToken, PROCESS_INFORMATION,
         PROCESS_QUERY_LIMITED_INFORMATION, STARTUPINFOW,
@@ -90,17 +89,10 @@ pub fn open_url_unelevated(url: &str) -> Result<()> {
     }
     let primary = HandleGuard::new(primary);
 
-    let mut system_dir = [0u16; 260];
-    // SAFETY: `system_dir` is a writable buffer of the stated length.
-    let len =
-        unsafe { GetSystemDirectoryW(system_dir.as_mut_ptr(), system_dir.len() as u32) } as usize;
-    if len == 0 || len >= system_dir.len() {
-        bail!("cannot locate the system directory");
-    }
-    let rundll32 = format!(
-        "{}\\rundll32.exe",
-        String::from_utf16_lossy(&system_dir[..len])
-    );
+    let rundll32 = super::paths::system_directory()?
+        .join("rundll32.exe")
+        .to_string_lossy()
+        .into_owned();
     let application = to_wide(&rundll32);
     let mut command_line = to_wide(&format!("\"{rundll32}\" url.dll,FileProtocolHandler {url}"));
 
