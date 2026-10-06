@@ -25,6 +25,11 @@ use colored::Colorize;
 pub enum ConsoleMode {
     /// Sharing a console with a parent shell (launched from cmd / `PowerShell`).
     Terminal,
+    /// No console, but the parent handed us redirected standard handles
+    /// (pipes or files), e.g. a scheduled task, a service wrapper or a script
+    /// host capturing output. Output goes to those handles and nothing waits
+    /// for the user.
+    Redirected,
     /// Own console created by the OS (double-clicked the `.exe` or started
     /// from a GUI launcher). Caller should [`pause_before_exit`].
     Standalone,
@@ -34,17 +39,25 @@ pub enum ConsoleMode {
 ///
 /// With `SUBSYSTEM:WINDOWS`, the process starts with **no** console at all.
 /// This function:
-/// 1. Tries `AttachConsole(ATTACH_PARENT_PROCESS)` - succeeds when launched
+/// 1. Records which standard handles the parent passed in (redirected to a
+///    file or pipe). Those are always kept, so `status --json > out.json`
+///    and pipelines work.
+/// 2. Tries `AttachConsole(ATTACH_PARENT_PROCESS)` - succeeds when launched
 ///    from cmd / `PowerShell` / Windows Terminal.
-/// 2. Falls back to `AllocConsole()` - creates a brand-new console window
+/// 3. Without a parent console, keeps the inherited handles if there are any
+///    ([`ConsoleMode::Redirected`]); otherwise allocates a brand-new console
 ///    (typical for standalone execution with CLI args).
-/// 3. Redirects `stdout` / `stderr` to `CONOUT$` so `println!` works.
-///
-/// Returns [`ConsoleMode::Terminal`] if attached to the parent shell, or
-/// [`ConsoleMode::Standalone`] if a new console was allocated.
+/// 4. Points every standard handle that was not inherited at the console.
 #[must_use]
 pub fn setup_cli_console() -> ConsoleMode {
-    use windows_sys::Win32::System::Console::{ATTACH_PARENT_PROCESS, AllocConsole, AttachConsole};
+    use windows_sys::Win32::System::Console::{
+        ATTACH_PARENT_PROCESS, AllocConsole, AttachConsole, STD_ERROR_HANDLE, STD_INPUT_HANDLE,
+        STD_OUTPUT_HANDLE,
+    };
+
+    let inherited_in = inherited_std_handle(STD_INPUT_HANDLE);
+    let inherited_out = inherited_std_handle(STD_OUTPUT_HANDLE);
+    let inherited_err = inherited_std_handle(STD_ERROR_HANDLE);
 
     // SAFETY: AttachConsole is a standard Win32 call. ATTACH_PARENT_PROCESS
     // tells Windows to attach to the console of the process that launched us.
@@ -53,9 +66,11 @@ pub fn setup_cli_console() -> ConsoleMode {
 
     let mode = if attached {
         ConsoleMode::Terminal
+    } else if inherited_out.is_some() || inherited_err.is_some() {
+        // Launched without a console but with captured output: stay
+        // console-less so no window pops up and nothing blocks on input.
+        ConsoleMode::Redirected
     } else {
-        // No parent console available (e.g. double-clicked with CLI args).
-        // Allocate a brand-new console for output.
         // SAFETY: AllocConsole is a standard Win32 call with no preconditions.
         unsafe {
             AllocConsole();
@@ -63,54 +78,75 @@ pub fn setup_cli_console() -> ConsoleMode {
         ConsoleMode::Standalone
     };
 
-    redirect_std_handles();
+    if mode != ConsoleMode::Redirected {
+        bind_std_handle(STD_INPUT_HANDLE, inherited_in, b"CONIN$\0");
+        bind_std_handle(STD_OUTPUT_HANDLE, inherited_out, b"CONOUT$\0");
+        bind_std_handle(STD_ERROR_HANDLE, inherited_err, b"CONOUT$\0");
+    }
     mode
 }
 
-/// Redirect `stdout` and `stderr` to the attached/allocated console.
-///
-/// After `AttachConsole` or `AllocConsole`, the process has a console but
-/// Rust's `std::io::stdout()` and `stderr()` may still return null handles
-/// (SUBSYSTEM:WINDOWS default). Opening `CONOUT$` and setting it as the
-/// standard output/error handle ensures all subsequent writes - including
-/// `println!`, `eprintln!`, and `colored` output - work correctly.
-fn redirect_std_handles() {
+/// Return the standard handle `which` if the parent passed in a usable one
+/// (a file, pipe or console), or `None` if it is missing.
+fn inherited_std_handle(
+    which: windows_sys::Win32::System::Console::STD_HANDLE,
+) -> Option<windows_sys::Win32::Foundation::HANDLE> {
     use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
-    use windows_sys::Win32::Storage::FileSystem::{CreateFileW, FILE_SHARE_WRITE, OPEN_EXISTING};
-    use windows_sys::Win32::System::Console::{STD_ERROR_HANDLE, STD_OUTPUT_HANDLE, SetStdHandle};
+    use windows_sys::Win32::Storage::FileSystem::{FILE_TYPE_UNKNOWN, GetFileType};
+    use windows_sys::Win32::System::Console::GetStdHandle;
 
-    // Standard Win32 access rights (from winnt.h). Not re-exported by
-    // the `Win32_Storage_FileSystem` feature in windows-sys 0.61+.
-    const GENERIC_READ: u32 = 0x8000_0000;
-    const GENERIC_WRITE: u32 = 0x4000_0000;
+    // SAFETY: GetStdHandle has no preconditions and returns null or
+    // INVALID_HANDLE_VALUE when there is no handle.
+    let handle = unsafe { GetStdHandle(which) };
+    if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+        return None;
+    }
+    // SAFETY: GetFileType only inspects the handle; an invalid handle yields
+    // FILE_TYPE_UNKNOWN.
+    (unsafe { GetFileType(handle) } != FILE_TYPE_UNKNOWN).then_some(handle)
+}
 
-    let conout_name = wide_literal::<8>(b"CONOUT$");
+/// Set standard handle `which` to `inherited` if the parent provided one,
+/// otherwise to the console device `device` (`CONIN$` or `CONOUT$`).
+///
+/// Re-applying the inherited handle matters because attaching to a console
+/// may replace the standard handles with console ones.
+fn bind_std_handle(
+    which: windows_sys::Win32::System::Console::STD_HANDLE,
+    inherited: Option<windows_sys::Win32::Foundation::HANDLE>,
+    device: &[u8],
+) {
+    use windows_sys::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileA, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    };
+    use windows_sys::Win32::System::Console::SetStdHandle;
 
-    // SAFETY: CreateFileW with CONOUT$ opens the active console output
-    // buffer. The parameters are standard: read/write access, shared write,
-    // no security attributes, open existing device, no flags, no template.
-    let conout = unsafe {
-        CreateFileW(
-            conout_name.as_ptr(),
-            GENERIC_READ | GENERIC_WRITE,
-            FILE_SHARE_WRITE,
-            std::ptr::null(),
-            OPEN_EXISTING,
-            0,
-            std::ptr::null_mut(),
-        )
+    let handle = if let Some(handle) = inherited {
+        handle
+    } else {
+        // SAFETY: `device` is a null-terminated ASCII device name. CreateFileA
+        // opens the console input/output buffer of the attached console.
+        let console = unsafe {
+            CreateFileA(
+                device.as_ptr(),
+                GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                0,
+                std::ptr::null_mut(),
+            )
+        };
+        if console.is_null() || console == INVALID_HANDLE_VALUE {
+            return;
+        }
+        console
     };
 
-    if conout.is_null() || conout == INVALID_HANDLE_VALUE {
-        return;
-    }
-
-    // SAFETY: SetStdHandle with the valid CONOUT$ handle redirects all
-    // stdout/stderr output to the console. Subsequent GetStdHandle calls
-    // in Rust's runtime will return this handle.
+    // SAFETY: `handle` is a valid open handle; SetStdHandle only stores it.
     unsafe {
-        SetStdHandle(STD_OUTPUT_HANDLE, conout);
-        SetStdHandle(STD_ERROR_HANDLE, conout);
+        SetStdHandle(which, handle);
     }
 }
 
@@ -297,8 +333,7 @@ fn write_wide_into(buf: &mut [u16], s: &str) {
 ///
 /// Uses the classic `Shell_NotifyIconW` balloon API so the notification:
 /// - Appears near the system tray
-/// - Auto-dismisses after ~2 seconds
-/// - Is **not** persisted in the Windows Action Center
+/// - Auto-dismisses after ~2 seconds (Windows 10/11 may show it as a toast)
 ///
 /// A hidden message-only window is created to receive Shell callback
 /// messages, and a brief message pump runs so the balloon can render.
@@ -365,18 +400,11 @@ pub fn show_balloon_notification(title: &str, body: &str) -> Result<()> {
 
     // ── Cleanup ──────────────────────────────────────────────────────
     // SAFETY: NIM_DELETE removes the tray icon. DestroyWindow destroys
-    // the hidden message window. DestroyIcon releases the loaded icon.
+    // the hidden message window. The icon from LoadIconW is a shared resource
+    // owned by the system and must not be destroyed.
     unsafe {
         Shell_NotifyIconW(NIM_DELETE, &raw const nid);
         DestroyWindow(hwnd);
-    }
-
-    if !hicon.is_null() {
-        use windows_sys::Win32::UI::WindowsAndMessaging::DestroyIcon;
-        // SAFETY: hicon is a valid icon handle returned by LoadIconW.
-        unsafe {
-            DestroyIcon(hicon);
-        }
     }
 
     Ok(())
