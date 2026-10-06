@@ -148,7 +148,9 @@ fn draw_integration(ui: &mut egui::Ui, app: &mut MagicXApp) {
 
         // Immediate registry sync when the user toggles autostart.
         if app.settings.auto_start != prev_auto_start {
-            match SettingsManager::set_autostart(app.settings.auto_start) {
+            match crate::integration::autostart::set_enabled(app.settings.auto_start)
+                .map_err(|e| format!("{e:#}"))
+            {
                 Ok(()) => {
                     app.settings_status = Some((
                         if app.settings.auto_start {
@@ -242,7 +244,8 @@ fn draw_context_menu_install_btn(ui: &mut egui::Ui, dark: bool, app: &mut MagicX
         .on_hover_text(strings::gui::settings::TOOLTIP_INSTALL)
         .clicked()
     {
-        match crate::context_menu::current_exe_path().and_then(|p| crate::context_menu::install(&p))
+        match crate::integration::context_menu::current_exe_path()
+            .and_then(|p| crate::integration::context_menu::install(&p))
         {
             Ok(()) => {
                 app.context_menu_installed = true;
@@ -287,8 +290,8 @@ fn draw_context_menu_remove_btn(ui: &mut egui::Ui, dark: bool, app: &mut MagicXA
         .on_hover_text(strings::gui::settings::TOOLTIP_REMOVE)
         .clicked()
     {
-        match crate::context_menu::uninstall() {
-            Ok(()) => {
+        match crate::integration::context_menu::uninstall() {
+            Ok(_) => {
                 app.context_menu_installed = false;
                 app.settings_status = Some((
                     strings::gui::settings::MSG_CTX_REMOVED.to_owned(),
@@ -425,7 +428,8 @@ fn draw_backup(ui: &mut egui::Ui, app: &mut MagicXApp) {
 fn import_settings(app: &mut MagicXApp) {
     match SettingsManager::import() {
         Ok(Some(new_settings)) => {
-            let sync = SettingsManager::set_autostart(new_settings.auto_start);
+            let sync = crate::integration::autostart::set_enabled(new_settings.auto_start)
+                .map_err(|e| format!("{e:#}"));
             app.settings = new_settings;
             app.monitor_active = app.settings.auto_clean_enabled;
             app.settings_status = Some(match sync {
@@ -436,7 +440,7 @@ fn import_settings(app: &mut MagicXApp) {
                 ),
                 Err(e) => {
                     // Keep the checkbox truthful about the task.
-                    app.settings.auto_start = SettingsManager::is_autostart_enabled();
+                    app.settings.auto_start = crate::integration::autostart::is_enabled();
                     (
                         format!("Settings imported, but autostart sync failed: {e}"),
                         true,

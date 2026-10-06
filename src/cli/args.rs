@@ -451,7 +451,7 @@ pub enum Commands {
 }
 
 /// Actions for the `context-menu` subcommand.
-#[derive(Subcommand)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Subcommand)]
 pub enum ContextMenuAction {
     /// Install context menu entries (creates registry keys under HKCR).
     ///

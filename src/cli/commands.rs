@@ -5,8 +5,8 @@ use colored::Colorize;
 
 use super::args::{Commands, ContextMenuAction};
 use super::{Outcome, display, monitor, notification};
-use crate::context_menu;
 use crate::engine::{self, CleanLevel, CleanResult, SmartCleanResult};
+use crate::integration::context_menu;
 use crate::memory::{self, MemorySnapshot};
 
 /// How a command should report: to the terminal (optionally quiet) or as a
@@ -144,17 +144,22 @@ pub(super) fn dispatch(command: &Commands, reporting: Reporting) -> Result<Outco
             Ok(Outcome::default())
         }
 
-        Commands::ContextMenu { action } => {
-            match action {
-                ContextMenuAction::Install => {
-                    let exe = context_menu::current_exe_path()?;
-                    context_menu::install(&exe)?;
-                }
-                ContextMenuAction::Uninstall => context_menu::uninstall()?,
-            }
-            Ok(Outcome::default())
+        Commands::ContextMenu { action } => context_menu_command(*action),
+    }
+}
+
+/// Run the `context-menu` command.
+fn context_menu_command(action: ContextMenuAction) -> Result<Outcome> {
+    match action {
+        ContextMenuAction::Install => {
+            context_menu::install(&context_menu::current_exe_path()?)?;
+            display::print_context_menu_installed(context_menu::entry_labels());
+        }
+        ContextMenuAction::Uninstall => {
+            display::print_context_menu_removed(context_menu::uninstall()?);
         }
     }
+    Ok(Outcome::default())
 }
 
 /// Options of the `clean` command.

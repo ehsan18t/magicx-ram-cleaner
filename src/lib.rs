@@ -95,8 +95,8 @@ pub mod app;
 /// Command-line interface: arguments, dispatch, output and the monitor.
 pub mod cli;
 
-/// Windows context menu integration (install/uninstall registry entries).
-pub mod context_menu;
+/// Windows integration: Explorer context menu and logon-task autostart.
+pub mod integration;
 
 /// Memory domain types: system snapshots, per-process usage, byte formatting.
 pub mod memory;

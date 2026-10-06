@@ -2,14 +2,11 @@
 //!
 //! Central [`SettingsManager`] for all [`super::app::GuiSettings`] I/O.
 //!
-//! Handles loading, saving, importing, exporting, and Windows system
-//! integration (autostart logon task).
+//! Handles loading, saving, importing and exporting. (Autostart is Windows
+//! integration, see [`crate::integration::autostart`].)
 //!
 //! The default persistence path is `settings.json` next to the running executable.
 //! Import and export open native Win32 file-picker dialogs (COMDLG32).
-//! Autostart creates/removes a Task Scheduler logon task via `schtasks.exe`.
-//! A `HKCU\...\Run` value cannot be used: Windows silently refuses to launch
-//! `requireAdministrator` executables from it at logon.
 //!
 //! Gracefully falls back to [`Default`] on any read error so a missing or
 //! corrupted file never prevents the app from starting.
@@ -17,8 +14,8 @@
 use std::path::{Path, PathBuf};
 
 use super::app::GuiSettings;
-use crate::platform::registry::{self, Hive};
-use crate::platform::{dialog, task_scheduler};
+use crate::platform::dialog;
+
 use crate::strings;
 
 // ─── Default Path ─────────────────────────────────────────────────────────────
@@ -71,106 +68,6 @@ fn write_settings_file(path: &Path, settings: &GuiSettings) -> Result<(), String
         let _cleanup = std::fs::remove_file(&tmp_path);
         format!("Cannot replace file: {e}")
     })
-}
-
-// ─── Autostart Helpers ────────────────────────────────────────────────────────
-
-/// Task Scheduler task name used for the autostart logon task.
-const AUTOSTART_TASK_NAME: &str = strings::APP_NAME;
-
-/// Registry key of the legacy `HKCU\...\Run` autostart value.
-const LEGACY_RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-
-/// Escape the five XML special characters in `s`.
-fn xml_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&apos;"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
-/// Build the Task Scheduler XML for the autostart logon task.
-///
-/// Uses explicit settings instead of plain `schtasks /SC ONLOGON` flags,
-/// whose defaults would stop the app after 72 hours and refuse to start it
-/// on battery power.
-fn autostart_task_xml(user: &str, exe: &str) -> String {
-    let app = xml_escape(strings::APP_NAME);
-    let user = xml_escape(user);
-    let exe = xml_escape(exe);
-    format!(
-        r#"<?xml version="1.0" encoding="UTF-16"?>
-<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo>
-    <Description>Starts {app} when you sign in.</Description>
-  </RegistrationInfo>
-  <Triggers>
-    <LogonTrigger>
-      <Enabled>true</Enabled>
-      <UserId>{user}</UserId>
-    </LogonTrigger>
-  </Triggers>
-  <Principals>
-    <Principal id="Author">
-      <UserId>{user}</UserId>
-      <LogonType>InteractiveToken</LogonType>
-      <RunLevel>HighestAvailable</RunLevel>
-    </Principal>
-  </Principals>
-  <Settings>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-    <Priority>7</Priority>
-    <Enabled>true</Enabled>
-  </Settings>
-  <Actions Context="Author">
-    <Exec>
-      <Command>{exe}</Command>
-    </Exec>
-  </Actions>
-</Task>
-"#
-    )
-}
-
-/// Create (or replace) the autostart logon task for the running executable.
-fn create_autostart_task() -> Result<(), String> {
-    let exe = canonical_exe_path()?;
-
-    let user_name = std::env::var("USERNAME").map_err(|_| "USERNAME is not set".to_owned())?;
-    let user = match std::env::var("USERDOMAIN") {
-        Ok(domain) if !domain.is_empty() => format!("{domain}\\{user_name}"),
-        _ => user_name,
-    };
-
-    task_scheduler::register_from_xml(AUTOSTART_TASK_NAME, &autostart_task_xml(&user, &exe))
-        .map_err(|e| format!("{e:#}"))
-}
-
-/// Canonical path of the running executable, without the `\\?\` prefix for
-/// ordinary drive-letter paths (Task Scheduler expects a plain path).
-fn canonical_exe_path() -> Result<String, String> {
-    let exe = std::env::current_exe()
-        .and_then(std::fs::canonicalize)
-        .map_err(|e| format!("Cannot resolve executable path: {e}"))?;
-    let exe_str = exe
-        .to_str()
-        .ok_or_else(|| "Executable path contains non-UTF-8 characters".to_owned())?;
-    let plain = exe_str
-        .strip_prefix(r"\\?\")
-        .filter(|rest| rest.as_bytes().get(1) == Some(&b':'))
-        .unwrap_or(exe_str);
-    Ok(plain.to_owned())
 }
 
 // ─── Settings Manager ─────────────────────────────────────────────────────────
@@ -237,38 +134,5 @@ impl SettingsManager {
             return Ok(None);
         };
         read_settings_file(&path).map(Some)
-    }
-
-    /// Create or remove the Windows autostart logon task for this executable.
-    ///
-    /// When `enabled` is `true`, registers (or replaces) a Task Scheduler task
-    /// named after the app that launches the running executable with highest
-    /// privileges when the current user signs in.
-    ///
-    /// When `enabled` is `false`, deletes that task if it exists.
-    ///
-    /// In both cases the legacy `HKCU\...\Run` value written by older versions
-    /// is removed on a best-effort basis. Windows never honours it for this
-    /// elevated app, so failing to remove it must not make the call fail
-    /// (the caller would then show a state that contradicts the real task).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error string (including `schtasks` output) if the task
-    /// cannot be created or deleted.
-    pub fn set_autostart(enabled: bool) -> Result<(), String> {
-        if enabled {
-            create_autostart_task()?;
-        } else {
-            task_scheduler::delete(AUTOSTART_TASK_NAME).map_err(|e| format!("{e:#}"))?;
-        }
-        // Named binding avoids `let_underscore_drop`; removal is best-effort.
-        let _legacy = registry::delete_value(Hive::CurrentUser, LEGACY_RUN_KEY, strings::APP_NAME);
-        Ok(())
-    }
-
-    /// Whether the autostart logon task currently exists.
-    pub fn is_autostart_enabled() -> bool {
-        task_scheduler::exists(AUTOSTART_TASK_NAME)
     }
 }

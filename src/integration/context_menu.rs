@@ -37,7 +37,6 @@
 //! compilation and embedded with resource IDs 2–6.
 
 use anyhow::{Context, Result};
-use colored::Colorize;
 
 use crate::platform::registry::{self, Hive, RegKey};
 use crate::strings;
@@ -125,26 +124,6 @@ pub fn install(exe_path: &str) -> Result<()> {
         }
     }
 
-    println!();
-    println!(
-        "  {} Context menu installed successfully!",
-        "\u{2713}".green().bold()
-    );
-    println!(
-        "  {} Right-click your Desktop or inside any folder to see the {} submenu.",
-        "\u{2192}".cyan(),
-        strings::context_menu::ROOT_LABEL.white().bold()
-    );
-    println!(
-        "  {} {} entries registered:",
-        "\u{2192}".cyan(),
-        ENTRIES.len()
-    );
-    for entry in ENTRIES {
-        println!("      {} {}", "\u{00b7}".dimmed(), entry.label.white());
-    }
-    println!();
-
     Ok(())
 }
 
@@ -207,9 +186,9 @@ fn install_at(exe_path: &str, root_path: &str) -> Result<()> {
 /// Uninstall all `MagicX RAM Cleaner` context menu entries.
 ///
 /// Removes the `MagicXRAMCleaner` key from all registered roots
-/// (`DesktopBackground` and `Directory\Background`). Idempotent  -
-/// succeeds even if the keys do not exist.
-pub fn uninstall() -> Result<()> {
+/// (`DesktopBackground` and `Directory\Background`). Idempotent: succeeds
+/// even if the keys do not exist. Returns whether the menu was installed.
+pub fn uninstall() -> Result<bool> {
     let existed = is_installed();
 
     for root_path in ROOT_PATHS {
@@ -217,21 +196,12 @@ pub fn uninstall() -> Result<()> {
             .with_context(|| format!("failed to remove context menu at '{root_path}'"))?;
     }
 
-    println!();
-    if existed {
-        println!(
-            "  {} Context menu entries removed successfully.",
-            "\u{2713}".green().bold()
-        );
-    } else {
-        println!(
-            "  {} Context menu entries were not installed.",
-            "\u{00b7}".dimmed()
-        );
-    }
-    println!();
+    Ok(existed)
+}
 
-    Ok(())
+/// Labels of the menu entries, in display order.
+pub fn entry_labels() -> impl Iterator<Item = &'static str> {
+    ENTRIES.iter().map(|entry| entry.label)
 }
 
 /// Return the absolute path to the current executable.

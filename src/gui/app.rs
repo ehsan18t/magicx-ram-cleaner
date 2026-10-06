@@ -298,7 +298,7 @@ pub struct MagicXApp {
 
     /// Whether the Desktop context menu is currently installed in the registry.
     ///
-    /// Cached from [`crate::context_menu::is_installed`] at startup and updated
+    /// Cached from [`crate::integration::context_menu::is_installed`] at startup and updated
     /// by the Settings panel after each install or uninstall operation.
     pub context_menu_installed: bool,
 
@@ -423,7 +423,7 @@ impl MagicXApp {
             hidden_to_tray: false,
             hide_requested_at: None,
             quit_requested: false,
-            context_menu_installed: crate::context_menu::is_installed(),
+            context_menu_installed: crate::integration::context_menu::is_installed(),
             hwnd,
         })
     }
@@ -763,21 +763,22 @@ fn load_settings_and_sync_autostart() -> (GuiSettings, Option<(String, bool, Ins
 
     match SettingsManager::load() {
         Ok(Some(settings)) => {
-            let status = SettingsManager::set_autostart(settings.auto_start)
+            let status = crate::integration::autostart::set_enabled(settings.auto_start)
+                .map_err(|e| format!("{e:#}"))
                 .err()
                 .map(|e| (format!("Autostart sync failed: {e}"), true, Instant::now()));
             (settings, status)
         }
         Ok(None) => {
             let settings = GuiSettings {
-                auto_start: SettingsManager::is_autostart_enabled(),
+                auto_start: crate::integration::autostart::is_enabled(),
                 ..GuiSettings::default()
             };
             (settings, None)
         }
         Err(e) => {
             let settings = GuiSettings {
-                auto_start: SettingsManager::is_autostart_enabled(),
+                auto_start: crate::integration::autostart::is_enabled(),
                 ..GuiSettings::default()
             };
             let status = (

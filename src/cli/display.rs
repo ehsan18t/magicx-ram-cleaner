@@ -645,6 +645,47 @@ fn print_before_after(before: &MemorySnapshot, after: &MemorySnapshot) {
     );
 }
 
+/// Confirm a context-menu install and list its entries.
+pub fn print_context_menu_installed(labels: impl Iterator<Item = &'static str>) {
+    let labels: Vec<&str> = labels.collect();
+    println!();
+    println!(
+        "  {} Context menu installed successfully!",
+        "\u{2713}".green().bold()
+    );
+    println!(
+        "  {} Right-click your Desktop or inside any folder to see the {} submenu.",
+        "\u{2192}".cyan(),
+        strings::context_menu::ROOT_LABEL.white().bold()
+    );
+    println!(
+        "  {} {} entries registered:",
+        "\u{2192}".cyan(),
+        labels.len()
+    );
+    for label in labels {
+        println!("      {} {}", "\u{00b7}".dimmed(), label.white());
+    }
+    println!();
+}
+
+/// Confirm a context-menu uninstall; `existed` says whether it was installed.
+pub fn print_context_menu_removed(existed: bool) {
+    println!();
+    if existed {
+        println!(
+            "  {} Context menu entries removed successfully.",
+            "\u{2713}".green().bold()
+        );
+    } else {
+        println!(
+            "  {} Context menu entries were not installed.",
+            "\u{00b7}".dimmed()
+        );
+    }
+    println!();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
