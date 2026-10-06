@@ -1,29 +1,29 @@
 #!/bin/sh
-# MagicX RAM Cleaner — Commit message validation hook
+# MagicX RAM Cleaner: commit message validation hook
 # Enforces Conventional Commits format: https://www.conventionalcommits.org
 #
 # Format: <type>(<optional-scope>): <description>
 #
 # Allowed types:
-#   feat      — New feature or capability
-#   fix       — Bug fix
-#   docs      — Documentation only changes
-#   style     — Formatting, whitespace, no code change
-#   refactor  — Code change that neither fixes a bug nor adds a feature
-#   perf      — Performance improvement
-#   test      — Adding or updating tests
-#   build     — Build system or external dependency changes
-#   ci        — CI/CD configuration changes
-#   chore     — Maintenance tasks, tooling, config
-#   revert    — Reverts a previous commit
-#   enforce   — Adding or updating enforcement rules/quality gates
+#   feat      New feature or capability
+#   fix       Bug fix
+#   docs      Documentation only changes
+#   style     Formatting, whitespace, no code change
+#   refactor  Code change that neither fixes a bug nor adds a feature
+#   perf      Performance improvement
+#   test      Adding or updating tests
+#   build     Build system or external dependency changes
+#   ci        CI/CD configuration changes
+#   chore     Maintenance tasks, tooling, config
+#   revert    Reverts a previous commit
+#   enforce   Adding or updating enforcement rules/quality gates
 #
 # Rules:
 #   - Type is required and must be one of the above
 #   - Scope is optional, wrapped in parentheses: feat(cleaner): ...
 #   - Colon + space after type/scope is required
 #   - Description must start with lowercase letter
-#   - Description must be 5-72 characters
+#   - Description must be 5-200 characters
 #   - No period at the end of the subject line
 #
 # Examples:

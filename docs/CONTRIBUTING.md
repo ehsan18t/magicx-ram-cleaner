@@ -29,10 +29,12 @@ Install once after cloning:
 .\scripts\install-hooks.ps1
 ```
 
-Before every commit, this automatically runs:
-1. `cargo fmt --check` — formatting
-2. `cargo clippy` — all lints at deny level
-3. `cargo test` — all tests must pass
+It sets `core.hooksPath` to the repo's `hooks/` folder. Before every commit, this automatically runs:
+1. `cargo fmt --check` (formatting)
+2. `cargo clippy -- -D warnings` (all lints at deny level)
+3. `cargo test` (all tests must pass)
+
+Before every push, `hooks/pre-push` runs the same seven gates as CI.
 
 If any step fails, the commit is **rejected**.
 
@@ -46,7 +48,7 @@ Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`,
 
 ### Layer 3: CI Pipeline (GitHub Actions)
 
-Every pull request to `main` runs 7 gates across two jobs:
+Every pull request to `main`, and every push to `main`, runs 7 gates across two jobs:
 
 **quality-gate** job:
 1. **Formatting** — `cargo fmt --check`

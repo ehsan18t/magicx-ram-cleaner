@@ -1,14 +1,14 @@
 #!/bin/sh
-# MagicX RAM Cleaner — Pre-commit hook
-# Prevents committing code that doesn't pass quality gates.
+# MagicX RAM Cleaner: pre-commit hook
+# Prevents committing code that doesn't pass the fast quality gates.
 #
-# Install: copy this file to .git/hooks/pre-commit (or run the setup script)
-#          chmod +x .git/hooks/pre-commit  (Linux/macOS)
+# Install: run scripts/install-hooks.ps1 once after cloning. It points git
+# at this folder (core.hooksPath), so edits here take effect immediately.
 #
 # What it checks:
-#   1. cargo fmt --check  — formatting
-#   2. cargo clippy        — lint violations (deny level from Cargo.toml)
-#   3. cargo test          — all tests pass
+#   1. cargo fmt --check  (formatting)
+#   2. cargo clippy       (lints; deny level from Cargo.toml, warnings denied)
+#   3. cargo test         (all tests pass)
 
 set -e
 
@@ -28,9 +28,9 @@ if ! cargo fmt --all -- --check; then
 fi
 echo "  ✓ Formatting OK"
 
-# Gate 2: Clippy (uses deny-level lints from Cargo.toml)
+# Gate 2: Clippy (same flags as CI)
 echo "→ Running clippy..."
-if ! cargo clippy --all-targets; then
+if ! cargo clippy --locked --all-targets -- -D warnings; then
     echo ""
     echo "✗ CLIPPY FAILED"
     echo "  Fix the lint errors above, then try committing again."
@@ -40,7 +40,7 @@ echo "  ✓ Clippy OK"
 
 # Gate 3: Tests
 echo "→ Running tests..."
-if ! cargo test --all-targets; then
+if ! cargo test --locked --all-targets; then
     echo ""
     echo "✗ TESTS FAILED"
     echo "  Fix the failing tests, then try committing again."
