@@ -38,10 +38,14 @@
 //! All icons are embedded as Win32 `ICON` resources in the executable at build
 //! time (see `build.rs`). The root cascading menu uses `app.ico` (resource
 //! ID 1). Each sub-entry references a Phosphor glyph icon rendered during
-//! compilation and embedded with resource IDs 2–6.
+//! compilation; the IDs come from the table in `menu_icons.rs`, which
+//! `build.rs` shares.
 
 use anyhow::{Context, Result};
 
+use super::menu_icons::{
+    ICON_DEEP_CLEAN, ICON_MEMORY_STATUS, ICON_PURGE_STANDBY, ICON_QUICK_CLEAN, ICON_STANDARD_CLEAN,
+};
 use crate::platform::registry::{self, Hive, RegKey};
 use crate::strings;
 
@@ -76,31 +80,31 @@ const ENTRIES: &[MenuEntry] = &[
     MenuEntry {
         key: "01quick",
         label: strings::context_menu::QUICK_CLEAN,
-        icon_resource_id: 2, // Phosphor LEAF
+        icon_resource_id: ICON_QUICK_CLEAN,
         args: "clean --level gentle --notify",
     },
     MenuEntry {
         key: "02standard",
         label: strings::context_menu::STANDARD_CLEAN,
-        icon_resource_id: 3, // Phosphor LIGHTNING
+        icon_resource_id: ICON_STANDARD_CLEAN,
         args: "clean --level moderate --notify",
     },
     MenuEntry {
         key: "03deep",
         label: strings::context_menu::DEEP_CLEAN,
-        icon_resource_id: 4, // Phosphor FIRE
+        icon_resource_id: ICON_DEEP_CLEAN,
         args: "clean --level aggressive --notify",
     },
     MenuEntry {
         key: "04purge_standby",
         label: strings::context_menu::PURGE_STANDBY,
-        icon_resource_id: 5, // Phosphor BROOM
+        icon_resource_id: ICON_PURGE_STANDBY,
         args: "purge-standby --notify",
     },
     MenuEntry {
         key: "05status",
         label: strings::context_menu::MEMORY_STATUS,
-        icon_resource_id: 6, // Phosphor GAUGE
+        icon_resource_id: ICON_MEMORY_STATUS,
         args: "status --notify",
     },
 ];
@@ -258,6 +262,30 @@ mod tests {
             ENTRIES.len(),
             "entry icon_resource_id values must be unique"
         );
+    }
+
+    #[test]
+    fn every_entry_icon_is_embedded_by_the_build() {
+        for entry in ENTRIES {
+            assert!(
+                super::super::menu_icons::MENU_ICONS
+                    .iter()
+                    .any(|&(id, ..)| id == entry.icon_resource_id),
+                "entry '{}' points at an icon build.rs does not embed",
+                entry.key
+            );
+        }
+    }
+
+    #[test]
+    fn menu_glyphs_match_the_phosphor_icons() {
+        use egui_phosphor::regular as ph;
+        let expected = [ph::LEAF, ph::LIGHTNING, ph::FIRE, ph::BROOM, ph::GAUGE];
+        for (&(_, glyph, name), expected) in
+            super::super::menu_icons::MENU_ICONS.iter().zip(expected)
+        {
+            assert_eq!(glyph.to_string(), expected, "{name}");
+        }
     }
 
     #[test]

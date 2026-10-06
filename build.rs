@@ -6,11 +6,7 @@
 //! | ID | File / Source | Usage |
 //! |----|--------------|-------|
 //! | 1 | `assets/app.ico` | Main application icon (taskbar, Explorer) |
-//! | 2 | Phosphor LEAF glyph | Quick Clean context menu entry |
-//! | 3 | Phosphor LIGHTNING glyph | Standard Clean context menu entry |
-//! | 4 | Phosphor FIRE glyph | Deep Clean context menu entry |
-//! | 5 | Phosphor BROOM glyph | Purge Standby List context menu entry |
-//! | 6 | Phosphor GAUGE glyph | Memory Status context menu entry |
+//! | 2-6 | Phosphor glyphs | Context menu entries (`src/integration/menu_icons.rs`) |
 
 use embed_manifest::manifest::ExecutionLevel;
 use embed_manifest::{embed_manifest_file, new_manifest};
@@ -39,15 +35,6 @@ fn main() {
         std::fs::write(&manifest_path, manifest).expect("unable to write manifest file");
         embed_manifest_file(&manifest_path).expect("unable to embed manifest file");
 
-        // ── Render Phosphor glyph ICO files into OUT_DIR ─────────────────
-        let glyphs: &[(u32, char, &str)] = &[
-            (2, '\u{E2DA}', "LEAF"),      // Quick Clean
-            (3, '\u{E2DE}', "LIGHTNING"), // Standard Clean
-            (4, '\u{E242}', "FIRE"),      // Deep Clean
-            (5, '\u{EC54}', "BROOM"),     // Purge Standby List
-            (6, '\u{E628}', "GAUGE"),     // Memory Status
-        ];
-
         // ── Embed all icons as Win32 resources ───────────────────────────
         //
         // Icon resource ID 1 = app.ico  (main application icon)
@@ -55,7 +42,7 @@ fn main() {
         let mut res = winresource::WindowsResource::new();
         res.set_icon("assets/app.ico");
 
-        for &(id, codepoint, name) in glyphs {
+        for &(id, codepoint, name) in MENU_ICONS {
             let ico_bytes = render_glyph_ico(codepoint);
             let ico_path = format!("{out_dir}/phosphor_{id}_{name}.ico");
             std::fs::write(&ico_path, ico_bytes)
@@ -76,7 +63,11 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=assets/app.ico");
+    println!("cargo:rerun-if-changed=src/integration/menu_icons.rs");
 }
+
+// Context-menu icon table, shared with the app (see the file's header).
+include!("src/integration/menu_icons.rs");
 
 // ── Phosphor glyph → ICO rendering (build-time only) ─────────────────────────
 
