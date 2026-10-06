@@ -1,5 +1,6 @@
-//! Main-window helpers: lookup, minimise state, cloaking to the tray, and
-//! dark/light theming of the title bar and native menus.
+//! Main-window helpers: lookup, visible and minimised state, bringing a
+//! window to the front, and dark/light theming of the title bar and native
+//! menus.
 
 /// Return the `HWND` of a top-level window titled `title` that belongs to a
 /// process running this same executable, or `0` if there is none.
@@ -71,94 +72,19 @@ pub fn is_window_minimized(hwnd: isize) -> bool {
     unsafe { IsIconic(hwnd as *mut _) != 0 }
 }
 
-/// Immediately hide the window by calling `ShowWindow(SW_HIDE)` directly.
+/// Whether the window is shown (`WS_VISIBLE`), as opposed to hidden to the
+/// tray. A minimized window still counts as shown.
 ///
-/// Synchronously clears the `WS_VISIBLE` flag so the window disappears on
-/// the current frame.  Prefer [`cloak_window`] for the minimize-to-tray
-/// flow; this function is used internally by `cloak_window`.
-///
-/// Does nothing when `hwnd` is `0`.
-pub fn hide_window(hwnd: isize) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{SW_HIDE, ShowWindow};
+/// Returns `false` when `hwnd` is `0`.
+#[must_use]
+pub fn is_window_visible(hwnd: isize) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::IsWindowVisible;
 
     if hwnd == 0 {
-        return;
+        return false;
     }
-
-    // SAFETY: `hwnd` is our own main window, valid for the lifetime of the
-    // process.  `SW_HIDE` is a standard, non-destructive window-state change.
-    unsafe { ShowWindow(hwnd as *mut _, SW_HIDE) };
-}
-
-/// Cloak the window: make it invisible to the user while keeping
-/// `WS_VISIBLE` set so eframe's event loop stays in `ControlFlow::Wait`.
-///
-/// The approach avoids the eframe/winit CPU bug (`emilk/egui#7776`) where
-/// `ControlFlow::Poll` is used for invisible windows.  Steps:
-///
-/// 1. `SW_HIDE` - instantly clear `WS_VISIBLE` so no animations play.
-/// 2. Add `WS_EX_TOOLWINDOW` / remove `WS_EX_APPWINDOW` - hides the
-///    window from the taskbar and Alt-Tab.
-/// 3. `SW_SHOWMINNOACTIVE` - restores `WS_VISIBLE` in the iconic
-///    (minimized) state without stealing focus.  On modern Windows,
-///    a minimized tool window has no on-screen representation.
-///
-/// After this call: `IsWindowVisible` → `true`, `IsIconic` → `true`,
-/// no taskbar button, no Alt-Tab entry, zero visual presence.
-///
-/// Does nothing when `hwnd` is `0`.
-pub fn cloak_window(hwnd: isize) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GWL_EXSTYLE, GetWindowLongPtrW, SW_SHOWMINNOACTIVE, SetWindowLongPtrW, ShowWindow,
-        WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
-    };
-
-    if hwnd == 0 {
-        return;
-    }
-
-    // SAFETY: All calls operate on our own main-window handle, which is
-    // valid for the process lifetime.  The sequence is
-    // hide → style change → show-minimized, each a standard Win32 call.
-    unsafe {
-        hide_window(hwnd);
-        let ex = GetWindowLongPtrW(hwnd as *mut _, GWL_EXSTYLE);
-        #[allow(clippy::cast_possible_wrap)]
-        let new_ex = (ex | WS_EX_TOOLWINDOW as isize) & !(WS_EX_APPWINDOW as isize);
-        SetWindowLongPtrW(hwnd as *mut _, GWL_EXSTYLE, new_ex);
-        ShowWindow(hwnd as *mut _, SW_SHOWMINNOACTIVE);
-    }
-}
-
-/// Reverse [`cloak_window`]: restore the window to its pre-minimize state
-/// with a normal taskbar button and Alt-Tab entry.
-///
-/// Steps:
-///
-/// 1. Remove `WS_EX_TOOLWINDOW` / add `WS_EX_APPWINDOW` - taskbar and
-///    Alt-Tab presence restored.
-/// 2. [`bring_to_front`] - un-minimizes (keeping a maximized window
-///    maximized) and brings the window to the front.
-///
-/// Does nothing when `hwnd` is `0`.
-pub fn uncloak_window(hwnd: isize) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GWL_EXSTYLE, GetWindowLongPtrW, SetWindowLongPtrW, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
-    };
-
-    if hwnd == 0 {
-        return;
-    }
-
-    // SAFETY: Both calls operate on our own main-window handle, which is
-    // valid for the process lifetime, and only change its extended style.
-    unsafe {
-        let ex = GetWindowLongPtrW(hwnd as *mut _, GWL_EXSTYLE);
-        #[allow(clippy::cast_possible_wrap)]
-        let new_ex = (ex & !(WS_EX_TOOLWINDOW as isize)) | WS_EX_APPWINDOW as isize;
-        SetWindowLongPtrW(hwnd as *mut _, GWL_EXSTYLE, new_ex);
-    }
-    bring_to_front(hwnd);
+    // SAFETY: IsWindowVisible is a read-only state check on a window handle.
+    unsafe { IsWindowVisible(hwnd as *mut _) != 0 }
 }
 
 /// Show `hwnd` and bring it to the front, waking its event loop.

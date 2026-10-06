@@ -5,24 +5,17 @@
 //!
 //! ## Architecture
 //!
-//! The [`TrayHandle`] spawns a dedicated `tray-watcher` background thread on
-//! creation.  That thread is the **sole consumer** of the global
-//! [`tray_icon`] event channels (one per-channel `try_recv` from a single thread
-//! avoids concurrent access to the `!Sync` static receivers).  When an event
-//! arrives the thread:
-//!
-//! 1. Decodes it into a [`TrayAction`].
-//! 2. Sends it through our own [`std::sync::mpsc`] channel.
-//! 3. Calls [`egui::Context::request_repaint`] so eframe wakes up and calls
-//!    `logic()` even while the window is hidden.
-//!
-//! [`TrayHandle::poll`] drains our channel and returns at most one action per
-//! call; it never touches the global tray channels.
+//! `tray-icon` delivers clicks through callbacks that run on the UI thread,
+//! inside the message loop eframe already pumps, so no polling thread is
+//! needed. The callbacks can only be installed once per process, while the
+//! icon is rebuilt whenever the theme changes, so they forward each event to
+//! whichever [`TrayHandle`] is live (through [`SINK`]) and wake eframe with
+//! [`egui::Context::request_repaint`], which runs `logic()` even while the
+//! window is hidden. [`TrayHandle::poll`] then decodes the events into
+//! [`TrayAction`]s against its own menu.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
-use std::time::Duration;
+use std::sync::{Mutex, Once};
 
 use ab_glyph::{Font, FontRef, PxScale, ScaleFont, point};
 use eframe::egui;
@@ -53,8 +46,8 @@ pub enum TrayAction {
 
 /// Collected [`MenuId`]s for every actionable item in the tray context menu.
 ///
-/// Cloned from the menu items before they are moved into the [`Menu`] and
-/// passed to the watcher thread for event decoding.
+/// Cloned from the menu items before they are moved into the [`Menu`], so
+/// events can be decoded after the menu is handed to the icon.
 struct MenuIds {
     /// "Open `MagicX` RAM Cleaner" item.
     show: MenuId,
@@ -78,50 +71,111 @@ struct MenuIds {
     nav_settings: MenuId,
 }
 
+impl MenuIds {
+    /// The action for a click on menu item `id`, or `None` for an item of
+    /// another (older) menu.
+    fn action(&self, id: &MenuId) -> Option<TrayAction> {
+        let action = if *id == self.show {
+            TrayAction::Show
+        } else if *id == self.quit {
+            TrayAction::Quit
+        } else if *id == self.clean_gentle {
+            TrayAction::Clean(CleanLevel::Gentle)
+        } else if *id == self.clean_moderate {
+            TrayAction::Clean(CleanLevel::Moderate)
+        } else if *id == self.clean_aggressive {
+            TrayAction::Clean(CleanLevel::Aggressive)
+        } else if *id == self.clean_nuclear {
+            TrayAction::Clean(CleanLevel::Nuclear)
+        } else if *id == self.nav_dashboard {
+            TrayAction::Navigate(Panel::Overview)
+        } else if *id == self.nav_monitor {
+            TrayAction::Navigate(Panel::Monitor)
+        } else if *id == self.nav_processes {
+            TrayAction::Navigate(Panel::Processes)
+        } else if *id == self.nav_settings {
+            TrayAction::Navigate(Panel::Settings)
+        } else {
+            return None;
+        };
+        Some(action)
+    }
+}
+
+/// A tray event as the callbacks forward it.
+enum RawEvent {
+    /// A menu item was clicked.
+    Menu(MenuId),
+    /// The icon was left-clicked.
+    LeftClick,
+}
+
+/// Where the process-wide tray callbacks send events: the live
+/// [`TrayHandle`]'s channel and the context to wake. `None` while there is no
+/// tray icon.
+static SINK: Mutex<Option<(Sender<RawEvent>, egui::Context)>> = Mutex::new(None);
+
+/// Forward `event` to the live tray handle, if any, and wake the UI.
+fn forward(event: RawEvent) {
+    if let Ok(sink) = SINK.lock()
+        && let Some((tx, ctx)) = sink.as_ref()
+        && tx.send(event).is_ok()
+    {
+        ctx.request_repaint();
+    }
+}
+
+/// Install the tray callbacks, once per process (`tray-icon` keeps the first
+/// ones set).
+fn install_callbacks() {
+    static INSTALLED: Once = Once::new();
+    INSTALLED.call_once(|| {
+        MenuEvent::set_event_handler(Some(|event: MenuEvent| forward(RawEvent::Menu(event.id))));
+        TrayIconEvent::set_event_handler(Some(|event: TrayIconEvent| {
+            // Left-click (button-up) on the icon opens the window.
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                forward(RawEvent::LeftClick);
+            }
+        }));
+    });
+}
+
 /// Live system-tray icon handle.
 ///
 /// While this value is alive the `MagicX` RAM Cleaner icon appears in the
-/// Windows notification area.  Dropping the handle removes the icon and stops
-/// the background watcher thread.
+/// Windows notification area. Dropping the handle removes the icon and stops
+/// events reaching it.
 pub struct TrayHandle {
     /// The underlying tray icon; kept alive for its [`Drop`] side-effect.
     _icon: TrayIcon,
-    /// Receives decoded [`TrayAction`]s from the background watcher thread.
-    rx: Receiver<TrayAction>,
-    /// Set to `true` on drop to signal the watcher thread to exit.
-    shutdown: Arc<AtomicBool>,
+    /// IDs of this icon's menu items, to decode clicks.
+    ids: MenuIds,
+    /// Events forwarded by the tray callbacks.
+    rx: Receiver<RawEvent>,
 }
 
 impl TrayHandle {
-    /// Create and register a system-tray icon with a context menu.
+    /// Create and register a system-tray icon with its context menu.
     ///
-    /// Loads the application icon from the embedded `assets/app.ico` file,
-    /// builds a two-item menu ("Open" + separator + "Quit"), registers the
-    /// icon with Windows, and spawns the background event-watcher thread.
-    ///
-    /// `ctx` is cloned into the watcher thread so it can call
-    /// [`egui::Context::request_repaint`] when a tray event arrives.
-    ///
-    /// `hwnd` is the Win32 window handle of the main application window
-    /// (taken from eframe's raw window handle).  The watcher
-    /// thread calls [`crate::platform::window::uncloak_window`] before dispatching
-    /// an action so that the event loop can deliver `RedrawRequested` and
-    /// the main thread's `logic()` runs to process the action.
+    /// `ctx` is woken (with [`egui::Context::request_repaint`]) for every
+    /// tray event, so `logic()` handles it even while the window is hidden.
     ///
     /// `dark` controls the glyph colour in menu icons: white glyphs for
-    /// dark menus, charcoal for light menus.  The caller should pass the
-    /// in-app theme preference, which **must** match the process-wide menu
-    /// theme forced by [`crate::platform::window::set_process_dark_mode`].
+    /// dark menus, charcoal for light menus. The caller should pass the
+    /// in-app theme, which **must** match the process-wide menu theme set by
+    /// [`crate::platform::window::set_process_dark_mode`].
     ///
     /// # Errors
     ///
     /// Returns an error string on image-decode failure, menu-build failure, or
-    /// if the `tray_icon` back-end or the watcher thread cannot be created.
-    pub fn new(ctx: egui::Context, hwnd: isize, dark: bool) -> Result<Self, String> {
+    /// if the `tray_icon` back-end cannot create the icon.
+    pub fn new(ctx: egui::Context, dark: bool) -> Result<Self, String> {
         let icon = load_icon()?;
-        // The process-wide menu theme is forced by set_process_dark_mode()
-        // before this call, so glyph colours should match the app's theme,
-        // not the OS theme.
         let (ids, menu) = build_menu(dark)?;
 
         let tray = TrayIconBuilder::new()
@@ -133,132 +187,39 @@ impl TrayHandle {
             .build()
             .map_err(|e| format!("Failed to register tray icon: {e}"))?;
 
+        install_callbacks();
         let (tx, rx) = std::sync::mpsc::channel();
-        let shutdown = Arc::new(AtomicBool::new(false));
-        let shutdown_ref = Arc::clone(&shutdown);
-
-        std::thread::Builder::new()
-            .name("tray-watcher".into())
-            .spawn(move || {
-                tray_watcher_thread(&ids, &tx, &shutdown_ref, &ctx, hwnd);
-            })
-            .map_err(|e| format!("Failed to spawn tray watcher thread: {e}"))?;
+        if let Ok(mut sink) = SINK.lock() {
+            *sink = Some((tx, ctx));
+        }
 
         Ok(Self {
             _icon: tray,
+            ids,
             rx,
-            shutdown,
         })
     }
 
     /// Return the next pending [`TrayAction`] without blocking, or [`None`].
-    ///
-    /// Always call this from the egui `logic()` callback; the action is
-    /// delivered by the background watcher thread via an internal channel.
     pub fn poll(&self) -> Option<TrayAction> {
-        self.rx.try_recv().ok()
+        while let Ok(event) = self.rx.try_recv() {
+            let action = match event {
+                RawEvent::Menu(id) => self.ids.action(&id),
+                RawEvent::LeftClick => Some(TrayAction::Show),
+            };
+            if action.is_some() {
+                return action;
+            }
+        }
+        None
     }
 }
 
 impl Drop for TrayHandle {
     fn drop(&mut self) {
-        // Signal the watcher thread to exit on its next iteration.
-        self.shutdown.store(true, Ordering::Relaxed);
-    }
-}
-
-// ─── Background Watcher Thread ────────────────────────────────────────────────
-
-/// Long-running thread that polls the global `tray_icon` event channels.
-///
-/// This is the **only** place [`MenuEvent::receiver()`] and
-/// [`TrayIconEvent::receiver()`] are called, ensuring no concurrent access to
-/// the non-`Sync` static receivers.
-///
-/// When an event is decoded the function:
-///
-/// 1. Uncloaks the window via [`crate::platform::window::uncloak_window`] so that
-///    the event loop can deliver `RedrawRequested` (minimized windows may
-///    not receive `WM_PAINT`, which would prevent `logic()` from running).
-/// 2. Sends a [`TrayAction`] through the channel.
-/// 3. Calls [`egui::Context::request_repaint`] to guarantee `logic()` runs.
-fn tray_watcher_thread(
-    ids: &MenuIds,
-    tx: &Sender<TrayAction>,
-    shutdown: &Arc<AtomicBool>,
-    ctx: &egui::Context,
-    hwnd: isize,
-) {
-    loop {
-        if shutdown.load(Ordering::Relaxed) {
-            break;
-        }
-
-        let mut had_event = false;
-
-        // Drain all pending menu-item click events.
-        while let Ok(event) = MenuEvent::receiver().try_recv() {
-            let action = if event.id == ids.show {
-                TrayAction::Show
-            } else if event.id == ids.quit {
-                TrayAction::Quit
-            } else if event.id == ids.clean_gentle {
-                TrayAction::Clean(CleanLevel::Gentle)
-            } else if event.id == ids.clean_moderate {
-                TrayAction::Clean(CleanLevel::Moderate)
-            } else if event.id == ids.clean_aggressive {
-                TrayAction::Clean(CleanLevel::Aggressive)
-            } else if event.id == ids.clean_nuclear {
-                TrayAction::Clean(CleanLevel::Nuclear)
-            } else if event.id == ids.nav_dashboard {
-                TrayAction::Navigate(Panel::Overview)
-            } else if event.id == ids.nav_monitor {
-                TrayAction::Navigate(Panel::Monitor)
-            } else if event.id == ids.nav_processes {
-                TrayAction::Navigate(Panel::Processes)
-            } else if event.id == ids.nav_settings {
-                TrayAction::Navigate(Panel::Settings)
-            } else {
-                continue;
-            };
-
-            // Uncloak the window so eframe can deliver RedrawRequested
-            // and our logic() runs to process the action.  For a cloaked
-            // (minimized tool) window, request_repaint() alone may not
-            // wake the event loop because WM_PAINT is not delivered to
-            // minimized windows.
-            crate::platform::window::uncloak_window(hwnd);
-
-            if tx.send(action).is_err() {
-                return; // app receiver dropped - exit cleanly
-            }
-            ctx.request_repaint();
-            had_event = true;
-        }
-
-        // Drain all pending raw tray-icon interaction events.
-        while let Ok(event) = TrayIconEvent::receiver().try_recv() {
-            // Left-click (button-up) on the icon opens the window.
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
-            {
-                crate::platform::window::uncloak_window(hwnd);
-                if tx.send(TrayAction::Show).is_err() {
-                    return;
-                }
-                ctx.request_repaint();
-                had_event = true;
-            }
-        }
-
-        // Sleep when idle to avoid spinning a full CPU core.
-        // 200 ms is responsive enough for tray menu interactions while
-        // keeping thread wakeups minimal (5 Hz instead of 20 Hz).
-        if !had_event {
-            std::thread::sleep(Duration::from_millis(200));
+        // Stop forwarding events here; a replacement icon registers its own.
+        if let Ok(mut sink) = SINK.lock() {
+            *sink = None;
         }
     }
 }

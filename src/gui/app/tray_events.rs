@@ -15,22 +15,17 @@ impl MagicXApp {
         }
     }
 
-    /// Apply a single [`TrayAction`] received from the tray watcher thread.
+    /// Apply a single [`TrayAction`] from the tray icon or its menu.
     pub(super) fn handle_tray_action(&mut self, ctx: &egui::Context, action: &tray::TrayAction) {
         match *action {
-            tray::TrayAction::Show => {
-                crate::platform::window::uncloak_window(self.hwnd);
-                self.hidden_to_tray = false;
-            }
+            tray::TrayAction::Show => self.show_window(ctx),
             tray::TrayAction::Clean(level) => {
-                crate::platform::window::uncloak_window(self.hwnd);
-                self.hidden_to_tray = false;
+                self.show_window(ctx);
                 self.active_panel = Panel::Overview;
                 self.start_clean(level);
             }
             tray::TrayAction::Navigate(panel) => {
-                crate::platform::window::uncloak_window(self.hwnd);
-                self.hidden_to_tray = false;
+                self.show_window(ctx);
                 self.active_panel = panel;
             }
             tray::TrayAction::Quit => {
@@ -42,12 +37,12 @@ impl MagicXApp {
 
     /// (Re)create the tray icon for the current theme.
     ///
-    /// The old handle is dropped first so its icon and watcher thread are
-    /// gone before the new ones register. A failure is kept in
+    /// The old handle is dropped first so its icon is gone and stops
+    /// receiving events before the new one registers. A failure is kept in
     /// [`Self::tray_error`] for the Settings panel.
     pub(super) fn rebuild_tray(&mut self, ctx: &egui::Context) {
         self.tray_handle = None;
-        match tray::TrayHandle::new(ctx.clone(), self.hwnd, self.dark()) {
+        match tray::TrayHandle::new(ctx.clone(), self.dark()) {
             Ok(handle) => {
                 self.tray_handle = Some(handle);
                 self.tray_error = None;
