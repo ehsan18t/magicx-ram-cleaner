@@ -98,8 +98,16 @@ pub struct Palette {
     pub control_pressed: egui::Color32,
     /// Border of buttons and inputs.
     pub control_stroke: egui::Color32,
-    /// Fill behind hovered or selected list and navigation items.
+    /// Fill behind the selected navigation item.
     pub subtle: egui::Color32,
+    /// Translucent wash behind a hovered item, on any surface. Lighter than
+    /// a selection, so hover never looks like a choice.
+    pub hover: egui::Color32,
+    /// Translucent wash behind the selected item of a menu or list.
+    pub selected: egui::Color32,
+    /// The selected segment of a segmented control: raised above its well
+    /// and clearly brighter than a hovered segment.
+    pub raised: egui::Color32,
     /// Recessed fill: the track of segmented controls and empty bars.
     pub well: egui::Color32,
     /// Primary text.
@@ -165,7 +173,10 @@ impl Palette {
                 control_hover: hex(0x32, 0x32, 0x32),
                 control_pressed: hex(0x27, 0x27, 0x27),
                 control_stroke: hex(0x3A, 0x3A, 0x3A),
-                subtle: hex(0x2D, 0x2D, 0x2D),
+                subtle: hex(0x33, 0x33, 0x33),
+                hover: egui::Color32::from_white_alpha(8),
+                selected: egui::Color32::from_white_alpha(20),
+                raised: hex(0x3A, 0x3A, 0x3A),
                 well: hex(0x1E, 0x1E, 0x1E),
                 text,
                 text_secondary: hex(0xC8, 0xC8, 0xC8),
@@ -204,7 +215,10 @@ impl Palette {
                 control_hover: hex(0xF6, 0xF6, 0xF6),
                 control_pressed: hex(0xF0, 0xF0, 0xF0),
                 control_stroke: hex(0xDC, 0xDC, 0xDC),
-                subtle: hex(0xE9, 0xE9, 0xE9),
+                subtle: hex(0xE5, 0xE5, 0xE5),
+                hover: egui::Color32::from_black_alpha(6),
+                selected: egui::Color32::from_black_alpha(16),
+                raised: hex(0xFF, 0xFF, 0xFF),
                 well: hex(0xE6, 0xE6, 0xE6),
                 text,
                 text_secondary: hex(0x5D, 0x5D, 0x5D),
@@ -588,6 +602,47 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    /// `wash` painted over `surface`, as the renderer blends it.
+    fn over(wash: egui::Color32, surface: egui::Color32) -> egui::Color32 {
+        let keep = 1.0 - f32::from(wash.a()) / 255.0;
+        let channel = |w: u8, s: u8| f32::from(s).mul_add(keep, f32::from(w)).round() as u8;
+        hex(
+            channel(wash.r(), surface.r()),
+            channel(wash.g(), surface.g()),
+            channel(wash.b(), surface.b()),
+        )
+    }
+
+    #[test]
+    fn hover_is_visible_everywhere_and_weaker_than_selection() {
+        for dark in [true, false] {
+            let p = Palette::new(dark, &DEFAULT_ACCENT);
+            assert!(p.hover.a() < p.selected.a(), "dark={dark}");
+            for surface in [p.bg, p.layer, p.card, p.well] {
+                let hovered = over(p.hover, surface);
+                let selected = over(p.selected, surface);
+                assert!(
+                    hovered.r().abs_diff(surface.r()) >= 3,
+                    "dark={dark}: hover invisible on {surface:?}"
+                );
+                assert!(
+                    selected.r().abs_diff(hovered.r()) >= 3,
+                    "dark={dark}: selection looks like hover on {surface:?}"
+                );
+            }
+            // The selected navigation item must not look like a hovered one.
+            assert!(
+                over(p.hover, p.bg).r().abs_diff(p.subtle.r()) >= 8,
+                "dark={dark}: selected nav item looks hovered"
+            );
+            // Nor the selected segment like a hovered segment.
+            assert!(
+                over(p.hover, p.well).r().abs_diff(p.raised.r()) >= 8,
+                "dark={dark}: selected segment looks hovered"
+            );
         }
     }
 

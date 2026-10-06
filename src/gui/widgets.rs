@@ -203,28 +203,31 @@ pub fn segmented(
         } else {
             egui::Sense::hover()
         };
+        // The whole slot is clickable, but what is drawn is inset, so the
+        // selected pill and a hovered segment never touch.
         let response = ui.interact(rect, ui.id().with(("segment", i)), sense);
+        let pill = rect.shrink2(egui::vec2(1.5, 0.0));
         let is_selected = i == selected;
         if is_selected {
             ui.painter().rect_filled(
-                rect,
+                pill,
                 egui::CornerRadius::same(theme::CONTROL_RADIUS),
-                p.card,
+                p.raised,
             );
             ui.painter().rect_stroke(
-                rect,
+                pill,
                 egui::CornerRadius::same(theme::CONTROL_RADIUS),
                 egui::Stroke::new(1.0_f32, p.control_stroke),
                 egui::StrokeKind::Inside,
             );
         } else if response.hovered() && enabled {
             ui.painter().rect_filled(
-                rect,
+                pill,
                 egui::CornerRadius::same(theme::CONTROL_RADIUS),
-                p.control_hover.gamma_multiply(0.6),
+                p.hover,
             );
         }
-        focus_ring(ui, &response, rect, &p);
+        focus_ring(ui, &response, pill, &p);
         let color = if !enabled {
             p.text_disabled
         } else if is_selected {
@@ -472,8 +475,21 @@ pub fn dropdown<T: PartialEq + Copy>(
         .width(width)
         .selected_text(egui::RichText::new(selected).color(p.text))
         .show_ui(ui, |ui| {
-            ui.visuals_mut().selection.bg_fill = p.subtle;
-            ui.visuals_mut().selection.stroke = egui::Stroke::NONE;
+            // The current choice gets the selected wash and a hovered item
+            // the lighter hover wash, with a small gap between items so the
+            // two never merge.
+            let visuals = ui.visuals_mut();
+            visuals.selection.bg_fill = p.selected;
+            // egui draws a selected item's text in the selection stroke
+            // colour, so it stays the normal text colour; the outline comes
+            // from the resting border, which menu items do without.
+            visuals.selection.stroke = egui::Stroke::new(1.0_f32, p.text);
+            visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
+            visuals.widgets.hovered.weak_bg_fill = p.hover;
+            visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
+            visuals.widgets.active.weak_bg_fill = p.selected;
+            visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
+            ui.spacing_mut().item_spacing.y = 2.0;
             for (option, label) in options {
                 ui.selectable_value(current, *option, *label);
             }

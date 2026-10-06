@@ -101,7 +101,7 @@ fn draw_developer(ui: &mut egui::Ui, p: &Palette) {
         let (rect, _) =
             ui.allocate_exact_size(egui::vec2(AVATAR_SIZE, AVATAR_SIZE), egui::Sense::hover());
         ui.painter()
-            .circle_filled(rect.center(), AVATAR_SIZE / 2.0, p.subtle);
+            .circle_filled(rect.center(), AVATAR_SIZE / 2.0, p.well);
         ui.painter().circle_stroke(
             rect.center(),
             AVATAR_SIZE / 2.0 - 0.5,

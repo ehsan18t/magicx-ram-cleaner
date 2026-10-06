@@ -258,7 +258,7 @@ fn search_box(ui: &mut egui::Ui, app: &mut MagicXApp, p: &Palette, width: f32) {
         ui.painter().rect_filled(
             clear,
             egui::CornerRadius::same(theme::CONTROL_RADIUS),
-            p.subtle,
+            p.hover,
         );
     }
     widgets::focus_ring(ui, &clear_response, clear, p);
@@ -427,7 +427,7 @@ fn draw_row(
         ui.painter().rect_filled(
             highlight,
             egui::CornerRadius::same(theme::CONTROL_RADIUS),
-            p.subtle,
+            p.hover,
         );
     }
     widgets::focus_ring(ui, &row, highlight, p);

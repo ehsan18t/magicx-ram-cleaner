@@ -148,7 +148,7 @@ fn menu_button(ui: &mut egui::Ui, p: &Palette) -> egui::Response {
         ui.painter().rect_filled(
             rect,
             egui::CornerRadius::same(theme::CONTROL_RADIUS),
-            p.subtle,
+            p.hover,
         );
     }
     widgets::focus_ring(ui, &response, rect, p);
@@ -182,12 +182,15 @@ fn nav_item(
     };
 
     let painter = ui.painter();
-    if selected || response.hovered() {
-        painter.rect_filled(
-            rect,
-            egui::CornerRadius::same(theme::CONTROL_RADIUS),
-            p.subtle,
-        );
+    // Selected items get the solid fill; hover only a light wash, so a
+    // hovered item never looks selected.
+    let fill = if selected {
+        Some(p.subtle)
+    } else {
+        response.hovered().then_some(p.hover)
+    };
+    if let Some(fill) = fill {
+        painter.rect_filled(rect, egui::CornerRadius::same(theme::CONTROL_RADIUS), fill);
     }
     if selected {
         // The selection mark: a short accent pill on the leading edge.
