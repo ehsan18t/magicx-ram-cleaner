@@ -105,8 +105,8 @@ const ENTRIES: &[MenuEntry] = &[
 
 // Minimal registry bindings from windows-sys.
 use windows_sys::Win32::System::Registry::{
-    HKEY, HKEY_CLASSES_ROOT, KEY_ALL_ACCESS, REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey,
-    RegCreateKeyExW, RegDeleteTreeW, RegOpenKeyExW, RegSetValueExW,
+    HKEY, HKEY_CLASSES_ROOT, KEY_ALL_ACCESS, KEY_READ, REG_OPTION_NON_VOLATILE, REG_SZ,
+    RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegOpenKeyExW, RegSetValueExW,
 };
 
 /// RAII wrapper for a registry `HKEY`.
@@ -217,7 +217,7 @@ fn key_exists(parent: HKEY, sub_path: &str) -> bool {
     let wide = to_wide(sub_path);
     let mut hkey: HKEY = std::ptr::null_mut();
     // SAFETY: wide is a valid null-terminated UTF-16 string.
-    let rc = unsafe { RegOpenKeyExW(parent, wide.as_ptr(), 0, KEY_ALL_ACCESS, &raw mut hkey) };
+    let rc = unsafe { RegOpenKeyExW(parent, wide.as_ptr(), 0, KEY_READ, &raw mut hkey) };
     if rc == 0 && !hkey.is_null() {
         // SAFETY: hkey is a valid open key; drop to close it immediately.
         let _guard = RegKeyGuard::new(hkey);
@@ -237,10 +237,17 @@ fn key_exists(parent: HKEY, sub_path: &str) -> bool {
 ///
 /// The caller must be running as Administrator (HKCR writes require elevation).
 /// If entries already exist they are replaced cleanly (delete + recreate).
+/// Installation is all-or-nothing: if any root fails, every root is removed
+/// again so the menu never ends up half-installed.
 pub fn install(exe_path: &str) -> Result<()> {
     for root_path in ROOT_PATHS {
-        install_at(exe_path, root_path)
-            .with_context(|| format!("failed to install context menu at '{root_path}'"))?;
+        if let Err(e) = install_at(exe_path, root_path) {
+            for cleanup_path in ROOT_PATHS {
+                drop(delete_key_tree(HKEY_CLASSES_ROOT, cleanup_path));
+            }
+            return Err(e)
+                .with_context(|| format!("failed to install context menu at '{root_path}'"));
+        }
     }
 
     println!();
