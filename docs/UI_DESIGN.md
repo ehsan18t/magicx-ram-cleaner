@@ -24,7 +24,7 @@ Status: built in four phases (foundations, Overview, Settings with Processes and
 
 ## Principles
 
-1. Color means a memory list, nothing else. In use, Modified, Standby and Free each have one fixed color, used the same way on every screen. Red is reserved for real memory pressure.
+1. Color means a memory list, nothing else. In use, Modified, Standby and Free each have one fixed color, used the same way on every screen. Red is reserved for real memory pressure and for errors, as in Windows itself; the memory map and chart never turn red.
 2. One signature element. The memory map is the only bold thing; everything around it stays quiet and native.
 3. Say what happens. Every action states what it will do before it runs and what it did afterwards, in plain words.
 4. One orchestrated motion. The memory map animates from before to after a clean. There is no other decorative motion.
@@ -55,9 +55,9 @@ Each statement is observable in the running app.
 8. The level picker shows the four levels. Selecting one dims the memory lists it does not target and shows its reclaim estimate and a plain description. The selection survives a restart and does not change the auto-clean level.
 9. Clean now runs the selected level and shows progress while it runs. Afterwards the memory map animates to the new state and the amount freed and the time taken are shown.
 10. When the kernel page lists cannot be read, the memory map shows In use and Available only, and the picker says no estimate is available.
-11. Red appears only when memory load is 90% or higher.
+11. Red appears only for memory pressure (a load of 90% or higher) and for errors. The memory map and chart never turn red.
 12. The Monitor shows a 10-minute history chart in the memory-list colors with the auto-clean threshold drawn as a line, gaps where nothing was recorded, and an event list that shows what each auto-clean freed.
-13. The Processes page has a Top 10 / 20 / 50 selector, a search box with a built-in clear button, a highlighted row on hover, and a Trim button on the hovered row that reports the amount freed and any skipped instances.
+13. The Processes page has a Top 10 / 20 / 50 selector, a search box with a built-in clear button, a highlighted row on hover, and a Trim button on the hovered row that reports the amount freed and any skipped instances. Rows also take keyboard focus, and Enter or Space trims the focused row.
 14. The Settings page uses rows with an icon, title, description and a control on the right. Toggle switches show on and off clearly. The context menu is one row with its status and one button.
 15. Hidden in the tray with auto-clean off, the app does no periodic work, as before.
 16. Text in both themes meets WCAG AA contrast, and keyboard focus is always visible.
