@@ -160,6 +160,23 @@ fn exclusions_switch_to_per_process_trimming() {
 }
 
 #[test]
+fn a_failed_process_listing_fails_only_the_trim_step() {
+    let sys = FakeSystem::new(Model {
+        processes: Vec::new(), // the fake fails to list an empty process table
+        ..Model::default()
+    });
+    let (result, _) = run(&sys, CleanLevel::Aggressive, &["chrome"]);
+
+    let trim = &result.results[2];
+    assert_eq!(trim.operation, "Empty Working Sets (Per-Process)");
+    assert!(!trim.success);
+    assert!(trim.message.starts_with("Could not list processes"));
+    // The rest of the chain still ran after the failed step.
+    assert!(sys.calls().contains(&Call::Command(PurgeStandbyList)));
+    assert_eq!(result.results.len(), 5);
+}
+
+#[test]
 fn exclusions_have_no_effect_below_aggressive() {
     for level in [CleanLevel::Gentle, CleanLevel::Moderate] {
         let sys = FakeSystem::default();

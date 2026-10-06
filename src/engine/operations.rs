@@ -29,6 +29,24 @@ pub(super) fn ntstatus_failure(call: &str, status: NtStatus) -> String {
     )
 }
 
+/// Failure message for a Win32 error from `SetSystemFileCacheSize`. Only
+/// `ERROR_PRIVILEGE_NOT_HELD` means the privilege is missing; other errors
+/// get the system's own description.
+fn file_cache_failure(error: u32) -> String {
+    /// `ERROR_PRIVILEGE_NOT_HELD`.
+    const PRIVILEGE_NOT_HELD: u32 = 1314;
+    if error == PRIVILEGE_NOT_HELD {
+        format!(
+            "SetSystemFileCacheSize failed (error {error}): SeIncreaseQuotaPrivilege is not held"
+        )
+    } else {
+        format!(
+            "SetSystemFileCacheSize failed: {}",
+            std::io::Error::from_raw_os_error(error as i32)
+        )
+    }
+}
+
 /// Normalise an exclusion name: lowercase, without a trailing `.exe`.
 fn normalise_exclusion(name: &str) -> String {
     let lower = name.to_lowercase();
@@ -143,8 +161,19 @@ impl Cleaner<'_> {
             .map(|n| normalise_exclusion(n))
             .collect();
 
+        let processes = match self.sys.processes() {
+            Ok(processes) => processes,
+            Err(e) => {
+                return Ok(CleanResult::failure(
+                    op.name(),
+                    format!("Could not list processes: {e:#}"),
+                    &before,
+                ));
+            }
+        };
+
         let (mut trimmed, mut skipped, mut excluded) = (0u32, 0u32, 0u32);
-        for entry in self.sys.processes()? {
+        for entry in processes {
             if entry.pid == own_pid {
                 continue;
             }
@@ -204,9 +233,7 @@ impl Cleaner<'_> {
         if let Err(err) = self.sys.flush_file_cache() {
             return Ok(CleanResult::failure(
                 op.name(),
-                format!(
-                    "SetSystemFileCacheSize failed (error {err}). Need SeIncreaseQuotaPrivilege."
-                ),
+                file_cache_failure(err),
                 &before,
             ));
         }
@@ -336,6 +363,14 @@ mod tests {
         let excludes = normalised(&["chrome.exe"]);
         assert!(is_excluded("chrome.exe", &excludes));
         assert!(is_excluded("Chrome.EXE", &excludes));
+    }
+
+    #[test]
+    fn file_cache_failure_blames_the_privilege_only_when_missing() {
+        assert!(file_cache_failure(1314).contains("SeIncreaseQuotaPrivilege"));
+        let other = file_cache_failure(87);
+        assert!(!other.contains("SeIncreaseQuotaPrivilege"), "{other}");
+        assert!(other.contains("os error 87"), "{other}");
     }
 
     #[test]

@@ -16,14 +16,13 @@ use crate::platform::nt::MemoryListCommand;
 /// Maximum number of adaptive leftover sweeps after a chain's final purge.
 pub(super) const MAX_SWEEP_PASSES: u32 = 2;
 
-/// Standby plus pagefile-backed modified memory in bytes: what another
-/// flush + purge could still reclaim. `None` when the page lists are unknown.
+/// Standby plus modified memory in bytes: what another flush + purge could
+/// still reclaim (the flush writes both pagefile-backed and mapped-file
+/// modified pages). Counts the same lists as [`CleanLevel::estimate`].
+/// `None` when the page lists are unknown.
 fn leftover_bytes(snapshot: &MemorySnapshot) -> Option<u64> {
     let lists = snapshot.lists.as_ref()?;
-    Some(
-        (lists.total_standby_pages() + lists.modified_pagefile_pages)
-            .saturating_mul(snapshot.page_size),
-    )
+    Some((lists.total_standby_pages() + lists.modified_pages).saturating_mul(snapshot.page_size))
 }
 
 /// Leftovers below this are normal background churn and not worth another
@@ -224,14 +223,11 @@ impl Cleaner<'_> {
             let result = match self.sys.memory_command(MemoryListCommand::PurgeStandbyList) {
                 Ok(()) => {
                     let after = self.wait_for_settle(SettleMode::Full)?;
-                    let remaining = leftover_bytes(&after).unwrap_or(0);
+                    let remaining =
+                        leftover_bytes(&after).map_or_else(|| "unknown".to_owned(), format_bytes);
                     CleanResult::success(
                         &name,
-                        format!(
-                            "Leftovers {} -> {}",
-                            format_bytes(leftover),
-                            format_bytes(remaining)
-                        ),
+                        format!("Leftovers {} -> {remaining}", format_bytes(leftover)),
                         &before,
                         &after,
                         start.elapsed(),
