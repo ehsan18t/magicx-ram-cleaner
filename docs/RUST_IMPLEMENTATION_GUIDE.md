@@ -987,14 +987,7 @@ fn clean_at_level(level: CleanLevel) -> Result<(), anyhow::Error> {
 
 ## 11. Full Compilable Source (Simplified Prototype)
 
-> **Note:** The code below is a simplified single-file prototype for educational purposes.
-> The actual codebase uses a multi-module architecture (`main.rs`, `cli.rs`, `cleaner.rs`,
-> `stats.rs`, `display.rs`, `monitor.rs`, `ntapi.rs`, `privilege.rs`, `console.rs`,
-> `context_menu.rs`) with
-> additional features including smart settle detection, dry-run mode, JSON reports,
-> per-process working set trimming with exclusion filters, continuous monitoring with
-> cooldown, top-N process display, `--quiet`/`--no-color` output modes, and more.
-> See [Section 12](#12-current-architecture--features) for the full feature set.
+> **Note:** The code below is a simplified single-file prototype for educational purposes. The actual codebase is a layered library (`platform`, `memory`, `engine`, `integration`, `cli`, `gui` and `app`; see [ARCHITECTURE.md](ARCHITECTURE.md)) with additional features including smart settle detection, an adaptive leftover sweep, dry-run mode, JSON reports, per-process working set trimming with exclusion filters, continuous monitoring with cooldown, top-N process display, `--quiet`/`--no-color` output modes, a GUI with tray icon, and more. See [Section 12](#12-current-architecture--features) for the full feature set.
 
 ```rust
 //! MagicX RAM Cleaner — World-class Windows Memory Cleaner CLI
@@ -1652,58 +1645,109 @@ Or use `cargo doc --open` on windows-sys to browse locally.
 
 ## 12. Current Architecture & Features
 
-The codebase has evolved from the simplified prototype in Section 11 into a
-multi-module architecture with the following structure:
+The codebase has evolved from the simplified prototype in Section 11 into a layered library crate with a one-line binary entry point. Dependencies only point down (`platform` <- `memory` <- `engine` / `integration` <- `cli` / `gui` <- `app`), `cli` and `gui` never import each other, and `unsafe` code lives only under `platform`. [ARCHITECTURE.md](ARCHITECTURE.md) explains the layers, the rules between them and the reasons for them. The structure is:
 
 ```
-build.rs           — embeds admin-elevation manifest, application icon, Phosphor context-menu
-                     sub-icons (IDs 2–6), and version metadata via winresource
+build.rs              - embeds admin-elevation manifest, application icon, Phosphor context-menu
+                        sub-icons (IDs 2–6), and version metadata via winresource
 assets/
-  app.ico          — multi-size application icon (16–256 px) embedded as resource ID 1
-  app.png          — PNG version of the app icon used as the egui window icon
+  app.ico             - multi-size application icon (16–256 px) embedded as resource ID 1
+  app.png             - PNG version of the app icon used as the egui window icon
 src/
-  main.rs          — thin entry point: mod declarations, main(), run(), command dispatch
-  lib.rs           — library crate root: module re-exports for criterion benchmarks
-  cli.rs           — clap Parser, Commands enum, help text constants, STYLES
-  cleaner.rs       — cleaning operations & orchestration (smart_clean, CleanLevel)
-  console.rs       — Windows console management (dynamic attach/alloc for detached launches,
-                     ANSI, notifications, dark-mode detection, title-bar theming)
-  context_menu.rs  — Windows Desktop context menu integration (registry install/uninstall)
-  display.rs       — ALL terminal formatting: banner, status, clean output, box drawing
-  gui/             — egui graphical interface module
-    mod.rs         — module entry point, run_gui() launcher, single-instance guard
-    app.rs         — core app state, eframe::App impl, sidebar, layout routing
-    persistence.rs - settings file I/O, Win32 file dialogs, autostart (Task Scheduler)
-    theme.rs       — colour palette, spacing constants, dark/light Visuals
-    tray.rs        — system tray icon with context menu and Phosphor glyph icons
-    widgets.rs     — reusable UI components (cards, stat labels, toggle switch)
-    panels/        — one file per tab
-      mod.rs       — panel module re-exports
-      about.rs     — app info, developer profile, project details
-      dashboard.rs — memory overview + one-click cleaning buttons
-      monitor.rs   — auto-clean configuration UI
-      processes.rs — sortable grouped process memory table
-      settings.rs  — appearance, integration, backup & restore
-  monitor.rs       — continuous monitoring loop, Ctrl+C handler, auto-clean
-  ntapi.rs         — NT kernel FFI (NtSetSystemInformation, NtQuerySystemInformation)
-  privilege.rs     — Windows privilege elevation (Se*Privilege) + admin check
-  stats.rs         — memory statistics, Win32 API calls, MemorySnapshot
+  main.rs             - binary entry point: one line calling app::run()
+  lib.rs              - crate root: layer overview, lint gates (deny unsafe_code outside platform)
+  app.rs              - launcher: GUI or CLI, console setup, argument parsing, exit codes
+  strings.rs          - all user-facing text for the CLI and the GUI
+  platform/           - every Win32 / NT call; the only module tree allowed to use unsafe
+    nt.rs             - NT kernel FFI (NtSetSystemInformation, NtQuerySystemInformation),
+                        MemoryListCommand, execute_memory_command()
+    memory.rs         - GlobalMemoryStatusEx, K32GetPerformanceInfo, MemoryListInfo,
+                        FileCacheSnapshot, system file cache flush
+    process.rs        - process enumeration, per-process memory counters, working-set trim
+    privilege.rs      - admin check, Se*Privilege enabling
+    handle.rs         - takes ownership of kernel handles as std OwnedHandle
+    registry.rs       - owned registry keys (RegKey, Hive) and the few operations needed
+    task_scheduler.rs - logon tasks via schtasks.exe
+    console.rs        - console attach/alloc, ANSI colours, Ctrl+C, pause-before-exit
+    window.rs         - main-window lookup, cloaking to the tray, dark/light title bar and menus
+    notify.rs         - balloon notifications for --notify launches
+    instance.rs       - single-instance guard for the GUI
+    shell.rs          - unelevated URL launch through the desktop shell
+    dialog.rs         - native file dialogs for JSON import/export
+    identity.rs       - the account this process runs as (from the process token)
+    paths.rs          - system directories resolved through the API, not the environment
+    time.rs           - local wall-clock time
+    wide.rs           - Rust string <-> UTF-16 conversions
+  memory/             - memory domain types
+    mod.rs            - MemorySnapshot, QuickMemoryReading (re-exports MemoryListInfo and
+                        FileCacheSnapshot from platform::memory)
+    process.rs        - ProcessMemoryInfo, query_top_processes(), query_all_processes()
+    format.rs         - format_bytes(), format_signed_bytes()
+  engine/             - cleaning engine: never prints, reaches the OS only through MemorySystem
+    mod.rs            - Cleaner (runs operations, reports Progress to a callback)
+    system.rs         - MemorySystem trait + WindowsMemory (production implementation)
+    operations.rs     - individual operations as Cleaner methods (purge_standby, flush_modified, ...)
+    smart.rs          - Cleaner::smart_clean level chains, leftover sweep, dry_run_plan()
+    settle.rs         - SettleMode and wait_for_settle()
+    level.rs          - CleanLevel
+    report.rs         - CleanResult, SmartCleanResult
+    progress.rs       - Progress events
+    auto_clean.rs     - AutoCleanPolicy: threshold, cooldown and backoff (shared by CLI and GUI)
+    fake.rs           - page-accurate simulated MemorySystem (tests only)
+    tests.rs          - engine behaviour tests against the simulation
+  integration/        - how the app hooks into Windows
+    context_menu.rs   - Desktop right-click submenu (registry install/uninstall)
+    autostart.rs      - elevated Task Scheduler logon task
+  cli/                - command-line interface
+    mod.rs            - cli::run() and Outcome
+    args.rs           - clap Cli parser, Commands enum, help text constants, STYLES
+    commands.rs       - command dispatch
+    display.rs        - ALL terminal formatting: banner, status, clean output, progress
+    monitor.rs        - continuous monitoring loop with auto-clean
+    notification.rs   - result summaries for --notify balloons
+  gui/                - egui graphical interface
+    mod.rs            - run_gui() launcher
+    app/
+      mod.rs          - MagicXApp state, eframe::App impl, Panel enum
+      cleaning.rs     - cleans on a worker thread, collecting results, auto-clean monitor
+      background.rs   - background threads refreshing memory stats and the process list
+      tray_events.rs  - tray icon events and tray icon rebuilds
+    settings.rs       - GuiSettings: persisted fields, defaults, valid ranges
+    persistence.rs    - SettingsManager: settings file I/O, import/export
+    sidebar.rs        - navigation sidebar and panel routing
+    theme.rs          - colour palette, spacing constants, dark/light Visuals
+    tray.rs           - system tray icon with context menu and Phosphor glyph icons
+    widgets.rs        - reusable UI components (cards, stat labels, toggle switch)
+    panels/           - one file per tab
+      mod.rs          - panel module re-exports
+      about.rs        - app info, developer profile, project details
+      dashboard.rs    - memory overview + one-click cleaning buttons
+      monitor.rs      - auto-clean configuration UI
+      processes.rs    - sortable grouped process memory table
+      settings.rs     - appearance, integration, backup & restore
+tests/
+  architecture.rs     - enforces the layering and the unsafe boundary
 ```
 
 ### Key Types
 
-| Type                 | Module    | Purpose                                                                          |
-| -------------------- | --------- | -------------------------------------------------------------------------------- |
-| `CleanLevel`         | `cleaner` | Enum: `Gentle`, `Moderate`, `Aggressive`, `Nuclear`                              |
-| `CleanResult`        | `cleaner` | Per-operation result: `freed_bytes`, `message`, `success`, `elapsed_secs`        |
-| `SmartCleanResult`   | `cleaner` | Aggregate: `results[]`, `overall_before`/`overall_after`, `total_freed`, `total_elapsed_secs` |
-| `SettleMode`         | `cleaner` | Enum: `Full` (3 stable reads, 20 polls max) / `Quick` (1 stable read, 8 polls)  |
-| `MemoryListCommand`  | `ntapi`   | Enum mapping NT kernel commands (with `display_info()` for dry-run labels)       |
-| `MemorySnapshot`     | `stats`   | Full memory state (physical + page file + kernel pools + system counters)         |
-| `QuickMemoryReading` | `stats`   | Lightweight snapshot (`total_physical` + `available_physical` only)               |
-| `MemoryListInfo`     | `stats`   | Kernel page list breakdown (standby priorities, modified, free, zeroed, bad)      |
-| `ProcessMemoryInfo`  | `stats`   | Per-process memory info (PID, name, working set, peak, private working set)      |
-| `FileCacheSnapshot`  | `stats`   | File system cache working set (current, peak, min/max limits)                    |
+| Type                 | Module                | Purpose                                                                          |
+| -------------------- | --------------------- | -------------------------------------------------------------------------------- |
+| `Cleaner`            | `engine`              | Runs operations against a `MemorySystem` (`Cleaner::new(sys, on_progress)` or `Cleaner::silent(sys)`); `smart_clean(level, exclude_names)` runs a whole level |
+| `MemorySystem`       | `engine`              | Trait: everything the engine needs from the OS (snapshots, memory-list commands, file cache, registry flush, page combining, processes, sleep) |
+| `WindowsMemory`      | `engine`              | Production `MemorySystem`, backed by `platform`                                  |
+| `CleanLevel`         | `engine`              | Enum: `Gentle`, `Moderate`, `Aggressive`, `Nuclear`                              |
+| `CleanResult`        | `engine`              | Per-operation result: `operation`, `success`, `freed_bytes`, `free_delta_bytes`, `message`, `elapsed_secs`; `reclaimed_bytes()` |
+| `SmartCleanResult`   | `engine`              | Aggregate: `results[]`, `overall_before`/`overall_after`, `total_freed`, `total_free_delta`, `total_elapsed_secs` |
+| `Progress`           | `engine`              | Events the engine reports instead of printing: `Started`, `Settled`, `SettleTimedOut`, `Excluded`, `SecondPass`, `Sweep` |
+| `SettleMode`         | `engine::settle`      | Enum: `Full` (3 stable reads, 20 polls max) / `Quick` (1 stable read, 8 polls)  |
+| `AutoCleanPolicy`    | `engine::auto_clean`  | Threshold, cooldown and backoff decisions shared by the CLI monitor and the GUI  |
+| `MemoryListCommand`  | `platform::nt`        | Enum mapping NT kernel memory-list commands (labels come from `command_labels()` in `engine/operations.rs`) |
+| `MemorySnapshot`     | `memory`              | Full memory state (physical + page file + kernel pools + system counters + page lists) |
+| `QuickMemoryReading` | `memory`              | Lightweight snapshot (`total_physical` + `available_physical` only)               |
+| `MemoryListInfo`     | `platform::memory`    | Kernel page list breakdown (standby priorities, modified, free, zeroed, bad); re-exported by `memory` |
+| `ProcessMemoryInfo`  | `memory`              | Per-process memory info (PID, name, working set, peak, private working set)      |
+| `FileCacheSnapshot`  | `platform::memory`    | File system cache working set (current, peak, min/max limits); re-exported by `memory` |
 
 ### CLI Features
 
@@ -1717,7 +1761,7 @@ src/
 | Status display        | `status [--detailed]`     | Show memory usage with optional kernel page list breakdown                     |
 | JSON status           | `status --json`           | Machine-readable JSON output of `MemorySnapshot`                               |
 | Top processes         | `status --top N`          | Show top N processes ranked by private working set (physical RAM) usage        |
-| Per-process trimming  | `empty-workingsets -p`    | Trim working sets process-by-process instead of kernel-wide                    |
+| Per-process trimming  | `empty-workingsets --per-process` | Trim working sets process-by-process instead of kernel-wide                    |
 | Exclusion filters     | `--exclude NAME`          | Case-insensitive process name exclusion (implies `--per-process`)              |
 | Continuous monitoring | `monitor -t THRESHOLD`    | Auto-clean when RAM usage exceeds threshold percentage                         |
 | Monitor cooldown      | `monitor --cooldown SECS` | Minimum seconds between auto-cleans (default: 2× interval)                    |
@@ -1729,36 +1773,28 @@ src/
 
 ### Settle Detection
 
-After each kernel memory operation, `wait_for_settle()` polls `QuickMemoryReading`
-at 100 ms intervals to detect when the available memory has stabilised. This prevents
-measuring freed memory before the kernel has finished reclaiming pages.
+After each kernel memory operation, `Cleaner::wait_for_settle()` (in `engine/settle.rs`) polls a `QuickMemoryReading` through `MemorySystem::quick_reading()` at 100 ms intervals to detect when the available memory has stabilised, then reports `Progress::Settled` or `Progress::SettleTimedOut`. This prevents measuring freed memory before the kernel has finished reclaiming pages.
 
 Both modes use the same jitter threshold formula: **0.01% of total physical RAM** with
 a **4 MB floor** (e.g. ~1.6 MB on 16 GB, ~13 MB on 128 GB). The modes differ in how
 many consecutive stable readings are required and how long they poll:
 
-- **`SettleMode::Full`** — 3 consecutive stable reads, up to 20 polls (2 s max).
-  Used for the **final** operation in a chain and for standalone commands.
-- **`SettleMode::Quick`** — 1 stable read, up to 8 polls (0.8 s max).
-  Used for intermediate operations in `smart_clean` where only per-op deltas are needed.
+- **`SettleMode::Full`**: 3 consecutive stable reads, up to 20 polls (2 s max). Used for standalone commands and wherever write-back finishes asynchronously: the modified-list flush and the standby purge, including inside `Cleaner::smart_clean`.
+- **`SettleMode::Quick`**: 1 stable read, up to 8 polls (0.8 s max). Used for intermediate operations in `Cleaner::smart_clean` whose effect is synchronous (file cache flush, registry flush, emptying working sets, memory combining), where only per-operation deltas are needed.
 
-Once settled, a full `MemorySnapshot::capture()` is taken for the after-measurement.
+Once settled, a full snapshot is captured through `MemorySystem::snapshot()` (`MemorySnapshot::capture()` in production) for the after-measurement.
 
 ### DRY Cleaning Pattern
 
-All kernel memory operations share a common `execute_kernel_memory_op()` helper that:
-1. Captures a full `MemorySnapshot` before the kernel call
-2. Calls `ntapi::execute_memory_command()` to issue the NT kernel operation
-3. Calls `wait_for_settle()` with the appropriate `SettleMode` (which captures the after snapshot)
-4. Computes `freed_bytes` (delta of `available_physical`) and wall-clock elapsed time
-5. Returns a structured `CleanResult` with before/after snapshots, timing, and status
+All memory-list operations share a common `Cleaner::memory_list_op()` helper (in `engine/operations.rs`) that:
+1. Reports `Progress::Started` with the operation's label
+2. Captures a full `MemorySnapshot` before the kernel call
+3. Calls `MemorySystem::memory_command()`, which `WindowsMemory` forwards to `platform::nt::execute_memory_command()`
+4. Calls `wait_for_settle()` with the appropriate `SettleMode` (which captures the after snapshot)
+5. Returns a structured `CleanResult` with the available and free deltas (`freed_bytes`, `free_delta_bytes`), load before/after, wall-clock elapsed time, and status
 
-Display strings (operation name, success message, verbose label) come from
-`MemoryListCommand::display_info()`, so callers only pass the command variant.
+Display strings (operation name, success message, progress label) come from `command_labels()` in `engine/operations.rs`, so callers only pass the `MemoryListCommand` variant.
 
-This eliminates code duplication across `flush_modified_list`, `purge_standby_all`,
-`purge_standby_low_priority`, and `empty_working_sets_kernel`.
+This eliminates code duplication across the `Cleaner` methods `flush_modified`, `purge_standby`, `purge_standby_low_priority`, and `empty_working_sets`.
 
-Non-kernel operations (`flush_file_cache`, `flush_registry_cache`, `combine_memory`)
-follow the same capture → execute → settle → result pattern but with their own
-Win32/NT API calls instead of `execute_memory_command()`.
+Non-kernel operations (`flush_file_cache`, `flush_registry_cache`, `combine_memory`) follow the same capture → execute → settle → result pattern through their own `MemorySystem` methods (`flush_file_cache()`, `flush_registry()`, `combine_pages()`) instead of `memory_command()`.
