@@ -236,6 +236,22 @@ pub(super) fn draw_page(ui: &mut egui::Ui, app: &mut MagicXApp) {
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(p.bg))
         .show(ui, |ui| {
+            // The page sits on a raised layer, as in Task Manager: rounded at
+            // the top-left, with a hairline along the top and the pane side.
+            // It runs past the right and bottom edges so only those two
+            // edges show.
+            let layer = ui.max_rect();
+            let layer = egui::Rect::from_min_max(layer.min, layer.max + egui::vec2(2.0, 2.0));
+            ui.painter().rect(
+                layer,
+                egui::CornerRadius {
+                    nw: theme::CARD_RADIUS,
+                    ..egui::CornerRadius::ZERO
+                },
+                p.layer,
+                egui::Stroke::new(1.0_f32, p.layer_stroke),
+                egui::StrokeKind::Inside,
+            );
             // Each page keeps its own scroll position.
             egui::ScrollArea::vertical()
                 .id_salt(app.active_panel)

@@ -77,8 +77,13 @@ pub const DEFAULT_ACCENT: AccentPalette = [
 pub struct Palette {
     /// Whether this is the dark theme.
     pub dark: bool,
-    /// Window background, shared by the title bar, navigation pane and page.
+    /// Window background, shared by the title bar and navigation pane.
     pub bg: egui::Color32,
+    /// The page's surface: a layer raised above the background, so the
+    /// page reads as separate from the navigation pane.
+    pub layer: egui::Color32,
+    /// Hairline edge of the page layer.
+    pub layer_stroke: egui::Color32,
     /// Card surface.
     pub card: egui::Color32,
     /// Card border.
@@ -146,11 +151,13 @@ impl Palette {
         if dark {
             let bg = hex(0x20, 0x20, 0x20);
             let accent_fill = rgb(accent[1]);
-            let card = hex(0x2B, 0x2B, 0x2B);
+            let card = hex(0x2D, 0x2D, 0x2D);
             let text = hex(0xFF, 0xFF, 0xFF);
             Self {
                 dark,
                 bg,
+                layer: hex(0x27, 0x27, 0x27),
+                layer_stroke: hex(0x1A, 0x1A, 0x1A),
                 card,
                 card_stroke: hex(0x1C, 0x1C, 0x1C),
                 divider: hex(0x38, 0x38, 0x38),
@@ -183,11 +190,13 @@ impl Palette {
         } else {
             let bg = hex(0xF3, 0xF3, 0xF3);
             let accent_fill = rgb(accent[4]);
-            let card = hex(0xFB, 0xFB, 0xFB);
+            let card = hex(0xFE, 0xFE, 0xFE);
             let text = hex(0x1B, 0x1B, 0x1B);
             Self {
                 dark,
                 bg,
+                layer: hex(0xF9, 0xF9, 0xF9),
+                layer_stroke: hex(0xE5, 0xE5, 0xE5),
                 card,
                 card_stroke: hex(0xE5, 0xE5, 0xE5),
                 divider: hex(0xEA, 0xEA, 0xEA),
@@ -523,7 +532,7 @@ mod tests {
     fn text_meets_wcag_aa_on_every_surface() {
         for dark in [true, false] {
             let p = Palette::new(dark, &DEFAULT_ACCENT);
-            for surface in [p.bg, p.card, p.control, p.subtle, p.well] {
+            for surface in [p.bg, p.layer, p.card, p.control, p.subtle, p.well] {
                 for text in [p.text, p.text_secondary, p.text_tertiary] {
                     assert!(
                         contrast(text, surface) >= 4.5,

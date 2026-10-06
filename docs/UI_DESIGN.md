@@ -40,6 +40,7 @@ Status: built in four phases (foundations, Overview, Settings with Processes and
 | D5 | Theme is System, Light or Dark. System follows the Windows app theme and switches live; it is the default for new settings files. Existing settings files keep their saved Dark or Light choice, converted from the old yes/no value when read. | Following the OS theme is expected of a native app, and an update must never flip a user's theme. |
 | D6 | The Processes page gets a Trim action on the hovered row. It trims every instance of that program and reports the result in the row, including how many protected instances were skipped. There is no confirmation, because a trim loses no data. | It makes the page actionable using an engine operation that already exists. |
 | D7 | The Monitor's history chart records only when the app already reads memory (window visible or auto-clean on): the last 10 minutes at one point per second. Unrecorded time shows as a gap. | Keeps the existing rule that a tray-hidden app with auto-clean off does no periodic work. |
+| D8 | The page sits on a raised layer, as in Task Manager: a slightly lighter surface than the navigation pane and title bar, rounded at the top-left, with a hairline along its top and pane-side edges. | With one shared background the pane and the page read as a single plane, so nothing showed where navigation ends and content begins. |
 
 ## Acceptance checklist
 
