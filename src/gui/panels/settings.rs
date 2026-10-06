@@ -3,8 +3,8 @@
 //! User preferences: appearance (dark/light theme), integration toggles
 //! (minimize-to-tray, autostart, Desktop context menu), display options, and settings backup.
 
+use crate::gui::icons::regular as ph;
 use eframe::egui;
-use egui_phosphor::regular as ph;
 
 use super::super::app::MagicXApp;
 use super::super::persistence::SettingsManager;

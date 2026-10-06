@@ -1,7 +1,7 @@
 //! The navigation sidebar and the main panel it switches between.
 
+use super::icons::regular as ph;
 use eframe::egui;
-use egui_phosphor::regular as ph;
 
 use super::app::{MagicXApp, Panel};
 use super::{panels, theme};
@@ -9,7 +9,7 @@ use crate::strings;
 
 /// Navigation items: `(panel, icon, label)`.
 ///
-/// Icons are sourced from the Phosphor icon font (`egui_phosphor::regular`),
+/// Icons come from the app's Phosphor icon subset (`super::icons::regular`),
 /// which is registered at startup in [`MagicXApp::new`].
 const NAV_ITEMS: [(Panel, &str, &str); 4] = [
     (Panel::Dashboard, ph::GAUGE, strings::tray::NAV_DASHBOARD),

@@ -212,7 +212,7 @@ impl MagicXApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> anyhow::Result<Self> {
         // Register Phosphor icon font so all icon glyphs render correctly.
         let mut fonts = egui::FontDefinitions::default();
-        egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+        super::icons::regular::add_to_fonts(&mut fonts);
         cc.egui_ctx.set_fonts(fonts);
 
         // Load persisted settings before applying the theme so the window

@@ -35,6 +35,7 @@ use crate::engine::CleanLevel;
 use crate::strings;
 
 use super::app::Panel;
+use super::icons::regular as ph;
 
 // ─── Public Types ─────────────────────────────────────────────────────────────
 
@@ -298,19 +299,18 @@ fn load_icon() -> Result<tray_icon::Icon, String> {
 /// ⏻   Quit
 /// ```
 fn build_menu(dark: bool) -> Result<(MenuIds, Menu), String> {
-    // Phosphor Regular codepoints (from egui_phosphor::regular).
-    let show_item = icon_menu_item(strings::tray::OPEN, '\u{E3FE}', dark); // ROCKET_LAUNCH
-    let quit_item = icon_menu_item(strings::tray::QUIT, '\u{E3DA}', dark); // POWER
+    let show_item = icon_menu_item(strings::tray::OPEN, ph::ROCKET_LAUNCH, dark);
+    let quit_item = icon_menu_item(strings::tray::QUIT, ph::POWER, dark);
 
-    let gentle_item = icon_menu_item(strings::levels::GENTLE_NAME, '\u{E2DA}', dark); // LEAF
-    let moderate_item = icon_menu_item(strings::levels::MODERATE_NAME, '\u{E2DE}', dark); // LIGHTNING
-    let aggressive_item = icon_menu_item(strings::levels::AGGRESSIVE_NAME, '\u{E242}', dark); // FIRE
-    let nuclear_item = icon_menu_item(strings::levels::NUCLEAR_NAME, '\u{E9DC}', dark); // RADIOACTIVE
+    let gentle_item = icon_menu_item(strings::levels::GENTLE_NAME, ph::LEAF, dark);
+    let moderate_item = icon_menu_item(strings::levels::MODERATE_NAME, ph::LIGHTNING, dark);
+    let aggressive_item = icon_menu_item(strings::levels::AGGRESSIVE_NAME, ph::FIRE, dark);
+    let nuclear_item = icon_menu_item(strings::levels::NUCLEAR_NAME, ph::RADIOACTIVE, dark);
 
-    let nav_dashboard = icon_menu_item(strings::tray::NAV_DASHBOARD, '\u{E628}', dark); // GAUGE
-    let nav_monitor = icon_menu_item(strings::tray::NAV_MONITOR, '\u{E000}', dark); // ACTIVITY
-    let nav_processes = icon_menu_item(strings::tray::NAV_PROCESSES, '\u{E610}', dark); // CPU
-    let nav_settings = icon_menu_item(strings::tray::NAV_SETTINGS, '\u{E270}', dark); // GEAR
+    let nav_dashboard = icon_menu_item(strings::tray::NAV_DASHBOARD, ph::GAUGE, dark);
+    let nav_monitor = icon_menu_item(strings::tray::NAV_MONITOR, ph::ACTIVITY, dark);
+    let nav_processes = icon_menu_item(strings::tray::NAV_PROCESSES, ph::CPU, dark);
+    let nav_settings = icon_menu_item(strings::tray::NAV_SETTINGS, ph::GEAR, dark);
 
     let ids = MenuIds {
         show: show_item.id().clone(),
@@ -327,7 +327,7 @@ fn build_menu(dark: bool) -> Result<(MenuIds, Menu), String> {
 
     let clean_submenu = Submenu::new(strings::tray::SUBMENU_CLEAN, true);
     // Give the submenu itself a broom icon.
-    if let Some(broom) = rasterize_glyph('\u{EC54}', dark) {
+    if let Some(broom) = rasterize_glyph(ph::BROOM, dark) {
         // SAFETY: set_icon cannot fail on Windows; errors are silently ignored.
         clean_submenu.set_icon(Some(broom));
     }
@@ -367,25 +367,24 @@ const ICON_SIZE: u32 = 16;
 ///
 /// Falls back to a text-only item if glyph rasterization fails.
 /// `dark` controls the glyph colour: white for dark OS menus, dark for light.
-fn icon_menu_item(label: &str, glyph: char, dark: bool) -> IconMenuItem {
-    IconMenuItem::new(label, true, rasterize_glyph(glyph, dark), None)
+fn icon_menu_item(label: &str, icon: &str, dark: bool) -> IconMenuItem {
+    IconMenuItem::new(label, true, rasterize_glyph(icon, dark), None)
 }
 
-/// Rasterize a single Phosphor Regular glyph into a 16×16 RGBA
+/// Rasterize a single Phosphor Regular icon into a 16×16 RGBA
 /// [`tray_icon::menu::Icon`].
 ///
 /// Uses `ab_glyph` (already a transitive dependency of `epaint`) to render
-/// the glyph from the embedded Phosphor font.  Returns `None` on any
+/// the glyph from the app's Phosphor icon subset.  Returns `None` on any
 /// failure so callers degrade gracefully to text-only menu items.
 ///
 /// When `dark` is `true` the glyph is rendered white (for dark OS menu
 /// backgrounds); when `false` it is rendered in a dark charcoal colour so
 /// it remains visible on light menu backgrounds.
-fn rasterize_glyph(codepoint: char, dark: bool) -> Option<Icon> {
-    let font_bytes = egui_phosphor::Variant::Regular.font_bytes();
-    let font = FontRef::try_from_slice(font_bytes).ok()?;
+fn rasterize_glyph(icon: &str, dark: bool) -> Option<Icon> {
+    let font = FontRef::try_from_slice(&ph::FONT).ok()?;
 
-    let glyph_id = font.glyph_id(codepoint);
+    let glyph_id = font.glyph_id(icon.chars().next()?);
     // Return None if the font doesn't contain this codepoint.
     if glyph_id.0 == 0 {
         return None;
@@ -443,4 +442,35 @@ fn rasterize_glyph(codepoint: char, dark: bool) -> Option<Icon> {
     });
 
     Icon::from_rgba(rgba, canvas, canvas).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The tray menu renders its icons from the icon subset with `ab_glyph`,
+    /// so the subset must parse and hold every glyph the menu asks for.
+    #[test]
+    fn every_tray_icon_rasterizes_from_the_subset() {
+        for icon in [
+            ph::ROCKET_LAUNCH,
+            ph::POWER,
+            ph::BROOM,
+            ph::LEAF,
+            ph::LIGHTNING,
+            ph::FIRE,
+            ph::RADIOACTIVE,
+            ph::GAUGE,
+            ph::ACTIVITY,
+            ph::CPU,
+            ph::GEAR,
+        ] {
+            for dark in [true, false] {
+                assert!(
+                    rasterize_glyph(icon, dark).is_some(),
+                    "{icon:?} did not render"
+                );
+            }
+        }
+    }
 }

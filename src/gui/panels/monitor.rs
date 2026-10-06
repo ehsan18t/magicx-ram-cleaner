@@ -3,8 +3,8 @@
 //! Continuous memory monitoring with an animated on/off toggle,
 //! configurable threshold, cooldown, cleaning level, and a live log.
 
+use crate::gui::icons::regular as ph;
 use eframe::egui;
-use egui_phosphor::regular as ph;
 
 use crate::engine::CleanLevel;
 use crate::strings;

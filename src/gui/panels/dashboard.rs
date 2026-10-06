@@ -3,8 +3,8 @@
 //! Main overview combining real-time memory status with one-click cleaning.
 //! Layout: headline stats at top, uniform action buttons below, feedback at bottom.
 
+use crate::gui::icons::regular as ph;
 use eframe::egui;
-use egui_phosphor::regular as ph;
 
 use crate::engine::CleanLevel;
 use crate::memory;

@@ -43,6 +43,19 @@
 
 pub mod app;
 mod panels;
+
+egui_phosphor::subset! {
+    /// The Phosphor icons the GUI and tray menu use, built into a font that
+    /// holds only these glyphs instead of the full ~490 KB icon font.
+    mod icons {
+        use regular::{
+            ACTIVITY, ARROW_RIGHT, BROOM, CARET_DOWN, CARET_UP, CHECK, CODE, CPU,
+            DOWNLOAD_SIMPLE, FIRE, GAUGE, GEAR, GITHUB_LOGO, GLOBE, HEART, INFO, LEAF,
+            LIGHTNING, LINKEDIN_LOGO, MAGNIFYING_GLASS, PLUG, PLUG_CHARGING, POWER,
+            RADIOACTIVE, ROCKET_LAUNCH, SCALES, TELEGRAM_LOGO, UPLOAD_SIMPLE, WINDOWS_LOGO, X,
+        };
+    }
+}
 pub(super) mod persistence;
 pub mod settings;
 mod sidebar;

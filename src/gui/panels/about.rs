@@ -5,8 +5,8 @@
 //! Layout follows clear visual hierarchy with generous whitespace and
 //! purposeful use of the accent colour.
 
+use crate::gui::icons::regular as ph;
 use eframe::egui;
-use egui_phosphor::regular as ph;
 
 use crate::strings;
 

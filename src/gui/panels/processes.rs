@@ -12,9 +12,9 @@
 
 use std::collections::HashMap;
 
+use crate::gui::icons::regular as ph;
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
-use egui_phosphor::regular as ph;
 
 use crate::memory;
 use crate::strings;
