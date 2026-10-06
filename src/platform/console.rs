@@ -27,9 +27,11 @@ pub enum ConsoleMode {
     /// host capturing output. Output goes to those handles and nothing waits
     /// for the user.
     Redirected,
-    /// Own console allocated for a launch from Explorer (double-clicked the
-    /// `.exe`, a shortcut or the Run dialog). The window would vanish on
-    /// exit, so the caller should [`pause_before_exit`].
+    /// Own console allocated for a launch someone is watching: from Explorer
+    /// (double-clicked the `.exe`, a shortcut or the Run dialog), or from a
+    /// shell whose console the elevated process could not share (a
+    /// non-elevated terminal starting this admin-only exe). The window would
+    /// vanish on exit, so the caller should [`pause_before_exit`].
     Standalone,
     /// Own console allocated for any other launcher without a console, such
     /// as Task Scheduler. Nobody may be there to press Enter (or the session
@@ -51,7 +53,8 @@ pub enum ConsoleMode {
 ///    from cmd / `PowerShell` / Windows Terminal.
 /// 3. Without a parent console, keeps the inherited handles if there are any
 ///    ([`ConsoleMode::Redirected`]); otherwise allocates a brand-new console,
-///    reported as [`ConsoleMode::Standalone`] only when Explorer launched us.
+///    reported as [`ConsoleMode::Standalone`] only when Explorer or a shell
+///    launched us, so someone is watching the window.
 /// 4. Points every standard handle that was not inherited at the console.
 #[must_use]
 pub fn setup_cli_console() -> ConsoleMode {
@@ -85,7 +88,7 @@ pub fn setup_cli_console() -> ConsoleMode {
         unsafe {
             AllocConsole();
         }
-        if launched_by_explorer() {
+        if launched_interactively() {
             ConsoleMode::Standalone
         } else {
             ConsoleMode::Allocated
@@ -177,10 +180,23 @@ pub fn relaunch_detached() -> bool {
         .is_ok()
 }
 
-/// Whether the parent process is `explorer.exe`, i.e. the user started us
-/// from the shell (double-click, shortcut, Run dialog) and is watching.
-fn launched_by_explorer() -> bool {
-    parent_process_name().is_some_and(|name| name.eq_ignore_ascii_case("explorer.exe"))
+/// Whether the parent process is Explorer or a shell, i.e. the user started
+/// us (double-click, shortcut, Run dialog, a terminal) and is watching.
+fn launched_interactively() -> bool {
+    /// Launchers with a person in front of them. A shell lands here when it
+    /// is not elevated: UAC starts this admin-only exe outside its console.
+    const INTERACTIVE: &[&str] = &[
+        "explorer.exe",
+        "cmd.exe",
+        "powershell.exe",
+        "pwsh.exe",
+        "windowsterminal.exe",
+    ];
+    parent_process_name().is_some_and(|name| {
+        INTERACTIVE
+            .iter()
+            .any(|known| name.eq_ignore_ascii_case(known))
+    })
 }
 
 /// Return the standard handle `which` if the parent passed in a usable one
