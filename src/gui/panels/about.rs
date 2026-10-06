@@ -652,7 +652,15 @@ fn view_on_github_btn(ui: &mut egui::Ui, dark: bool) {
     ui.painter().galley(text_pos, galley, text_color);
 
     if response.clicked() {
-        ui.open_url(egui::OpenUrl::new_tab(REPO_URL));
+        open_link(ui, REPO_URL);
+    }
+}
+
+/// Open `url` in the browser without passing on the app's administrator
+/// rights, falling back to egui's normal (elevated) launch if that fails.
+fn open_link(ui: &egui::Ui, url: &str) {
+    if crate::console::open_url_unelevated(url).is_err() {
+        ui.open_url(egui::OpenUrl::new_tab(url));
     }
 }
 
@@ -695,6 +703,6 @@ fn social_icon_btn(ui: &mut egui::Ui, icon: &str, label: &str, url: &str, color:
     );
 
     if response.clicked() {
-        ui.open_url(egui::OpenUrl::new_tab(url));
+        open_link(ui, url);
     }
 }
