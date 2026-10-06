@@ -60,8 +60,7 @@ serde_json = "1"
 
 # GUI framework (egui + eframe with glow renderer for smaller binary).
 # 0.36.2 at minimum: 0.36.0 and 0.36.1 busy-loop the event loop while waiting for a redraw.
-# "links" makes ui.open_url work; it is the browser fallback in the About panel.
-eframe = { version = "0.36.2", default-features = false, features = ["glow", "default_fonts", "links"] }
+eframe = { version = "0.36.2", default-features = false, features = ["glow", "default_fonts"] }
 egui_extras = "0.36.2"
 egui-phosphor = { version = "0.14", features = ["regular"] }
 tray-icon = "0.21"

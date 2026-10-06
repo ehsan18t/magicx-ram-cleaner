@@ -396,7 +396,7 @@ fn draw_project(ui: &mut egui::Ui, dark: bool) {
                     )
                     .on_hover_text(REPO_URL);
                 if response.clicked() {
-                    open_link(ui, REPO_URL);
+                    open_link(REPO_URL);
                 }
             },
         );
@@ -656,16 +656,14 @@ fn view_on_github_btn(ui: &mut egui::Ui, dark: bool) {
     ui.painter().galley(text_pos, galley, text_color);
 
     if response.clicked() {
-        open_link(ui, REPO_URL);
+        open_link(REPO_URL);
     }
 }
 
-/// Open `url` in the browser without passing on the app's administrator
-/// rights, falling back to egui's normal (elevated) launch if that fails.
-fn open_link(ui: &egui::Ui, url: &str) {
-    if crate::platform::shell::open_url_unelevated(url).is_err() {
-        ui.open_url(egui::OpenUrl::new_tab(url));
-    }
+/// Open `url` in the browser, without the app's administrator rights when
+/// possible. A failed launch is ignored: the click simply does nothing.
+fn open_link(url: &str) {
+    crate::platform::shell::open_url(url).ok();
 }
 
 /// Render a circular brand-coloured icon button that opens `url` on click.
@@ -707,6 +705,6 @@ fn social_icon_btn(ui: &mut egui::Ui, icon: &str, label: &str, url: &str, color:
     );
 
     if response.clicked() {
-        open_link(ui, url);
+        open_link(url);
     }
 }

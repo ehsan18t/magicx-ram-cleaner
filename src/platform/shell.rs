@@ -2,6 +2,63 @@
 
 use anyhow::{Result, bail};
 
+/// Open `url` in the default browser, without administrator rights when
+/// possible.
+///
+/// Tries [`open_url_unelevated`] first. If that fails, the URL is handed to
+/// `ShellExecuteW`, which starts the browser with this process's rights.
+///
+/// # Errors
+///
+/// Fails if the URL is rejected or neither launch succeeds.
+pub fn open_url(url: &str) -> Result<()> {
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    use crate::platform::wide::to_wide;
+
+    ensure_plain_https(url)?;
+    if open_url_unelevated(url).is_ok() {
+        return Ok(());
+    }
+
+    let verb = to_wide("open");
+    let file = to_wide(url);
+    // SAFETY: `verb` and `file` are live, null-terminated wide strings; the
+    // window, parameters and directory are optional and passed as null.
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    // ShellExecuteW reports success with a value greater than 32.
+    if result as usize <= 32 {
+        bail!(
+            "cannot open '{url}' (ShellExecuteW returned {})",
+            result as usize
+        );
+    }
+    Ok(())
+}
+
+/// Reject anything but a plain `https://` URL with no quotes, whitespace or
+/// control characters.
+fn ensure_plain_https(url: &str) -> Result<()> {
+    if !url.starts_with("https://")
+        || url
+            .chars()
+            .any(|c| c == '"' || c.is_whitespace() || c.is_control())
+    {
+        bail!("refusing to open unexpected URL '{url}'");
+    }
+    Ok(())
+}
+
 /// Open `url` in the default browser as the signed-in user, without this
 /// process's administrator rights.
 ///
@@ -32,13 +89,7 @@ pub fn open_url_unelevated(url: &str) -> Result<()> {
 
     use crate::platform::{handle::owned_or_null, wide::to_wide};
 
-    if !url.starts_with("https://")
-        || url
-            .chars()
-            .any(|c| c == '"' || c.is_whitespace() || c.is_control())
-    {
-        bail!("refusing to open unexpected URL '{url}'");
-    }
+    ensure_plain_https(url)?;
 
     // SAFETY: GetShellWindow has no preconditions; null means no shell.
     let shell = unsafe { GetShellWindow() };
@@ -142,4 +193,27 @@ pub fn open_url_unelevated(url: &str) -> Result<()> {
     // handles owned by us; dropping them closes them.
     drop(unsafe { (owned_or_null(info.hThread), owned_or_null(info.hProcess)) });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plain_https_urls_are_accepted() {
+        assert!(ensure_plain_https("https://github.com/ehsan18t/magicx-ram-cleaner").is_ok());
+    }
+
+    #[test]
+    fn unexpected_urls_are_rejected_before_any_launch() {
+        for url in [
+            "http://example.com",
+            "file:///C:/Windows/System32/calc.exe",
+            "https://example.com/a b",
+            "https://example.com/\"x",
+            "https://example.com/\nx",
+        ] {
+            assert!(open_url(url).is_err(), "{url:?} should be rejected");
+        }
+    }
 }
