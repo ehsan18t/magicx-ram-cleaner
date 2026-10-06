@@ -542,9 +542,10 @@ impl eframe::App for MagicXApp {
                     self.settings.monitor_cooldown_secs,
                     self.settings.default_clean_level.title_case_name(),
                 ));
-                // Immediately eligible for a status heartbeat and a clean.
+                // Immediately eligible for a status heartbeat, with a fresh
+                // backoff; the cooldown since the last clean still applies.
                 self.last_monitor_status_log = None;
-                self.auto_clean.reset();
+                self.auto_clean.reset_backoff();
             } else {
                 self.push_monitor_log("Monitoring stopped.".to_owned());
             }

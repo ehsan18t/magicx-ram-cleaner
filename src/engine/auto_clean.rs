@@ -59,10 +59,11 @@ impl AutoCleanPolicy {
         self.cooldown = cooldown;
     }
 
-    /// Forget the last clean and any backoff (e.g. when monitoring restarts).
-    pub const fn reset(&mut self) {
+    /// Drop any backoff (e.g. when monitoring restarts). The cooldown since
+    /// the last clean still applies, so toggling monitoring off and on cannot
+    /// trigger back-to-back cleans.
+    pub const fn reset_backoff(&mut self) {
         self.backoff = 1;
-        self.last_clean = None;
     }
 
     /// The cooldown currently in force: the base cooldown times the backoff.
@@ -173,12 +174,13 @@ mod tests {
     }
 
     #[test]
-    fn reset_clears_cooldown_and_backoff() {
+    fn reset_backoff_keeps_the_running_cooldown() {
         let mut p = policy();
         let now = Instant::now();
         p.record_clean(now, Some(90));
-        p.reset();
-        assert_eq!(p.decide(90, now), Decision::Clean);
+        p.reset_backoff();
         assert_eq!(p.effective_cooldown(), COOLDOWN);
+        assert_eq!(p.decide(90, now + COOLDOWN / 2), Decision::CoolingDown);
+        assert_eq!(p.decide(90, now + COOLDOWN), Decision::Clean);
     }
 }
