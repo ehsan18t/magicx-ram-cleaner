@@ -2,9 +2,10 @@
 //!
 //! Terminal output helpers for memory status and cleaning diagnostics.
 
-use crate::cleaner::{CleanLevel, CleanResult};
+use crate::cleaner::{CleanLevel, CleanResult, SmartCleanResult};
 use crate::stats::{
     FileCacheSnapshot, MemoryListInfo, MemorySnapshot, ProcessMemoryInfo, format_bytes,
+    format_signed_bytes,
 };
 use crate::strings;
 use colored::{ColoredString, Colorize};
@@ -404,10 +405,11 @@ pub fn print_single_result(result: &CleanResult) {
     println!("  [{}] {}", status, result.operation.bold());
     println!("  {}", result.message.dimmed());
 
-    if result.freed_bytes > 0 {
+    let reclaimed = result.reclaimed_bytes();
+    if reclaimed > 0 {
         println!(
             "  Freed: {}",
-            format_bytes(result.freed_bytes as u64).green().bold()
+            format_bytes(reclaimed.unsigned_abs()).green().bold()
         );
     }
     println!(
@@ -415,6 +417,9 @@ pub fn print_single_result(result: &CleanResult) {
         format_bytes(result.available_before).yellow(),
         format_bytes(result.available_after).green()
     );
+    if let Some(free_delta) = result.free_delta_bytes {
+        println!("  Free RAM change: {}", format_signed_bytes(free_delta));
+    }
     println!(
         "  Load: {} → {}  (took {:.2}s)\n",
         coloured_load(result.load_before),
@@ -463,21 +468,15 @@ pub fn print_top_processes(processes: &[ProcessMemoryInfo]) {
 
 /// Truncate a string to `max_len` characters, adding an ellipsis if needed.
 ///
-/// Uses [`char_indices`](str::char_indices) so the slice never lands inside a
-/// multi-byte UTF-8 sequence.
+/// Counts characters, not bytes, so non-ASCII names are not cut early and the
+/// cut never lands inside a multi-byte UTF-8 sequence.
 fn truncate_name(name: &str, max_len: usize) -> String {
-    if name.len() <= max_len {
+    if name.chars().count() <= max_len {
         return name.to_string();
     }
-    // Find the last char boundary that fits within (max_len -1) bytes,
-    // leaving room for the '…' character.
-    let boundary = name
-        .char_indices()
-        .map(|(i, _)| i)
-        .take_while(|&i| i < max_len)
-        .last()
-        .unwrap_or(0);
-    format!("{}…", &name[..boundary])
+    // Leave room for the '…' character.
+    let kept: String = name.chars().take(max_len.saturating_sub(1)).collect();
+    format!("{kept}…")
 }
 
 /// Print a dry-run preview listing the operations that *would* be performed.
@@ -500,41 +499,30 @@ pub fn print_dry_run(level: CleanLevel, operations: &[&str]) {
 
 /// Print a formatted summary of all cleaning results with before/after comparison.
 ///
-/// For each [`CleanResult`], shows a pass/fail status, freed bytes, and
-/// elapsed time.  Then prints an overall before/after memory delta and
-/// total freed amount.
-pub fn print_clean_summary(
-    results: &[CleanResult],
-    before: &MemorySnapshot,
-    after: &MemorySnapshot,
-    total_freed: i64,
-    total_elapsed_secs: f64,
-) {
+/// For each [`CleanResult`], shows a pass/fail status, reclaimed bytes, and
+/// elapsed time. Then prints the overall before/after memory state and the
+/// total reclaimed amount.
+pub fn print_clean_summary(output: &SmartCleanResult) {
+    let (before, after) = (&output.overall_before, &output.overall_after);
+
     println!(
         "{}",
         section_divider(strings::cli::SECTION_CLEAN_SUMMARY).dimmed()
     );
     println!();
 
-    for r in results {
+    for r in &output.results {
         let status = if r.success {
             "✓".green().bold().to_string()
         } else {
             "✗".red().bold().to_string()
         };
-        let freed_str = match r.freed_bytes.cmp(&0) {
-            std::cmp::Ordering::Greater => {
-                format!("{:>12}", format!("+{}", format_bytes(r.freed_bytes as u64)))
-                    .green()
-                    .to_string()
-            }
-            std::cmp::Ordering::Less => format!(
-                "{:>12}",
-                format!("-{}", format_bytes(r.freed_bytes.unsigned_abs()))
-            )
-            .yellow()
-            .to_string(),
-            std::cmp::Ordering::Equal => format!("{:>12}", "0 B").dimmed().to_string(),
+        let reclaimed = r.reclaimed_bytes();
+        let padded = format!("{:>12}", format_signed_bytes(reclaimed));
+        let freed_str = match reclaimed.cmp(&0) {
+            std::cmp::Ordering::Greater => padded.green().to_string(),
+            std::cmp::Ordering::Less => padded.yellow().to_string(),
+            std::cmp::Ordering::Equal => padded.dimmed().to_string(),
         };
 
         let elapsed_str = format!("{:>6}", format!("{:.2}s", r.elapsed_secs))
@@ -551,6 +539,44 @@ pub fn print_clean_summary(
         );
     }
 
+    print_before_after(before, after);
+
+    let reclaimed = output.reclaimed_bytes();
+    let elapsed = output.total_elapsed_secs;
+    match reclaimed.cmp(&0) {
+        std::cmp::Ordering::Greater => {
+            println!(
+                "\n  {} Total freed: {}  (took {elapsed:.2}s)",
+                "★".yellow().bold(),
+                format_bytes(reclaimed.unsigned_abs()).green().bold(),
+            );
+        }
+        std::cmp::Ordering::Equal => {
+            println!(
+                "\n  {} Net change: 0 B (already clean, took {elapsed:.2}s)",
+                "•".dimmed(),
+            );
+        }
+        std::cmp::Ordering::Less => {
+            println!(
+                "\n  {} Net change: {} (other programs allocated memory during the clean, took {elapsed:.2}s)",
+                "•".dimmed(),
+                format_signed_bytes(reclaimed).yellow(),
+            );
+        }
+    }
+    let failed = output.failed_count();
+    if failed > 0 {
+        println!(
+            "  {} {failed} operation(s) failed; see the messages above",
+            "✗".red().bold()
+        );
+    }
+    println!();
+}
+
+/// Print the before/after memory comparison block of a clean summary.
+fn print_before_after(before: &MemorySnapshot, after: &MemorySnapshot) {
     println!();
     println!(
         "{}",
@@ -568,39 +594,30 @@ pub fn print_clean_summary(
         format_bytes(before.available_physical).yellow(),
         format_bytes(after.available_physical).green()
     );
+    if let (Some(free_before), Some(free_after)) = (before.free_bytes(), after.free_bytes()) {
+        println!(
+            "  {} Free:      {} → {}",
+            "▸".cyan(),
+            format_bytes(free_before).yellow(),
+            format_bytes(free_after).green()
+        );
+    }
+    if let (Some(standby_before), Some(standby_after)) =
+        (before.standby_bytes(), after.standby_bytes())
+    {
+        println!(
+            "  {} Standby:   {} → {}",
+            "▸".cyan(),
+            format_bytes(standby_before).yellow(),
+            format_bytes(standby_after).green()
+        );
+    }
     println!(
         "  {} Load:      {} → {}",
         "▸".cyan(),
         coloured_load(before.memory_load_percent),
         coloured_load(after.memory_load_percent)
     );
-
-    match total_freed.cmp(&0) {
-        std::cmp::Ordering::Greater => {
-            println!(
-                "\n  {} Total freed: {}  (took {:.2}s)",
-                "★".yellow().bold(),
-                format_bytes(total_freed as u64).green().bold(),
-                total_elapsed_secs
-            );
-        }
-        std::cmp::Ordering::Equal => {
-            println!(
-                "\n  {} Net change: 0 B (already clean, took {:.2}s)",
-                "•".dimmed(),
-                total_elapsed_secs
-            );
-        }
-        std::cmp::Ordering::Less => {
-            println!(
-                "\n  {} Net change: -{} (pages re-faulted during clean, took {:.2}s)",
-                "•".dimmed(),
-                format_bytes(total_freed.unsigned_abs()).yellow(),
-                total_elapsed_secs
-            );
-        }
-    }
-    println!();
 }
 
 #[cfg(test)]
@@ -645,6 +662,14 @@ mod tests {
         // Edge case: max_len = 1 with a long string
         let result = truncate_name("hello", 1);
         assert!(result.ends_with('…'), "should have ellipsis");
+    }
+
+    #[test]
+    fn truncate_name_counts_characters_not_bytes() {
+        // 10 two-byte characters fit in a 10-character column untouched.
+        let name = "é".repeat(10);
+        assert_eq!(truncate_name(&name, 10), name);
+        assert_eq!(truncate_name(&"é".repeat(11), 10).chars().count(), 10);
     }
 
     #[test]

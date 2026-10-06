@@ -33,6 +33,9 @@ use crate::strings;
 /// Prevents infinite error-clean-error loops on a malfunctioning system.
 const MAX_CONSECUTIVE_ERRORS: u32 = 3;
 
+/// Upper bound for the cooldown backoff multiplier (see [`AutoCleanState`]).
+const MAX_COOLDOWN_MULTIPLIER: u32 = 8;
+
 /// Global shutdown flag set to `false` by the console control handler.
 ///
 /// Must be `static` because Win32 `SetConsoleCtrlHandler` callbacks are
@@ -63,6 +66,8 @@ impl Drop for MonitorGuard {
 ///
 /// Handles `CTRL_C_EVENT` (0), `CTRL_BREAK_EVENT` (1), and `CTRL_CLOSE_EVENT` (2)
 /// by setting the `RUNNING` flag to `false` for graceful loop termination.
+/// For `CTRL_CLOSE_EVENT` Windows terminates the process shortly after the
+/// handler returns, so only Ctrl+C / Ctrl+Break reach the "stopped" message.
 unsafe extern "system" fn ctrl_handler(ctrl_type: u32) -> i32 {
     // CTRL_C_EVENT = 0, CTRL_BREAK_EVENT = 1, CTRL_CLOSE_EVENT = 2
     if ctrl_type <= 2 {
@@ -140,63 +145,114 @@ pub fn run_monitor(
     );
     println!("  {}\n", strings::cli::monitor::CTRL_C_HINT);
 
-    let mut last_clean: Option<Instant> = None;
-    let mut consecutive_errors: u32 = 0;
+    let mut state = AutoCleanState::default();
+    let interval = std::time::Duration::from_secs(interval_secs);
 
     while RUNNING.load(Ordering::Acquire) {
         let iteration_start = Instant::now();
-        let snapshot = MemorySnapshot::capture()?;
-        display::print_compact_status(&snapshot);
 
-        // Auto-clean if threshold exceeded (let chain - stable since Rust 1.88)
-        if let Some(thresh) = threshold
-            && snapshot.memory_load_percent >= thresh
-        {
-            handle_threshold_clean(
-                thresh,
-                &snapshot,
-                auto_level,
-                verbose,
-                cooldown,
-                &mut last_clean,
-                &mut consecutive_errors,
-            )?;
-        }
-
-        // Sleep in small increments so Ctrl+C is responsive.
-        // Subtract the time already spent on this iteration (status capture +
-        // potential cleaning) so the effective check interval stays consistent.
-        let interval = std::time::Duration::from_secs(interval_secs);
-        let remaining = interval.saturating_sub(iteration_start.elapsed());
-        let ticks = remaining.as_millis() / 100;
-        for _ in 0..ticks {
-            if !RUNNING.load(Ordering::Acquire) {
-                break;
+        // A transient query failure should not end a long-running monitor;
+        // it counts towards the same error budget as failed cleans.
+        match MemorySnapshot::capture() {
+            Ok(snapshot) => {
+                display::print_compact_status(&snapshot);
+                if let Some(thresh) = threshold {
+                    if snapshot.memory_load_percent >= thresh {
+                        handle_threshold_clean(
+                            thresh, &snapshot, auto_level, verbose, cooldown, &mut state,
+                        )?;
+                    } else {
+                        state.cooldown_multiplier = 1;
+                    }
+                }
             }
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            Err(e) => state.record_error(&e)?,
         }
+
+        sleep_until(iteration_start + interval);
     }
 
     println!("\n{} {}", "◉".red().bold(), strings::cli::monitor::STOPPED);
     Ok(())
 }
 
+/// Sleep until `deadline` in small increments so Ctrl+C stays responsive.
+///
+/// Measuring against a deadline (rather than counting whole ticks) keeps the
+/// check interval exact, including the time spent capturing and cleaning.
+fn sleep_until(deadline: Instant) {
+    const TICK: std::time::Duration = std::time::Duration::from_millis(100);
+    while RUNNING.load(Ordering::Acquire) {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        std::thread::sleep(remaining.min(TICK));
+    }
+}
+
+/// Mutable auto-clean bookkeeping carried across monitor iterations.
+#[derive(Debug)]
+struct AutoCleanState {
+    /// When the last auto-clean finished.
+    last_clean: Option<Instant>,
+    /// Consecutive failed cleans or status queries.
+    consecutive_errors: u32,
+    /// Cooldown multiplier: doubles (up to [`MAX_COOLDOWN_MULTIPLIER`]) after
+    /// a clean that leaves memory load at or above the threshold, and resets
+    /// to 1 once load drops below it. Stops futile back-to-back cleans when
+    /// the load is held up by memory that cleaning cannot reclaim.
+    cooldown_multiplier: u32,
+}
+
+impl Default for AutoCleanState {
+    fn default() -> Self {
+        Self {
+            last_clean: None,
+            consecutive_errors: 0,
+            cooldown_multiplier: 1,
+        }
+    }
+}
+
+impl AutoCleanState {
+    /// Count an error and abort the monitor once the error budget is spent.
+    fn record_error(&mut self, error: &anyhow::Error) -> Result<()> {
+        self.consecutive_errors += 1;
+        eprintln!("  {} Monitor error: {error}", "✗".red().bold());
+        if self.consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+            anyhow::bail!(
+                "Monitor aborted: {MAX_CONSECUTIVE_ERRORS} consecutive failures. \
+                 Last error: {error}"
+            );
+        }
+        eprintln!(
+            "  {} ({}/{MAX_CONSECUTIVE_ERRORS} consecutive failures before abort)",
+            "⚠".yellow(),
+            self.consecutive_errors,
+        );
+        Ok(())
+    }
+}
+
 /// Handle threshold-triggered auto-cleaning for a single monitor iteration.
 ///
-/// Checks whether the cooldown period has elapsed since the last clean. If
-/// cooldown is active, prints a skip message. Otherwise executes
+/// Checks whether the (backed-off) cooldown has elapsed since the last clean
+/// finished. If cooldown is active, prints a skip message. Otherwise executes
 /// [`cleaner::smart_clean`] and tracks consecutive errors, aborting the
-/// monitor after `max_errors` consecutive failures.
+/// monitor after [`MAX_CONSECUTIVE_ERRORS`] consecutive failures.
 fn handle_threshold_clean(
     thresh: u32,
     snapshot: &MemorySnapshot,
     auto_level: CleanLevel,
     verbose: bool,
     cooldown: std::time::Duration,
-    last_clean: &mut Option<Instant>,
-    consecutive_errors: &mut u32,
+    state: &mut AutoCleanState,
 ) -> Result<()> {
-    let in_cooldown = last_clean.is_some_and(|t| t.elapsed() < cooldown);
+    let effective_cooldown = cooldown.saturating_mul(state.cooldown_multiplier);
+    let in_cooldown = state
+        .last_clean
+        .is_some_and(|t| t.elapsed() < effective_cooldown);
 
     if in_cooldown {
         println!(
@@ -214,44 +270,31 @@ fn handle_threshold_clean(
         snapshot.memory_load_percent,
         thresh
     );
-    *last_clean = Some(Instant::now());
     display::print_clean_start(auto_level);
 
-    match cleaner::smart_clean(auto_level, verbose, &[]) {
+    let outcome = cleaner::smart_clean(auto_level, verbose, &[]);
+    // The cooldown runs from when the clean finished, so a clean longer than
+    // the cooldown cannot be followed immediately by another one.
+    state.last_clean = Some(Instant::now());
+
+    match outcome {
         Ok(output) => {
             // Reset error streak on any successful execution
-            *consecutive_errors = 0;
-            display::print_clean_summary(
-                &output.results,
-                &output.overall_before,
-                &output.overall_after,
-                output.total_freed,
-                output.total_elapsed_secs,
-            );
-            let failures: Vec<_> = output.results.iter().filter(|r| !r.success).collect();
-            if !failures.is_empty() {
-                eprintln!(
-                    "  {} Auto-clean completed with {} failed operation(s)",
-                    "⚠".yellow(),
-                    failures.len()
+            state.consecutive_errors = 0;
+            display::print_clean_summary(&output);
+            if output.overall_after.memory_load_percent >= thresh {
+                state.cooldown_multiplier =
+                    (state.cooldown_multiplier * 2).min(MAX_COOLDOWN_MULTIPLIER);
+                println!(
+                    "  {} Load is still above the threshold; next auto-clean in {}s at the earliest",
+                    "⏳".yellow(),
+                    cooldown.saturating_mul(state.cooldown_multiplier).as_secs()
                 );
+            } else {
+                state.cooldown_multiplier = 1;
             }
         }
-        Err(e) => {
-            *consecutive_errors += 1;
-            eprintln!("  {} Auto-clean error: {}", "✗".red().bold(), e);
-            if *consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
-                anyhow::bail!(
-                    "Monitor aborted: {MAX_CONSECUTIVE_ERRORS} consecutive \
-                     auto-clean failures. Last error: {e}"
-                );
-            }
-            eprintln!(
-                "  {} ({}/{MAX_CONSECUTIVE_ERRORS} consecutive failures before abort)",
-                "⚠".yellow(),
-                *consecutive_errors,
-            );
-        }
+        Err(e) => state.record_error(&e)?,
     }
 
     Ok(())

@@ -20,7 +20,7 @@
 
 use std::process::ExitCode;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{ColorChoice, CommandFactory, FromArgMatches};
 use colored::Colorize;
 
@@ -34,10 +34,10 @@ use magicx_ram_cleaner::{
 /// Exit codes:
 /// - `0` - all operations succeeded
 /// - `1` - one or more cleaning operations failed (already reported)
-/// - `2` - fatal error (printed to stderr)
+/// - `2` - fatal error or invalid arguments (printed to stderr)
 fn main() -> ExitCode {
     // Detect --notify BEFORE anything else.
-    let notify = detect_flag("--notify");
+    let notify = has_arg("--notify");
 
     // Detect whether we're launching the GUI (no subcommand, no --help,
     // no --version). With SUBSYSTEM:WINDOWS no console exists by default,
@@ -47,13 +47,10 @@ fn main() -> ExitCode {
     // ── Console setup ────────────────────────────────────────────────
     // SUBSYSTEM:WINDOWS means NO console exists at startup.
     // For CLI mode: attach to the parent terminal (if launched from
-    // cmd/powershell) or allocate a fresh one. For GUI / notify modes
-    // we skip entirely - no console needed.
-    let standalone = if gui_launch || notify {
-        false
-    } else {
-        console::setup_cli_console() == console::ConsoleMode::Standalone
-    };
+    // cmd/powershell), keep redirected handles, or allocate a fresh one.
+    // For GUI / notify modes we skip entirely - no console needed.
+    let standalone =
+        !gui_launch && !notify && console::setup_cli_console() == console::ConsoleMode::Standalone;
 
     // Detect --no-color / NO_COLOR BEFORE anything else so that all output
     // (including clap help text and the banner) respects the preference.
@@ -64,40 +61,57 @@ fn main() -> ExitCode {
         console::enable_ansi_colors();
     }
 
-    let result = run(no_color, notify);
-
-    // In notify mode, show a balloon notification with the outcome.
-    if notify {
-        let (title, body) = match &result {
-            Ok((false, msg)) => (strings::notification::TITLE, msg.as_str()),
-            Ok((true, msg)) => (strings::notification::TITLE_WARNING, msg.as_str()),
-            Err(e) => {
-                // Format the error into a static-lifetime-friendly string
-                // (we'll use a local binding so the borrow lives long enough).
-                drop(console::show_balloon_notification(
-                    strings::notification::TITLE_ERROR,
-                    &format!("{e:#}"),
-                ));
-                return ExitCode::from(2);
-            }
-        };
-        drop(console::show_balloon_notification(title, body));
-    }
+    let code = match parse_cli(no_color) {
+        Ok(cli) => run_and_report(&cli, notify),
+        Err(e) => report_parse_error(&e, notify),
+    };
 
     // If launched by double-clicking the .exe, pause so the user can read the
-    // output before the console window closes.
+    // output (including any error above) before the console window closes.
     if standalone {
         console::pause_before_exit();
+    }
+
+    code
+}
+
+/// Run the parsed command and report its outcome on the console or, in
+/// notify mode, as a balloon. Returns the process exit code.
+fn run_and_report(cli: &Cli, notify: bool) -> ExitCode {
+    let result = run(cli, notify);
+
+    if notify {
+        let (title, body) = match &result {
+            Ok((false, msg)) => (strings::notification::TITLE, msg.clone()),
+            Ok((true, msg)) => (strings::notification::TITLE_WARNING, msg.clone()),
+            Err(e) => (strings::notification::TITLE_ERROR, format!("{e:#}")),
+        };
+        drop(console::show_balloon_notification(title, &body));
+    } else if let Err(e) = &result {
+        eprintln!("{} {e:?}", "Error:".red().bold());
     }
 
     match result {
         Ok((false, _)) => ExitCode::SUCCESS,
         Ok((true, _)) => ExitCode::FAILURE,
-        Err(e) => {
-            eprintln!("{} {e:?}", "Error:".red().bold());
-            ExitCode::from(2)
-        }
+        Err(_) => ExitCode::from(2),
     }
+}
+
+/// Report a clap parse result that did not produce a [`Cli`]: real argument
+/// errors as well as `--help` / `--version` output.
+fn report_parse_error(error: &clap::Error, notify: bool) -> ExitCode {
+    if notify {
+        if error.use_stderr() {
+            drop(console::show_balloon_notification(
+                strings::notification::TITLE_ERROR,
+                &error.to_string(),
+            ));
+        }
+    } else {
+        drop(error.print());
+    }
+    ExitCode::from(u8::try_from(error.exit_code()).unwrap_or(2))
 }
 
 /// Core application logic.
@@ -106,21 +120,27 @@ fn main() -> ExitCode {
 /// for notification mode and `had_failure` indicates whether any operation
 /// reported a failure.
 ///
-/// `no_color` is pre-computed by [`detect_no_color`] before this function
-/// is called, so that clap help text rendering also strips ANSI codes.
-/// `notify` indicates balloon-notification mode (console already detached).
-fn run(no_color: bool, notify: bool) -> Result<(bool, String)> {
-    let cli = parse_cli(no_color)?;
-
+/// `notify` indicates balloon-notification mode (no console attached).
+fn run(cli: &Cli, notify: bool) -> Result<(bool, String)> {
     let quiet = cli.quiet || notify;
 
     let Some(ref command) = cli.command else {
+        if notify {
+            bail!("--notify requires a command such as `clean` or `status`");
+        }
         // No subcommand → launch the graphical interface.
-        // The console was already hidden in main() by the early gui-launch
-        // detection (see `is_gui_launch()`). Any errors are propagated upward.
         gui::run_gui()?;
         return Ok((false, String::new()));
     };
+
+    if notify
+        && matches!(
+            command,
+            Commands::Monitor { .. } | Commands::ContextMenu { .. }
+        )
+    {
+        bail!("--notify cannot be used with `monitor` or `context-menu`");
+    }
 
     // Suppress banner when JSON output is requested so stdout stays machine-parseable
     let is_json = matches!(command, Commands::Status { json: true, .. });
@@ -128,28 +148,30 @@ fn run(no_color: bool, notify: bool) -> Result<(bool, String)> {
         display::print_banner();
     }
 
-    // Check for admin privileges and enable required security tokens
-    privilege::check_admin()?;
-    privilege::enable_all_privileges().context(
-        "Failed to enable privileges. Make sure you're running as Administrator.\n\
-         Right-click the terminal/exe → 'Run as administrator'",
-    )?;
+    // A dry run only prints the plan, so it needs no privileges.
+    let is_dry_run = matches!(command, Commands::Clean { dry_run: true, .. });
+    if !is_dry_run {
+        // Check for admin privileges and enable required security tokens
+        privilege::check_admin()?;
+        privilege::enable_all_privileges().context(
+            "Failed to enable privileges. Make sure you're running as Administrator.\n\
+             Right-click the terminal/exe → 'Run as administrator'",
+        )?;
+    }
 
     dispatch_command(command, quiet, notify)
 }
 
 /// Pre-scan `argv` and environment for colour suppression requests.
 ///
-/// This runs BEFORE [`Cli::parse`] so that clap's `--help` rendering also
-/// respects the preference. Clap processes `--help` internally and exits
-/// during parsing, so checking `cli.no_color` after `parse()` would be
-/// too late for help text.
+/// This runs BEFORE clap parsing so that clap's `--help` rendering also
+/// respects the preference.
 ///
 /// Checks two sources (matching the `--no-color` doc comment contract):
 /// - `--no-color` flag anywhere in `argv`
 /// - `NO_COLOR` environment variable (any value, per <https://no-color.org/>)
 fn detect_no_color() -> bool {
-    std::env::var_os("NO_COLOR").is_some() || std::env::args().any(|a| a == "--no-color")
+    std::env::var_os("NO_COLOR").is_some() || has_arg("--no-color")
 }
 
 /// Parse CLI arguments with colour support applied.
@@ -157,13 +179,17 @@ fn detect_no_color() -> bool {
 /// When `no_color` is `true`, sets [`ColorChoice::Never`] on the clap
 /// [`Command`](clap::Command) so it strips all ANSI escape codes from
 /// help text (`long_about`, `after_help`, etc.) before rendering.
-fn parse_cli(no_color: bool) -> Result<Cli> {
+///
+/// Uses `try_get_matches` so the caller decides how to show errors and
+/// help text (and can pause a standalone console afterwards), instead of
+/// clap exiting the process directly.
+fn parse_cli(no_color: bool) -> Result<Cli, clap::Error> {
     let mut cmd = Cli::command();
     if no_color {
         cmd = cmd.color(ColorChoice::Never);
     }
-    let matches = cmd.get_matches();
-    Ok(Cli::from_arg_matches(&matches)?)
+    let matches = cmd.try_get_matches()?;
+    Cli::from_arg_matches(&matches)
 }
 
 /// Print a single operation's result and return `true` if it failed.
@@ -197,8 +223,20 @@ fn dispatch_clean(
 ) -> Result<(bool, String)> {
     if dry_run {
         let plan = cleaner::dry_run_plan(level, !exclude.is_empty());
+        if notify {
+            return Ok((
+                false,
+                format!("Dry run: {} operation(s) planned", plan.len()),
+            ));
+        }
         display::print_dry_run(level, &plan);
         return Ok((false, String::new()));
+    }
+    if !exclude.is_empty() && level < cleaner::CleanLevel::Aggressive && !quiet {
+        eprintln!(
+            "{} --exclude has no effect at level {level}: only aggressive and nuclear empty process working sets",
+            "warning:".yellow(),
+        );
     }
     let ev = verbose && !quiet;
     if !quiet && !notify {
@@ -206,18 +244,12 @@ fn dispatch_clean(
     }
     let output = cleaner::smart_clean(level, ev, exclude)?;
     if !notify {
-        display::print_clean_summary(
-            &output.results,
-            &output.overall_before,
-            &output.overall_after,
-            output.total_freed,
-            output.total_elapsed_secs,
-        );
+        display::print_clean_summary(&output);
     }
     if let Some(path) = report {
-        write_report(path, &output)?;
+        write_report(path, &output, quiet || notify)?;
     }
-    let had_failure = output.results.iter().any(|r| !r.success);
+    let had_failure = output.failed_count() > 0;
     let msg = if notify {
         format_clean_notification(&output)
     } else {
@@ -370,18 +402,15 @@ fn dispatch_status(detailed: bool, json: bool, top: Option<usize>) -> Result<()>
         None
     };
 
-    let top_processes = top.and_then(|count| {
-        let count = if count == 0 { 10 } else { count };
-        match stats::query_top_processes(count) {
-            Ok(procs) => Some(procs),
-            Err(e) => {
-                eprintln!(
-                    "{} Could not query process memory info: {}",
-                    "warning:".yellow(),
-                    e
-                );
-                None
-            }
+    let top_processes = top.and_then(|count| match stats::query_top_processes(count) {
+        Ok(procs) => Some(procs),
+        Err(e) => {
+            eprintln!(
+                "{} Could not query process memory info: {}",
+                "warning:".yellow(),
+                e
+            );
+            None
         }
     });
 
@@ -403,14 +432,16 @@ fn dispatch_status(detailed: bool, json: bool, top: Option<usize>) -> Result<()>
 }
 
 /// Write a cleaning report to a JSON file.
-fn write_report(path: &str, output: &cleaner::SmartCleanResult) -> Result<()> {
+fn write_report(path: &str, output: &cleaner::SmartCleanResult, quiet: bool) -> Result<()> {
     let json = serde_json::to_string_pretty(output).context("Failed to serialize report")?;
     std::fs::write(path, &json).with_context(|| format!("Failed to write report to '{path}'"))?;
-    println!(
-        "  {} Report written to {}",
-        "📄".dimmed(),
-        path.cyan().bold()
-    );
+    if !quiet {
+        println!(
+            "  {} Report written to {}",
+            "📄".dimmed(),
+            path.cyan().bold()
+        );
+    }
     Ok(())
 }
 
@@ -419,9 +450,10 @@ fn write_report(path: &str, output: &cleaner::SmartCleanResult) -> Result<()> {
 /// Pre-scan `argv` for a given flag before clap parsing.
 ///
 /// Used for flags like `--notify` that need to take effect (e.g. hiding
-/// the console) before clap even runs.
-fn detect_flag(flag: &str) -> bool {
-    std::env::args().any(|a| a == flag)
+/// the console) before clap even runs. Uses `args_os` so a non-UTF-16
+/// argument cannot panic the process.
+fn has_arg(flag: &str) -> bool {
+    std::env::args_os().skip(1).any(|a| a == flag)
 }
 
 /// Detect whether the process was launched with no subcommand - i.e. the user
@@ -429,29 +461,24 @@ fn detect_flag(flag: &str) -> bool {
 /// open the GUI.
 ///
 /// Returns `true` when the only argv entries are the exe path itself, plus
-/// optional global flags (`--no-color`). Any other argument (subcommand name,
-/// `--help`, `--version`, `-V`, `-h`, `--notify`) means this is a CLI launch.
+/// optional global flags that do not change GUI behaviour (`--no-color`,
+/// `-q` / `--quiet`). Any other argument (subcommand name, `--help`,
+/// `--version`, `--notify`) means this is a CLI launch.
 fn is_gui_launch() -> bool {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    args.iter().all(|a| a == "--no-color")
+    std::env::args_os()
+        .skip(1)
+        .all(|a| a == "--no-color" || a == "-q" || a == "--quiet")
 }
 
 // ─── Notification message formatting ─────────────────────────────────────────
 
 /// Format a notification body for a [`SmartCleanResult`](cleaner::SmartCleanResult).
 fn format_clean_notification(output: &cleaner::SmartCleanResult) -> String {
-    let freed = if output.total_freed >= 0 {
-        stats::format_bytes(output.total_freed as u64)
-    } else {
-        format!(
-            "-{}",
-            stats::format_bytes(output.total_freed.unsigned_abs())
-        )
-    };
+    let freed = stats::format_signed_bytes(output.reclaimed_bytes());
     let before_load = output.overall_before.memory_load_percent;
     let after_load = output.overall_after.memory_load_percent;
     let ops = output.results.len();
-    let ok = output.results.iter().filter(|r| r.success).count();
+    let ok = ops - output.failed_count();
     format!(
         "Freed {freed}\n{ok}/{ops} operations succeeded\nRAM usage: {before_load}% → {after_load}%"
     )
@@ -460,14 +487,7 @@ fn format_clean_notification(output: &cleaner::SmartCleanResult) -> String {
 /// Format a notification body for a single [`CleanResult`](cleaner::CleanResult).
 fn format_single_notification(result: &cleaner::CleanResult) -> String {
     let status = if result.success { "OK" } else { "FAILED" };
-    let freed = if result.freed_bytes >= 0 {
-        stats::format_bytes(result.freed_bytes as u64)
-    } else {
-        format!(
-            "-{}",
-            stats::format_bytes(result.freed_bytes.unsigned_abs())
-        )
-    };
+    let freed = stats::format_signed_bytes(result.reclaimed_bytes());
     format!(
         "{}: {status}\nFreed {freed}\nRAM usage: {}% → {}%",
         result.operation, result.load_before, result.load_after

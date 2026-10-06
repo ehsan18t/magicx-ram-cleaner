@@ -185,7 +185,7 @@ pub const AFTER_HELP_LONG: &str = "\
   \
 \x1b[33m1\x1b[0m  One or more operations failed
   \
-\x1b[31m2\x1b[0m  Invalid arguments or missing administrator privileges
+\x1b[31m2\x1b[0m  Fatal error, invalid arguments or missing administrator privileges
 
 \
 \x1b[1;36mLEARN MORE:\x1b[0m
@@ -194,7 +194,7 @@ Repository:  \x1b[36mhttps://github.com/ehsan18t/magicx-ram-cleaner\x1b[0m
   \
 Run \x1b[32mmagicx-ram-cleaner <command> --help\x1b[0m for detailed command information.";
 
-/// `MagicX` RAM Cleaner -the most powerful Windows RAM cleaner.
+/// `MagicX` RAM Cleaner: the most powerful Windows RAM cleaner.
 ///
 /// Surpasses `EmptyStandbyList` with granular control, smart cleaning levels,
 /// detailed diagnostics, and monitoring with auto-clean.
@@ -205,7 +205,7 @@ Run \x1b[32mmagicx-ram-cleaner <command> --help\x1b[0m for detailed command info
     name = "magicx-ram-cleaner",
     version,
     styles = STYLES,
-    about = "MagicX RAM Cleaner -the most powerful Windows RAM cleaner CLI",
+    about = "MagicX RAM Cleaner: the most powerful Windows RAM cleaner CLI",
     long_about = LONG_ABOUT,
     after_help = AFTER_HELP_SHORT,
     after_long_help = AFTER_HELP_LONG,
@@ -268,7 +268,7 @@ pub enum Commands {
         verbose: bool,
 
         /// Write cleaning results to a JSON report file.
-        #[arg(long, value_name = "FILE")]
+        #[arg(long, value_name = "FILE", conflicts_with = "dry_run")]
         report: Option<String>,
 
         /// Preview what operations would run without executing them.
@@ -278,6 +278,7 @@ pub enum Commands {
         /// Exclude processes by name during working set emptying (case-insensitive, .exe optional).
         /// Can be specified multiple times: --exclude chrome --exclude firefox
         /// When set, working set operations use per-process trimming instead of kernel-level.
+        /// Only affects the aggressive and nuclear levels (the ones that empty working sets).
         #[arg(long, value_name = "NAME")]
         exclude: Vec<String>,
     },
@@ -298,7 +299,11 @@ pub enum Commands {
         json: bool,
 
         /// Show top N processes by memory (working set) usage.
-        #[arg(long, value_name = "N")]
+        #[arg(
+            long,
+            value_name = "N",
+            value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..)
+        )]
         top: Option<usize>,
     },
 
