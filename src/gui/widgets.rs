@@ -22,7 +22,7 @@ pub fn card(ui: &mut egui::Ui, dark_mode: bool, add_contents: impl FnOnce(&mut e
 
     egui::Frame::new()
         .fill(bg)
-        .stroke(egui::Stroke::new(0.5, border))
+        .stroke(egui::Stroke::new(0.5_f32, border))
         .corner_radius(egui::CornerRadius::same(theme::CARD_ROUNDING))
         .inner_margin(egui::Margin::same(theme::CARD_PADDING))
         .shadow(egui::Shadow {

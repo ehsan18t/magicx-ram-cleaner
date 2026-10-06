@@ -82,7 +82,7 @@ fn draw_hero(ui: &mut egui::Ui, dark: bool) {
 
     let resp = egui::Frame::new()
         .fill(bg)
-        .stroke(egui::Stroke::new(0.5, border))
+        .stroke(egui::Stroke::new(0.5_f32, border))
         .corner_radius(egui::CornerRadius::same(r))
         .inner_margin(egui::Margin::same(theme::CARD_PADDING))
         .shadow(egui::Shadow {
@@ -130,7 +130,7 @@ fn draw_hero_content(ui: &mut egui::Ui, dark: bool) {
             ui.painter().rect_stroke(
                 badge_rect,
                 br,
-                egui::Stroke::new(1.5, theme::ACCENT.gamma_multiply(0.55)),
+                egui::Stroke::new(1.5_f32, theme::ACCENT.gamma_multiply(0.55)),
                 egui::StrokeKind::Outside,
             );
             ui.painter().text(
@@ -248,7 +248,7 @@ fn draw_dev_avatar(ui: &mut egui::Ui) {
     ui.painter().circle_stroke(
         center,
         outer_r - 0.5,
-        egui::Stroke::new(1.0, theme::ACCENT.gamma_multiply(0.22)),
+        egui::Stroke::new(1.0_f32, theme::ACCENT.gamma_multiply(0.22)),
     );
     ui.painter().circle_filled(
         center,
@@ -258,7 +258,7 @@ fn draw_dev_avatar(ui: &mut egui::Ui) {
     ui.painter().circle_stroke(
         center,
         AVATAR_SIZE / 2.0,
-        egui::Stroke::new(2.0, theme::ACCENT.gamma_multiply(0.60)),
+        egui::Stroke::new(2.0_f32, theme::ACCENT.gamma_multiply(0.60)),
     );
     ui.painter().text(
         center,
@@ -438,7 +438,7 @@ fn draw_contrib_banner(ui: &mut egui::Ui, dark: bool) {
 
     egui::Frame::new()
         .fill(bg)
-        .stroke(egui::Stroke::new(0.5, border))
+        .stroke(egui::Stroke::new(0.5_f32, border))
         .corner_radius(egui::CornerRadius::same(10))
         .inner_margin(egui::Margin::same(14))
         .show(ui, |ui| {
@@ -511,7 +511,7 @@ fn version_chip(ui: &mut egui::Ui, dark: bool) {
     ui.painter().rect_stroke(
         rect,
         egui::CornerRadius::same(6),
-        egui::Stroke::new(0.5, theme::ACCENT.gamma_multiply(0.40)),
+        egui::Stroke::new(0.5_f32, theme::ACCENT.gamma_multiply(0.40)),
         egui::StrokeKind::Outside,
     );
     ui.painter()
@@ -554,7 +554,7 @@ fn tag_pill(ui: &mut egui::Ui, label: &str, dark: bool) {
     ui.painter().rect_stroke(
         rect,
         egui::CornerRadius::same(100),
-        egui::Stroke::new(0.5, border),
+        egui::Stroke::new(0.5_f32, border),
         egui::StrokeKind::Outside,
     );
     let text_pos = rect.min + (rect.size() - galley.size()) / 2.0;
@@ -645,7 +645,7 @@ fn view_on_github_btn(ui: &mut egui::Ui, dark: bool) {
     ui.painter().rect_stroke(
         rect,
         br,
-        egui::Stroke::new(1.0, border),
+        egui::Stroke::new(1.0_f32, border),
         egui::StrokeKind::Outside,
     );
     let text_pos = rect.min + (rect.size() - galley.size()) / 2.0;
@@ -683,7 +683,7 @@ fn social_icon_btn(ui: &mut egui::Ui, icon: &str, label: &str, url: &str, color:
         ui.painter().circle_stroke(
             rect.center(),
             radius,
-            egui::Stroke::new(2.0, egui::Color32::WHITE.gamma_multiply(0.40)),
+            egui::Stroke::new(2.0_f32, egui::Color32::WHITE.gamma_multiply(0.40)),
         );
     }
     ui.painter().text(
