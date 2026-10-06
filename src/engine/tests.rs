@@ -368,3 +368,63 @@ fn single_operations_issue_one_call_each() {
         ]
     );
 }
+
+// ─── Settle modes ────────────────────────────────────────────────────────────
+
+/// Settle times reported during a run. The simulated memory is stable at
+/// once, so a Quick settle reports 100 ms and a Full settle 300 ms: the
+/// sequence pins the settle mode of every operation.
+fn settle_times(events: &[Progress]) -> Vec<u64> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Progress::Settled { after_ms } => Some(*after_ms),
+            _ => None,
+        })
+        .collect()
+}
+
+const QUICK: u64 = 100;
+const FULL: u64 = 300;
+
+#[test]
+fn each_level_uses_the_expected_settle_modes() {
+    // Quick for synchronous operations; Full for the modified flush and the
+    // standby purge, whose write-back finishes asynchronously.
+    let expected: [(CleanLevel, &[u64]); 4] = [
+        (CleanLevel::Gentle, &[FULL]),
+        (CleanLevel::Moderate, &[FULL, FULL]),
+        (CleanLevel::Aggressive, &[QUICK, QUICK, QUICK, FULL, FULL]),
+        (
+            CleanLevel::Nuclear,
+            &[QUICK, QUICK, QUICK, FULL, FULL, QUICK, FULL, FULL],
+        ),
+    ];
+    for (level, times) in expected {
+        let (_, events) = run(&FakeSystem::default(), level, &[]);
+        assert_eq!(settle_times(&events), times, "{level}");
+    }
+}
+
+#[test]
+fn sweep_reports_only_its_final_settle() {
+    let sys = FakeSystem::new(Model {
+        refill_after_purge: [GIB_PAGES].into(),
+        ..Model::default()
+    });
+    let (_, events) = run(&sys, CleanLevel::Moderate, &[]);
+    // Flush and purge, then one sweep pass whose inner wait stays silent.
+    assert_eq!(settle_times(&events), [FULL, FULL, FULL]);
+}
+
+#[test]
+fn single_operations_settle_fully() {
+    let sys = FakeSystem::default();
+    let mut events = Vec::new();
+    let mut cleaner = Cleaner::new(&sys, |p| events.push(p));
+    cleaner.flush_file_cache().unwrap();
+    cleaner.empty_working_sets().unwrap();
+    cleaner.purge_standby().unwrap();
+    drop(cleaner);
+    assert_eq!(settle_times(&events), [FULL, FULL, FULL]);
+}
