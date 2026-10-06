@@ -1,6 +1,6 @@
-# Pin the toolchain so a new stable release (with new lints) cannot break CI
-# or local builds without a deliberate bump. Update `channel` intentionally.
+# Always build with the latest stable Rust. New stable releases can add lints,
+# which the deny-level clippy gate then surfaces right away so they get fixed.
 [toolchain]
-channel = "1.99.0"
+channel = "stable"
 components = ["rustfmt", "clippy"]
 profile = "minimal"

@@ -37,8 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # The exact version comes from rust-toolchain.toml, which rustup honours
-      # on every cargo invocation; this step only bootstraps rustup itself.
+      # Always the latest stable (also declared in rust-toolchain.toml).
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
