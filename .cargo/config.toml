@@ -1,0 +1,8 @@
+# Link the MSVC C runtime statically so the exe does not need
+# VCRUNTIME140.dll (part of the Visual C++ Redistributable, not of Windows).
+# The app ships as one portable exe, so it must start on a clean Windows.
+#
+# The RUSTFLAGS environment variable replaces these flags instead of adding
+# to them, so CI repeats this flag next to its own -D warnings.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]

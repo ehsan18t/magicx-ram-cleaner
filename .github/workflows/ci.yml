@@ -27,7 +27,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-D warnings"
+  # RUSTFLAGS replaces the flags in .cargo/config.toml, so the static CRT
+  # flag from there is repeated here.
+  RUSTFLAGS: "-D warnings -C target-feature=+crt-static"
 
 jobs:
   quality-gate:
