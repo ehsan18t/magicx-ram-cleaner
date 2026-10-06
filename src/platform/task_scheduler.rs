@@ -78,12 +78,10 @@ pub fn exists(name: &str) -> bool {
 fn run_schtasks(args: &[&std::ffi::OsStr]) -> Result<()> {
     use std::os::windows::process::CommandExt;
 
-    // Use the absolute System32 path so an elevated process never runs a
-    // `schtasks.exe` planted earlier on PATH.
-    let exe = std::env::var_os("SystemRoot").map_or_else(
-        || PathBuf::from("schtasks.exe"),
-        |root| PathBuf::from(root).join("System32").join("schtasks.exe"),
-    );
+    // Use the absolute System32 path from the API, so this elevated process
+    // never runs a `schtasks.exe` planted on PATH or behind a %SystemRoot%
+    // value set by a non-elevated launcher.
+    let exe = super::paths::system_directory()?.join("schtasks.exe");
 
     let output = std::process::Command::new(exe)
         .args(args)
