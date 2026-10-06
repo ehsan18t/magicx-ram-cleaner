@@ -428,7 +428,7 @@ Writing dirty pages to disk finishes asynchronously, so pages still in flight wh
 
 ### How "Freed" Is Measured
 
-Windows counts the standby cache as *available* memory, so purging it barely changes the "Available" figure; what it changes is *free* memory (the zeroed and free page lists). Trimming working sets is the opposite: it raises Available but not Free. MagicX measures both and reports the larger change as "Freed", so a Gentle clean that purges 3 GB of standby cache shows 3 GB freed instead of roughly zero. The summary shows Available, Free and Standby before and after so you can see exactly where the memory went. Free and Standby need the kernel page-list query, which requires running as Administrator.
+Windows counts the standby cache as *available* memory, so purging it barely changes the "Available" figure; what it changes is *free* memory (the zeroed and free page lists). Trimming working sets is the opposite: it raises Available but not Free. MagicX measures both and reports the larger change as "Freed", so a Gentle clean that purges 3 GB of standby cache shows 3 GB freed instead of roughly zero. The summary shows Available, Free and Standby before and after so you can see exactly where the memory went. Free and Standby need the kernel page-list query, which requires running as Administrator. In a `--report` JSON file the same figure is `total_reclaimed` for the whole run and `reclaimed_bytes` for each operation; `total_freed` and `freed_bytes` are the Available change alone.
 
 ---
 

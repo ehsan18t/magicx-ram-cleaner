@@ -8,7 +8,7 @@ use super::level::CleanLevel;
 use super::operation::{Operation, PlannedStep, SECOND_PASS_SUFFIX};
 use super::operations::ntstatus_failure;
 use super::progress::Progress;
-use super::report::{CleanResult, SmartCleanResult, free_delta};
+use super::report::{CleanResult, SmartCleanResult, free_delta, larger_delta};
 use super::settle::SettleMode;
 use crate::memory::{MemorySnapshot, format_bytes};
 use crate::platform::nt::MemoryListCommand;
@@ -134,10 +134,13 @@ impl Cleaner<'_> {
 
         // Each operation already settles internally, so just capture final state
         let overall_after = self.sys.snapshot()?;
+        let total_freed =
+            overall_after.available_physical as i64 - overall_before.available_physical as i64;
+        let total_free_delta = free_delta(&overall_before, &overall_after);
         Ok(SmartCleanResult {
-            total_freed: overall_after.available_physical as i64
-                - overall_before.available_physical as i64,
-            total_free_delta: free_delta(&overall_before, &overall_after),
+            total_freed,
+            total_free_delta,
+            total_reclaimed: larger_delta(total_freed, total_free_delta),
             total_elapsed_secs: start.elapsed().as_secs_f64(),
             results,
             overall_before,

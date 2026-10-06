@@ -23,6 +23,10 @@ pub struct CleanResult {
     /// This is what purging the standby list increases. `None` when the
     /// kernel page-list query was unavailable before or after the operation.
     pub free_delta_bytes: Option<i64>,
+    /// Bytes the operation reclaimed: the figure the UI shows (see
+    /// [`reclaimed_bytes`](Self::reclaimed_bytes)). Stored so `--report`
+    /// JSON carries it too.
+    pub reclaimed_bytes: i64,
     /// Human-readable status or error message.
     pub message: String,
     /// Available physical memory before the operation (bytes).
@@ -46,11 +50,14 @@ impl CleanResult {
         after: &MemorySnapshot,
         elapsed: std::time::Duration,
     ) -> Self {
+        let freed_bytes = after.available_physical as i64 - before.available_physical as i64;
+        let free_delta_bytes = free_delta(before, after);
         Self {
             operation: operation.into(),
             success: true,
-            freed_bytes: after.available_physical as i64 - before.available_physical as i64,
-            free_delta_bytes: free_delta(before, after),
+            freed_bytes,
+            free_delta_bytes,
+            reclaimed_bytes: larger_delta(freed_bytes, free_delta_bytes),
             message: message.into(),
             available_before: before.available_physical,
             available_after: after.available_physical,
@@ -67,6 +74,7 @@ impl CleanResult {
             success: false,
             freed_bytes: 0,
             free_delta_bytes: None,
+            reclaimed_bytes: 0,
             message,
             available_before: before.available_physical,
             available_after: before.available_physical,
@@ -83,10 +91,15 @@ impl CleanResult {
     /// working sets or flushing modified pages grows Available, purging
     /// standby grows Free), so the larger one is what the operation achieved.
     #[must_use]
-    pub fn reclaimed_bytes(&self) -> i64 {
-        self.free_delta_bytes
-            .map_or(self.freed_bytes, |free| free.max(self.freed_bytes))
+    pub const fn reclaimed_bytes(&self) -> i64 {
+        self.reclaimed_bytes
     }
+}
+
+/// The larger of an available-memory delta and a free-memory delta (when
+/// known): what an operation or run reclaimed.
+pub(super) fn larger_delta(available_delta: i64, free_delta: Option<i64>) -> i64 {
+    free_delta.map_or(available_delta, |free| free.max(available_delta))
 }
 
 /// Signed change in free (zeroed + free list) memory between two snapshots.
@@ -110,6 +123,9 @@ pub struct SmartCleanResult {
     pub total_freed: i64,
     /// Net change in free (zeroed + free list) memory, when known.
     pub total_free_delta: Option<i64>,
+    /// Bytes the whole run reclaimed: the headline figure (see
+    /// [`reclaimed_bytes`](Self::reclaimed_bytes)).
+    pub total_reclaimed: i64,
     /// Total wall-clock time for all operations (seconds).
     pub total_elapsed_secs: f64,
 }
@@ -122,9 +138,8 @@ impl SmartCleanResult {
     /// the larger one; the available delta is the fallback when the kernel
     /// page-list query is unavailable.
     #[must_use]
-    pub fn reclaimed_bytes(&self) -> i64 {
-        self.total_free_delta
-            .map_or(self.total_freed, |free| free.max(self.total_freed))
+    pub const fn reclaimed_bytes(&self) -> i64 {
+        self.total_reclaimed
     }
 
     /// Number of operations that reported failure.
@@ -258,21 +273,27 @@ mod tests {
 
     #[test]
     fn reclaimed_bytes_prefers_larger_measure() {
-        let snap = mock_snapshot(4_000_000_000, 75);
-        let mut result =
-            CleanResult::success("Purge", "ok", &snap, &snap, Duration::from_millis(10));
         assert_eq!(
-            result.reclaimed_bytes(),
+            larger_delta(0, None),
             0,
             "no list data: falls back to available"
         );
-        result.free_delta_bytes = Some(2_000_000_000);
         assert_eq!(
-            result.reclaimed_bytes(),
+            larger_delta(0, Some(2_000_000_000)),
             2_000_000_000,
             "standby purge shows up as free"
         );
-        result.freed_bytes = 3_000_000_000;
-        assert_eq!(result.reclaimed_bytes(), 3_000_000_000);
+        assert_eq!(
+            larger_delta(3_000_000_000, Some(2_000_000_000)),
+            3_000_000_000
+        );
+    }
+
+    #[test]
+    fn the_report_json_carries_the_reclaimed_figure() {
+        let snap = mock_snapshot(4_000_000_000, 75);
+        let result = CleanResult::success("Purge", "ok", &snap, &snap, Duration::from_millis(10));
+        let json = serde_json::to_value(&result).expect("serializes");
+        assert_eq!(json["reclaimed_bytes"], 0);
     }
 }

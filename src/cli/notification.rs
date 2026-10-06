@@ -83,6 +83,7 @@ mod tests {
             overall_after: snapshot(6 * GIB, 62),
             total_freed: 2 * GIB as i64,
             total_free_delta: None,
+            total_reclaimed: 2 * GIB as i64,
             total_elapsed_secs: 1.0,
         };
         assert_eq!(
