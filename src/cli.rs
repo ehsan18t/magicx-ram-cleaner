@@ -302,7 +302,7 @@ pub enum Commands {
         #[arg(
             long,
             value_name = "N",
-            value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..)
+            value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..=1000)
         )]
         top: Option<usize>,
     },

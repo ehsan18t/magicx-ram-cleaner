@@ -54,7 +54,9 @@ Exit codes: `0` all operations succeeded, `1` one or more operations failed, `2`
 
 Output redirection and pipes work as expected (`status --json > mem.json`, `... | ConvertFrom-Json`), and when output is captured without a console (a script host, a scheduled task with redirected output) no window opens. The "Press Enter to exit" prompt only appears when the tool was started from Explorer (double-click, shortcut or the Run dialog), so scheduled tasks and other launchers never wait for input.
 
-MagicX is a single executable that also hosts the GUI, so it is built as a Windows GUI program. Interactive `cmd` and PowerShell therefore do not wait for it to finish: the prompt returns immediately and `%ERRORLEVEL%` / `$LASTEXITCODE` are not updated. When a script needs to wait for the result, use `start /wait magicx-ram-cleaner clean` in `cmd`, or `Start-Process magicx-ram-cleaner -ArgumentList clean -Wait -PassThru` in PowerShell (read `.ExitCode` from the result). Batch files and Task Scheduler always wait.
+cmd and PowerShell wait for every command and receive its exit code in `%ERRORLEVEL%` / `$LASTEXITCODE`. Run the terminal as Administrator: from a non-elevated terminal, Windows has to start the elevated process separately, so the shell cannot wait for it.
+
+Opening the GUI from a terminal (running the exe with no command) does not block the terminal: the GUI is handed to a detached copy and the prompt returns immediately. On Windows 11 24H2 and later, double-clicking the exe opens the GUI with no console window at all; older Windows versions show a console window for a split second before it closes.
 
 ---
 

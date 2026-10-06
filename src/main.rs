@@ -8,10 +8,10 @@
     dead_code,
     rustdoc::broken_intra_doc_links
 )]
-// SUBSYSTEM:WINDOWS - no console window is created at startup.
-// GUI launches are flash-free. For CLI usage, `console::setup_cli_console()`
-// attaches to the parent terminal (or allocates a fresh console) on demand.
-#![windows_subsystem = "windows"]
+// SUBSYSTEM:CONSOLE (the default) so cmd and PowerShell wait for the CLI and
+// see its exit code. The manifest's `consoleAllocationPolicy = detached`
+// keeps Explorer / context-menu launches console-free on Windows 11 24H2+;
+// see `console` for how older Windows and GUI launches are handled.
 
 //! `MagicX` RAM Cleaner - binary entry point.
 //!
@@ -40,15 +40,21 @@ fn main() -> ExitCode {
     let notify = has_arg("--notify");
 
     // Detect whether we're launching the GUI (no subcommand, no --help,
-    // no --version). With SUBSYSTEM:WINDOWS no console exists by default,
-    // so GUI launches are completely flash-free.
+    // no --version).
     let gui_launch = !notify && is_gui_launch();
 
     // ── Console setup ────────────────────────────────────────────────
-    // SUBSYSTEM:WINDOWS means NO console exists at startup.
-    // For CLI mode: attach to the parent terminal (if launched from
-    // cmd/powershell), keep redirected handles, or allocate a fresh one.
-    // For GUI / notify modes we skip entirely - no console needed.
+    // GUI / notify modes need no console: drop one that older Windows
+    // created for us, and if the GUI was started from a terminal, hand it
+    // to a detached copy so the shell is not blocked until the window closes.
+    // CLI mode: share the parent terminal, keep redirected handles, or
+    // allocate a fresh console.
+    if gui_launch || notify {
+        console::release_private_console();
+        if gui_launch && console::shares_parent_console() && console::relaunch_detached() {
+            return ExitCode::SUCCESS;
+        }
+    }
     let standalone =
         !gui_launch && !notify && console::setup_cli_console() == console::ConsoleMode::Standalone;
 

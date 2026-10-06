@@ -4,10 +4,15 @@
 //! mode, ANSI virtual terminal processing, pause-before-exit, and balloon
 //! notification display.
 //!
-//! The binary uses `SUBSYSTEM:WINDOWS` so **no** console window is created at
-//! startup. For CLI usage, `setup_cli_console()` attaches to the parent
-//! terminal (cmd / `PowerShell`) or allocates a fresh console. GUI and
-//! notification modes skip this entirely - zero-flash launches.
+//! The binary is a console program (`SUBSYSTEM:CONSOLE`), so cmd and
+//! `PowerShell` wait for it and see its exit code. Its manifest sets
+//! `consoleAllocationPolicy` to `detached`, so on Windows 11 24H2 and later a
+//! launch without a parent console (Explorer, context menu, Task Scheduler)
+//! gets no console window at all. Older Windows ignores that setting and
+//! creates one; [`release_private_console`] frees it immediately so those
+//! launches behave the same apart from a brief flash. For CLI usage,
+//! `setup_cli_console()` then attaches to the parent terminal or allocates a
+//! fresh console on demand.
 //!
 //! These are isolated from business logic so that platform-specific console
 //! quirks don't leak into the application layer.
@@ -42,8 +47,11 @@ pub enum ConsoleMode {
 
 /// Attach to the parent terminal or allocate a fresh console for CLI mode.
 ///
-/// With `SUBSYSTEM:WINDOWS`, the process starts with **no** console at all.
 /// This function:
+/// 0. Returns [`ConsoleMode::Terminal`] straight away when the process already
+///    shares its parent shell's console; Windows has then set up the standard
+///    handles (including any redirection) itself. A private console created
+///    by older Windows is released first (see [`release_private_console`]).
 /// 1. Records which standard handles the parent passed in (redirected to a
 ///    file or pipe). Those are always kept, so `status --json > out.json`
 ///    and pipelines work.
@@ -59,6 +67,11 @@ pub fn setup_cli_console() -> ConsoleMode {
         ATTACH_PARENT_PROCESS, AllocConsole, AttachConsole, STD_ERROR_HANDLE, STD_INPUT_HANDLE,
         STD_OUTPUT_HANDLE,
     };
+
+    release_private_console();
+    if shares_parent_console() {
+        return ConsoleMode::Terminal;
+    }
 
     let inherited_in = inherited_std_handle(STD_INPUT_HANDLE);
     let inherited_out = inherited_std_handle(STD_OUTPUT_HANDLE);
@@ -93,6 +106,83 @@ pub fn setup_cli_console() -> ConsoleMode {
         bind_std_handle(STD_ERROR_HANDLE, inherited_err, b"CONOUT$\0");
     }
     mode
+}
+
+/// Number of processes attached to this process's console (0 = no console).
+fn console_process_count() -> u32 {
+    use windows_sys::Win32::System::Console::GetConsoleProcessList;
+
+    let mut pids = [0u32; 2];
+    // SAFETY: `pids` is a writable buffer of the stated length. The call
+    // returns the total count even when the buffer is too small, and 0 when
+    // the process has no console.
+    unsafe { GetConsoleProcessList(pids.as_mut_ptr(), pids.len() as u32) }
+}
+
+/// Whether this process shares its console with a parent (started from a
+/// terminal). The shell is then waiting for us to exit.
+#[must_use]
+pub fn shares_parent_console() -> bool {
+    console_process_count() >= 2
+}
+
+/// Free a console that Windows created just for this process.
+///
+/// Windows before 11 24H2 ignores the manifest's `detached` console policy
+/// and gives every launch without a parent console (Explorer, context menu,
+/// Task Scheduler) its own console window. Releasing it right away makes
+/// those launches behave like 24H2 apart from a brief flash. A console shared
+/// with a parent shell is left alone.
+pub fn release_private_console() {
+    use windows_sys::Win32::System::Console::{
+        FreeConsole, GetConsoleMode, GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE,
+        STD_OUTPUT_HANDLE, SetStdHandle,
+    };
+
+    if console_process_count() != 1 {
+        return;
+    }
+    // Forget standard handles that belong to the console being freed, so
+    // later code does not mistake them for handles inherited from a parent.
+    for which in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        let mut mode = 0u32;
+        // SAFETY: GetStdHandle/GetConsoleMode only inspect the handle;
+        // SetStdHandle stores a null handle.
+        unsafe {
+            if GetConsoleMode(GetStdHandle(which), &raw mut mode) != 0 {
+                SetStdHandle(which, std::ptr::null_mut());
+            }
+        }
+    }
+    // SAFETY: FreeConsole detaches this process from its console.
+    unsafe {
+        FreeConsole();
+    }
+}
+
+/// Relaunch this executable with the same arguments as a detached process
+/// (no console) and return whether the new process started.
+///
+/// Used when the GUI is started from a terminal: as a console program, the
+/// shell would otherwise stay blocked until the window is closed.
+#[must_use]
+pub fn relaunch_detached() -> bool {
+    use std::os::windows::process::CommandExt;
+
+    /// `DETACHED_PROCESS`: the new process gets no console.
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
+    std::process::Command::new(exe)
+        .args(std::env::args_os().skip(1))
+        .creation_flags(DETACHED_PROCESS)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .is_ok()
 }
 
 /// Whether the parent process is `explorer.exe`, i.e. the user started us

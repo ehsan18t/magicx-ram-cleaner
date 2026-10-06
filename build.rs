@@ -13,17 +13,33 @@
 //! | 6 | Phosphor GAUGE glyph | Memory Status context menu entry |
 
 use embed_manifest::manifest::ExecutionLevel;
-use embed_manifest::{embed_manifest, new_manifest};
+use embed_manifest::{embed_manifest_file, new_manifest};
 
 fn main() {
     if std::env::var_os("CARGO_CFG_WINDOWS").is_some() {
-        // Embed UAC admin-elevation manifest
+        // Embed the UAC admin-elevation manifest, extended with the console
+        // allocation policy (Windows 11 24H2+): the exe is a console program
+        // so shells wait for it, but a launch from Explorer gets no console.
+        // embed-manifest has no option for this element, so it is spliced
+        // into the generated XML.
         let manifest = new_manifest("MagicX.RAMCleaner")
-            .requested_execution_level(ExecutionLevel::RequireAdministrator);
-        embed_manifest(manifest).expect("unable to embed manifest file");
+            .requested_execution_level(ExecutionLevel::RequireAdministrator)
+            .to_string();
+        let manifest = manifest.replacen(
+            "</asmv3:windowsSettings>",
+            "<consoleAllocationPolicy xmlns=\"http://schemas.microsoft.com/SMI/2024/WindowsSettings\">detached</consoleAllocationPolicy>\n</asmv3:windowsSettings>",
+            1,
+        );
+        assert!(
+            manifest.contains("consoleAllocationPolicy"),
+            "manifest has no windowsSettings section to extend"
+        );
+        let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
+        let manifest_path = format!("{out_dir}/app.manifest");
+        std::fs::write(&manifest_path, manifest).expect("unable to write manifest file");
+        embed_manifest_file(&manifest_path).expect("unable to embed manifest file");
 
         // ── Render Phosphor glyph ICO files into OUT_DIR ─────────────────
-        let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
         let glyphs: &[(u32, char, &str)] = &[
             (2, '\u{E2DA}', "LEAF"),      // Quick Clean
             (3, '\u{E2DE}', "LIGHTNING"), // Standard Clean
