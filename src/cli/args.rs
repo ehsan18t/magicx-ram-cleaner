@@ -448,7 +448,7 @@ pub enum Commands {
 /// Actions for the `context-menu` subcommand.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Subcommand)]
 pub enum ContextMenuAction {
-    /// Install context menu entries (creates registry keys under HKCR).
+    /// Install context menu entries (creates registry keys under HKLM\Software\Classes).
     ///
     /// Adds a "`MagicX` RAM Cleaner" cascading submenu to the Desktop
     /// and folder background right-click menus with quick access to

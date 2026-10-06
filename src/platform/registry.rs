@@ -4,7 +4,7 @@
 
 use anyhow::{Result, bail};
 use windows_sys::Win32::System::Registry::{
-    HKEY, HKEY_CLASSES_ROOT, HKEY_CURRENT_USER, KEY_ALL_ACCESS, KEY_READ, KEY_SET_VALUE,
+    HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_SET_VALUE, KEY_WRITE,
     REG_OPTION_NON_VOLATILE, REG_SAM_FLAGS, REG_SZ, RegCloseKey, RegCreateKeyExW, RegDeleteTreeW,
     RegDeleteValueW, RegOpenKeyExW, RegSetValueExW,
 };
@@ -17,9 +17,9 @@ const ERROR_FILE_NOT_FOUND: u32 = 2;
 /// A predefined registry root.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hive {
-    /// `HKEY_CLASSES_ROOT` (machine-wide shell registrations; needs elevation
-    /// to write).
-    ClassesRoot,
+    /// `HKEY_LOCAL_MACHINE` (machine-wide settings; needs elevation to
+    /// write). Shell registrations live under `Software\Classes` here.
+    LocalMachine,
     /// `HKEY_CURRENT_USER` (settings of the user this process runs as).
     CurrentUser,
 }
@@ -28,7 +28,7 @@ impl Hive {
     /// The predefined `HKEY` handle for this root.
     const fn raw(self) -> HKEY {
         match self {
-            Self::ClassesRoot => HKEY_CLASSES_ROOT,
+            Self::LocalMachine => HKEY_LOCAL_MACHINE,
             Self::CurrentUser => HKEY_CURRENT_USER,
         }
     }
@@ -68,7 +68,7 @@ impl RegKey {
                 0,
                 std::ptr::null_mut(),
                 REG_OPTION_NON_VOLATILE,
-                KEY_ALL_ACCESS,
+                KEY_READ | KEY_WRITE,
                 std::ptr::null(),
                 &raw mut hkey,
                 &raw mut disposition,

@@ -345,7 +345,7 @@ magicx-ram-cleaner context-menu <install|uninstall>
 **Subcommands:**
 | Subcommand  | Description                                                 |
 | ----------- | ----------------------------------------------------------- |
-| `install`   | Add context menu entries (creates registry keys under HKCR) |
+| `install`   | Add context menu entries (creates registry keys under HKLM\Software\Classes) |
 | `uninstall` | Remove context menu entries (deletes registry keys)         |
 
 **Context menu entries installed:**

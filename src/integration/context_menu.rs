@@ -4,13 +4,17 @@
 //! cleaning operations are accessible without opening a terminal.
 //!
 //! The menu appears when right-clicking on:
-//! - **Desktop background** (`HKCR\DesktopBackground\Shell`)
-//! - **Folder window background** (`HKCR\Directory\Background\Shell`)
+//! - **Desktop background** (`DesktopBackground\Shell`)
+//! - **Folder window background** (`Directory\Background\Shell`)
+//!
+//! Both live under `HKLM\Software\Classes`, written there explicitly rather
+//! than through the merged `HKEY_CLASSES_ROOT` view, where a write can land
+//! in the elevating admin's per-user classes instead.
 //!
 //! ## Registry layout (per root)
 //!
 //! ```text
-//! HKCR\<root>\Shell\zMagicXRAMCleaner\
+//! HKLM\Software\Classes\<root>\Shell\zMagicXRAMCleaner\
 //!   MUIVerb     = "MagicX RAM Cleaner"
 //!   SubCommands = ""
 //!   Icon        = "C:\...\magicx-ram-cleaner.exe,-1"
@@ -45,11 +49,11 @@ use crate::strings;
 
 /// Registry roots where the context menu is installed.
 ///
-/// Each path is a location under `HKEY_CLASSES_ROOT` where a background
+/// Each path is a location under `HKEY_LOCAL_MACHINE` where a background
 /// right-click context menu can be registered.
 const ROOT_PATHS: &[&str] = &[
-    r"DesktopBackground\Shell\zMagicXRAMCleaner",
-    r"Directory\Background\Shell\zMagicXRAMCleaner",
+    r"Software\Classes\DesktopBackground\Shell\zMagicXRAMCleaner",
+    r"Software\Classes\Directory\Background\Shell\zMagicXRAMCleaner",
 ];
 
 // ─── Menu entry definitions ──────────────────────────────────────────────────
@@ -105,11 +109,11 @@ const ENTRIES: &[MenuEntry] = &[
 
 /// Install the `MagicX RAM Cleaner` context menu entries.
 ///
-/// Writes entries under both `HKCR\DesktopBackground\Shell` and
-/// `HKCR\Directory\Background\Shell` so the menu is visible when
-/// right-clicking the Desktop background **and** inside folder windows.
+/// Writes entries under both `DesktopBackground\Shell` and
+/// `Directory\Background\Shell` so the menu is visible when right-clicking
+/// the Desktop background **and** inside folder windows.
 ///
-/// The caller must be running as Administrator (HKCR writes require elevation).
+/// The caller must be running as Administrator (HKLM writes require elevation).
 /// If entries already exist they are replaced cleanly (delete + recreate).
 /// Installation is all-or-nothing: if any root fails, every root is removed
 /// again so the menu never ends up half-installed.
@@ -117,7 +121,7 @@ pub fn install(exe_path: &str) -> Result<()> {
     for root_path in ROOT_PATHS {
         if let Err(e) = install_at(exe_path, root_path) {
             for cleanup_path in ROOT_PATHS {
-                drop(registry::delete_tree(Hive::ClassesRoot, cleanup_path));
+                drop(registry::delete_tree(Hive::LocalMachine, cleanup_path));
             }
             return Err(e)
                 .with_context(|| format!("failed to install context menu at '{root_path}'"));
@@ -130,11 +134,11 @@ pub fn install(exe_path: &str) -> Result<()> {
 /// Write the cascading menu tree under a single registry root path.
 fn install_at(exe_path: &str, root_path: &str) -> Result<()> {
     // Remove any stale installation first for a clean slate
-    registry::delete_tree(Hive::ClassesRoot, root_path)
+    registry::delete_tree(Hive::LocalMachine, root_path)
         .context("failed to remove existing context menu entries")?;
 
     // ── Root submenu key ──────────────────────────────────────────────────
-    let root = RegKey::create(Hive::ClassesRoot, root_path)
+    let root = RegKey::create(Hive::LocalMachine, root_path)
         .context("failed to create root context menu key")?;
 
     // MUIVerb is the display name; do NOT set (Default) on the root key
@@ -149,15 +153,15 @@ fn install_at(exe_path: &str, root_path: &str) -> Result<()> {
 
     // ── Shell sub-key ─────────────────────────────────────────────────────
     let shell_path = format!(r"{root_path}\Shell");
-    let _shell =
-        RegKey::create(Hive::ClassesRoot, &shell_path).context("failed to create Shell sub-key")?;
+    let _shell = RegKey::create(Hive::LocalMachine, &shell_path)
+        .context("failed to create Shell sub-key")?;
 
     // ── Individual entries ────────────────────────────────────────────────
     for entry in ENTRIES {
         let entry_path = format!(r"{shell_path}\{}", entry.key);
         let cmd_path = format!(r"{entry_path}\command");
 
-        let entry_key = RegKey::create(Hive::ClassesRoot, &entry_path)
+        let entry_key = RegKey::create(Hive::LocalMachine, &entry_path)
             .with_context(|| format!("failed to create entry key '{}'", entry.key))?;
 
         // Use MUIVerb for the display label (consistent with the root key).
@@ -171,7 +175,7 @@ fn install_at(exe_path: &str, root_path: &str) -> Result<()> {
             .set_string("Icon", &icon_value)
             .with_context(|| format!("failed to set icon for '{}'", entry.key))?;
 
-        let cmd_key = RegKey::create(Hive::ClassesRoot, &cmd_path)
+        let cmd_key = RegKey::create(Hive::LocalMachine, &cmd_path)
             .with_context(|| format!("failed to create command key for '{}'", entry.key))?;
 
         let command = format!(r#""{exe_path}" {}"#, entry.args);
@@ -192,8 +196,11 @@ pub fn uninstall() -> Result<bool> {
     let existed = is_installed();
 
     for root_path in ROOT_PATHS {
-        registry::delete_tree(Hive::ClassesRoot, root_path)
+        registry::delete_tree(Hive::LocalMachine, root_path)
             .with_context(|| format!("failed to remove context menu at '{root_path}'"))?;
+        // Older versions wrote through HKEY_CLASSES_ROOT, which can put the
+        // keys in the per-user classes instead; remove any such copy too.
+        drop(registry::delete_tree(Hive::CurrentUser, root_path));
     }
 
     Ok(existed)
@@ -221,7 +228,7 @@ pub fn current_exe_path() -> Result<String> {
 pub fn is_installed() -> bool {
     ROOT_PATHS
         .iter()
-        .any(|path| registry::key_exists(Hive::ClassesRoot, path))
+        .any(|path| registry::key_exists(Hive::LocalMachine, path))
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
