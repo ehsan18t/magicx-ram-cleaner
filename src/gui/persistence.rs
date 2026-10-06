@@ -35,8 +35,8 @@ fn default_settings_path() -> PathBuf {
 
 // ─── File Dialog Helpers ──────────────────────────────────────────────────────
 
-/// Shorthand re-export of [`crate::stats::to_wide`] for this module.
-use crate::stats::to_wide;
+/// Shorthand re-export of [`crate::platform::wide::to_wide`] for this module.
+use crate::platform::wide::to_wide;
 
 /// Open a native Win32 **Save File** dialog pre-filtered to `*.json`.
 ///

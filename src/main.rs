@@ -25,9 +25,8 @@ use clap::{ColorChoice, CommandFactory, FromArgMatches};
 use colored::Colorize;
 
 use magicx_ram_cleaner::cli::{Cli, Commands, ContextMenuAction};
-use magicx_ram_cleaner::{
-    cleaner, console, context_menu, display, gui, monitor, privilege, stats, strings,
-};
+use magicx_ram_cleaner::platform::{console, notify, privilege};
+use magicx_ram_cleaner::{cleaner, context_menu, display, gui, monitor, stats, strings};
 
 /// Entry point - returns [`ExitCode`] instead of calling `std::process::exit()`.
 ///
@@ -92,7 +91,7 @@ fn run_and_report(cli: &Cli, notify: bool) -> ExitCode {
             Ok((true, msg)) => (strings::notification::TITLE_WARNING, msg.clone()),
             Err(e) => (strings::notification::TITLE_ERROR, format!("{e:#}")),
         };
-        drop(console::show_balloon_notification(title, &body));
+        drop(notify::show_balloon_notification(title, &body));
     } else if let Err(e) = &result {
         eprintln!("{} {e:?}", "Error:".red().bold());
     }
@@ -109,7 +108,7 @@ fn run_and_report(cli: &Cli, notify: bool) -> ExitCode {
 fn report_parse_error(error: &clap::Error, notify: bool) -> ExitCode {
     if notify {
         if error.use_stderr() {
-            drop(console::show_balloon_notification(
+            drop(notify::show_balloon_notification(
                 strings::notification::TITLE_ERROR,
                 &error.to_string(),
             ));

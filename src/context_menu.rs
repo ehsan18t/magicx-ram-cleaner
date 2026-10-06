@@ -136,7 +136,7 @@ impl Drop for RegKeyGuard {
     }
 }
 
-use crate::stats::to_wide;
+use crate::platform::wide::to_wide;
 
 /// Open or create a registry key under `HKEY_CLASSES_ROOT`.
 ///

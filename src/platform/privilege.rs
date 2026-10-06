@@ -12,7 +12,7 @@ use windows_sys::Win32::Security::{
 };
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
-use crate::stats::{HandleGuard, to_wide};
+use crate::platform::{handle::HandleGuard, wide::to_wide};
 
 /// Enable a named Windows privilege on the current process token.
 ///

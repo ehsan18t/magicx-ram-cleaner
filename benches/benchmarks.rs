@@ -9,10 +9,9 @@
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use magicx_ram_cleaner::ntapi;
-use magicx_ram_cleaner::stats::{
-    MemoryListInfo, MemorySnapshot, QuickMemoryReading, extract_exe_name, format_bytes,
-};
+use magicx_ram_cleaner::platform::nt;
+use magicx_ram_cleaner::platform::wide::extract_exe_name;
+use magicx_ram_cleaner::stats::{MemoryListInfo, MemorySnapshot, QuickMemoryReading, format_bytes};
 
 // ─── format_bytes ────────────────────────────────────────────────────────────
 
@@ -86,16 +85,16 @@ fn bench_ntstatus_message(c: &mut Criterion) {
     let mut group = c.benchmark_group("ntstatus_message");
 
     group.bench_function("success", |b| {
-        b.iter(|| ntapi::ntstatus_message(black_box(0)));
+        b.iter(|| nt::ntstatus_message(black_box(0)));
     });
 
     group.bench_function("known_error", |b| {
-        b.iter(|| ntapi::ntstatus_message(black_box(ntapi::STATUS_INFO_LENGTH_MISMATCH)));
+        b.iter(|| nt::ntstatus_message(black_box(nt::STATUS_INFO_LENGTH_MISMATCH)));
     });
 
     // Unknown code — worst case: falls through all match arms
     group.bench_function("unknown_fallthrough", |b| {
-        b.iter(|| ntapi::ntstatus_message(black_box(0x7FFF_FFFF)));
+        b.iter(|| nt::ntstatus_message(black_box(0x7FFF_FFFF)));
     });
 
     group.finish();

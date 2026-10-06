@@ -79,6 +79,10 @@
 //! | Built-in GUI | ✗ | ✓ (egui dashboard, tray icon, settings) |
 //! | Desktop context menu | ✗ | ✓ (right-click submenu) |
 
+/// Every Win32 and NT call: the only layer allowed to use `unsafe`.
+#[allow(unsafe_code)]
+pub mod platform;
+
 /// Core memory cleaning operations and orchestration.
 #[allow(unsafe_code)]
 pub mod cleaner;
@@ -88,11 +92,6 @@ pub mod strings;
 
 /// Command-line interface definitions (clap parser, subcommands, help text).
 pub mod cli;
-
-/// Windows console utilities (dynamic attachment, ANSI colours, pause,
-/// notifications, dark-mode detection, and title-bar theming).
-#[allow(unsafe_code)]
-pub mod console;
 
 /// Windows context menu integration (install/uninstall registry entries).
 #[allow(unsafe_code)]
@@ -105,14 +104,6 @@ pub mod display;
 /// Continuous monitoring loop with auto-clean and Ctrl+C handling.
 #[allow(unsafe_code)]
 pub mod monitor;
-
-/// NT native API bindings for kernel memory operations.
-#[allow(unsafe_code)]
-pub mod ntapi;
-
-/// Windows privilege elevation (`Se*Privilege`) and admin check.
-#[allow(unsafe_code)]
-pub mod privilege;
 
 /// Memory statistics, Win32 API wrappers, and `MemorySnapshot`.
 #[allow(unsafe_code)]

@@ -4,55 +4,30 @@
 //! Displays physical memory, commit charge, page file, kernel pools, and more.
 
 use anyhow::{Result, bail};
+
 use serde::Serialize;
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+
+use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+
+use crate::platform::handle::HandleGuard;
+use crate::platform::wide::extract_exe_name;
+
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
+
 use windows_sys::Win32::System::ProcessStatus::{
     K32GetPerformanceInfo, K32GetProcessMemoryInfo, PERFORMANCE_INFORMATION,
     PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX2,
 };
+
 use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+
 use windows_sys::Win32::System::Threading::{
     OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 
 // ─── RAII Handle Guard ─────────────────────────────────────────────────────────
-
-/// RAII wrapper for Win32 `HANDLE` values.
-///
-/// Automatically calls `CloseHandle` on drop, preventing handle leaks if a
-/// panic occurs between the `Open*` / `CreateToolhelp32Snapshot` call and the
-/// explicit `CloseHandle`. Null and `INVALID_HANDLE_VALUE` handles are not
-/// closed (they are never valid).
-pub struct HandleGuard {
-    handle: HANDLE,
-}
-
-impl HandleGuard {
-    /// Wrap a raw `HANDLE`. The caller must ensure the handle is valid
-    /// and needs closing, or is null / `INVALID_HANDLE_VALUE`.
-    pub const fn new(handle: HANDLE) -> Self {
-        Self { handle }
-    }
-
-    /// Borrow the underlying handle for FFI calls.
-    #[must_use]
-    pub const fn raw(&self) -> HANDLE {
-        self.handle
-    }
-}
-
-impl Drop for HandleGuard {
-    fn drop(&mut self) {
-        if !self.handle.is_null() && self.handle != INVALID_HANDLE_VALUE {
-            // SAFETY: handle is a valid, open Win32 handle that must be closed.
-            // CloseHandle is safe for any valid handle and idempotent for closed ones.
-            unsafe { CloseHandle(self.handle) };
-        }
-    }
-}
 
 /// Snapshot of system memory state at a point in time.
 #[derive(Debug, Clone, Serialize)]
@@ -218,25 +193,6 @@ impl QuickMemoryReading {
     }
 }
 
-/// Encode a Rust `&str` as a null-terminated UTF-16 `Vec<u16>`.
-///
-/// Shared utility used by registry operations (`context_menu`) and privilege
-/// management (`privilege`) to convert Rust strings for Win32 wide-string APIs.
-#[must_use]
-pub fn to_wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
-}
-
-/// Extract a UTF-8 process name from a null-terminated UTF-16 `szExeFile` buffer.
-#[must_use]
-pub fn extract_exe_name(sz_exe_file: &[u16]) -> String {
-    let len = sz_exe_file
-        .iter()
-        .position(|&c| c == 0)
-        .unwrap_or(sz_exe_file.len());
-    String::from_utf16_lossy(&sz_exe_file[..len])
-}
-
 /// Format bytes into a human-readable string (e.g., "3.42 GB").
 #[must_use]
 pub fn format_bytes(bytes: u64) -> String {
@@ -307,7 +263,7 @@ impl MemoryListInfo {
     ///
     /// Requires `SeProfileSingleProcessPrivilege` to be enabled.
     pub fn query() -> Result<Self> {
-        use crate::ntapi::{STATUS_INFO_LENGTH_MISMATCH, SYSTEM_MEMORY_LIST_INFORMATION};
+        use crate::platform::nt::{STATUS_INFO_LENGTH_MISMATCH, SYSTEM_MEMORY_LIST_INFORMATION};
 
         const ENTRIES: usize = 22;
 
@@ -317,7 +273,7 @@ impl MemoryListInfo {
         // SAFETY: stack_buf is a valid, zero-initialized array of the stated size.
         // return_length is a valid stack-allocated u32.
         let mut status = unsafe {
-            crate::ntapi::nt_query_system_information(
+            crate::platform::nt::nt_query_system_information(
                 SYSTEM_MEMORY_LIST_INFORMATION,
                 stack_buf.as_mut_ptr().cast(),
                 std::mem::size_of_val(&stack_buf) as u32,
@@ -334,7 +290,7 @@ impl MemoryListInfo {
             // SAFETY: heap_buf holds at least `return_length` bytes, the size the
             // kernel asked for.
             status = unsafe {
-                crate::ntapi::nt_query_system_information(
+                crate::platform::nt::nt_query_system_information(
                     SYSTEM_MEMORY_LIST_INFORMATION,
                     heap_buf.as_mut_ptr().cast(),
                     return_length,
@@ -343,7 +299,7 @@ impl MemoryListInfo {
             };
         }
 
-        if status != crate::ntapi::STATUS_SUCCESS {
+        if status != crate::platform::nt::STATUS_SUCCESS {
             bail!(
                 "NtQuerySystemInformation(SystemMemoryListInformation) failed: NTSTATUS 0x{status:08X}"
             );
@@ -421,7 +377,7 @@ pub struct FileCacheSnapshot {
 impl FileCacheSnapshot {
     /// Query the kernel for current file cache statistics.
     pub fn capture() -> Result<Self> {
-        use crate::ntapi::{SYSTEM_FILE_CACHE_INFORMATION, SystemFileCacheInfo};
+        use crate::platform::nt::{SYSTEM_FILE_CACHE_INFORMATION, SystemFileCacheInfo};
 
         let mut info: SystemFileCacheInfo = unsafe { std::mem::zeroed() };
         let mut return_length: u32 = 0;
@@ -429,7 +385,7 @@ impl FileCacheSnapshot {
         // SAFETY: info is a valid, zero-initialized SystemFileCacheInfo struct.
         // return_length is a valid stack-allocated u32.
         let status = unsafe {
-            crate::ntapi::nt_query_system_information(
+            crate::platform::nt::nt_query_system_information(
                 SYSTEM_FILE_CACHE_INFORMATION,
                 (&raw mut info).cast(),
                 std::mem::size_of::<SystemFileCacheInfo>() as u32,
@@ -646,13 +602,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extract_exe_name_from_utf16() {
-        // Simulate a null-terminated UTF-16 "chrome.exe"
-        let name: Vec<u16> = "chrome.exe\0\0\0\0".encode_utf16().collect();
-        assert_eq!(extract_exe_name(&name), "chrome.exe");
-    }
-
-    #[test]
     fn format_bytes_zero() {
         assert_eq!(format_bytes(0), "0 B");
     }
@@ -692,19 +641,6 @@ mod tests {
     #[test]
     fn format_bytes_terabytes() {
         assert_eq!(format_bytes(1024 * 1024 * 1024 * 1024), "1.00 TB");
-    }
-
-    #[test]
-    fn extract_exe_name_no_null() {
-        // If the buffer has no null terminator, use the full slice
-        let name: Vec<u16> = "svchost.exe".encode_utf16().collect();
-        assert_eq!(extract_exe_name(&name), "svchost.exe");
-    }
-
-    #[test]
-    fn extract_exe_name_empty() {
-        let name: Vec<u16> = vec![0];
-        assert_eq!(extract_exe_name(&name), "");
     }
 
     #[test]

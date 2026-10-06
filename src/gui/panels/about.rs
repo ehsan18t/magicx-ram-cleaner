@@ -659,7 +659,7 @@ fn view_on_github_btn(ui: &mut egui::Ui, dark: bool) {
 /// Open `url` in the browser without passing on the app's administrator
 /// rights, falling back to egui's normal (elevated) launch if that fails.
 fn open_link(ui: &egui::Ui, url: &str) {
-    if crate::console::open_url_unelevated(url).is_err() {
+    if crate::platform::shell::open_url_unelevated(url).is_err() {
         ui.open_url(egui::OpenUrl::new_tab(url));
     }
 }

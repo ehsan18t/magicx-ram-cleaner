@@ -103,14 +103,14 @@ impl TrayHandle {
     ///
     /// `hwnd` is the Win32 window handle of the main application window
     /// (taken from eframe's raw window handle).  The watcher
-    /// thread calls [`crate::console::uncloak_window`] before dispatching
+    /// thread calls [`crate::platform::window::uncloak_window`] before dispatching
     /// an action so that the event loop can deliver `RedrawRequested` and
     /// the main thread's `logic()` runs to process the action.
     ///
     /// `dark` controls the glyph colour in menu icons: white glyphs for
     /// dark menus, charcoal for light menus.  The caller should pass the
     /// in-app theme preference, which **must** match the process-wide menu
-    /// theme forced by [`crate::console::set_process_dark_mode`].
+    /// theme forced by [`crate::platform::window::set_process_dark_mode`].
     ///
     /// # Errors
     ///
@@ -176,7 +176,7 @@ impl Drop for TrayHandle {
 ///
 /// When an event is decoded the function:
 ///
-/// 1. Uncloaks the window via [`crate::console::uncloak_window`] so that
+/// 1. Uncloaks the window via [`crate::platform::window::uncloak_window`] so that
 ///    the event loop can deliver `RedrawRequested` (minimized windows may
 ///    not receive `WM_PAINT`, which would prevent `logic()` from running).
 /// 2. Sends a [`TrayAction`] through the channel.
@@ -226,7 +226,7 @@ fn tray_watcher_thread(
             // (minimized tool) window, request_repaint() alone may not
             // wake the event loop because WM_PAINT is not delivered to
             // minimized windows.
-            crate::console::uncloak_window(hwnd);
+            crate::platform::window::uncloak_window(hwnd);
 
             if tx.send(action).is_err() {
                 return; // app receiver dropped - exit cleanly
@@ -244,7 +244,7 @@ fn tray_watcher_thread(
                 ..
             } = event
             {
-                crate::console::uncloak_window(hwnd);
+                crate::platform::window::uncloak_window(hwnd);
                 if tx.send(TrayAction::Show).is_err() {
                     return;
                 }

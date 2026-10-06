@@ -13,10 +13,9 @@ use windows_sys::Win32::System::Threading::{
     OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA,
 };
 
-use crate::ntapi::{self, MemoryListCommand};
-use crate::stats::{
-    HandleGuard, MemorySnapshot, QuickMemoryReading, enumerate_processes, format_bytes,
-};
+use crate::platform::handle::HandleGuard;
+use crate::platform::nt::{self, MemoryListCommand};
+use crate::stats::{MemorySnapshot, QuickMemoryReading, enumerate_processes, format_bytes};
 
 // ─── Kernel Settle Detection ─────────────────────────────────────────────────
 
@@ -161,7 +160,7 @@ fn execute_kernel_memory_op(
     let before = MemorySnapshot::capture()?;
     let start = std::time::Instant::now();
 
-    match ntapi::execute_memory_command(command) {
+    match nt::execute_memory_command(command) {
         Ok(()) => {
             let after = wait_for_settle(verbose, settle)?;
             let elapsed = start.elapsed();
@@ -178,7 +177,7 @@ fn execute_kernel_memory_op(
             format!(
                 "NtSetSystemInformation failed: 0x{:08X}: {}",
                 status as u32,
-                ntapi::ntstatus_message(status)
+                nt::ntstatus_message(status)
             ),
             &before,
         )),
@@ -436,7 +435,7 @@ fn flush_registry_cache_with_settle(verbose: bool, settle: SettleMode) -> Result
     let before = MemorySnapshot::capture()?;
     let start = std::time::Instant::now();
 
-    match ntapi::execute_registry_flush() {
+    match nt::execute_registry_flush() {
         Ok(()) => {
             let after = wait_for_settle(verbose, settle)?;
             let elapsed = start.elapsed();
@@ -454,7 +453,7 @@ fn flush_registry_cache_with_settle(verbose: bool, settle: SettleMode) -> Result
                 "NtSetSystemInformation(SystemRegistryReconciliationInformation) failed: \
                  0x{:08X}: {}",
                 status as u32,
-                ntapi::ntstatus_message(status)
+                nt::ntstatus_message(status)
             ),
             &before,
         )),
@@ -657,7 +656,7 @@ fn combine_memory_with_settle(verbose: bool, settle: SettleMode) -> Result<Clean
     let before = MemorySnapshot::capture()?;
     let start = std::time::Instant::now();
 
-    match ntapi::execute_combine_memory() {
+    match nt::execute_combine_memory() {
         Ok(pages_combined) => {
             let after = wait_for_settle(verbose, settle)?;
             let elapsed = start.elapsed();
@@ -674,7 +673,7 @@ fn combine_memory_with_settle(verbose: bool, settle: SettleMode) -> Result<Clean
             format!(
                 "NtSetSystemInformation(SystemCombinePhysicalMemoryInformation) failed: 0x{:08X}: {}",
                 status as u32,
-                ntapi::ntstatus_message(status)
+                nt::ntstatus_message(status)
             ),
             &before,
         )),
@@ -782,11 +781,11 @@ fn leftover_sweep(verbose: bool, results: &mut Vec<CleanResult>) -> Result<()> {
         let start = std::time::Instant::now();
 
         // A failed flush is not fatal: the purge still reclaims the standby part.
-        if ntapi::execute_memory_command(MemoryListCommand::FlushModifiedList).is_ok() {
+        if nt::execute_memory_command(MemoryListCommand::FlushModifiedList).is_ok() {
             wait_for_settle(false, SettleMode::Quick)?;
         }
 
-        let result = match ntapi::execute_memory_command(MemoryListCommand::PurgeStandbyList) {
+        let result = match nt::execute_memory_command(MemoryListCommand::PurgeStandbyList) {
             Ok(()) => {
                 let after = wait_for_settle(verbose, SettleMode::Full)?;
                 let remaining = leftover_bytes(&after).unwrap_or(0);
@@ -807,7 +806,7 @@ fn leftover_sweep(verbose: bool, results: &mut Vec<CleanResult>) -> Result<()> {
                 format!(
                     "Standby purge failed: 0x{:08X}: {}",
                     status as u32,
-                    ntapi::ntstatus_message(status)
+                    nt::ntstatus_message(status)
                 ),
                 &before,
             ),

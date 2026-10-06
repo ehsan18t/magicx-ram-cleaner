@@ -379,8 +379,8 @@ impl MagicXApp {
 
         // Force Windows dark mode at the process level so native menus
         // and the title bar match the user's in-app theme from the start.
-        crate::console::set_process_dark_mode(initial_dark_mode);
-        crate::console::set_title_bar_dark_mode(hwnd, initial_dark_mode);
+        crate::platform::window::set_process_dark_mode(initial_dark_mode);
+        crate::platform::window::set_title_bar_dark_mode(hwnd, initial_dark_mode);
 
         // Initialize tray icon if minimize-to-tray was previously enabled.
         // Pass the egui context and HWND so the watcher thread can call
@@ -640,17 +640,17 @@ impl MagicXApp {
     fn handle_tray_action(&mut self, ctx: &egui::Context, action: &tray::TrayAction) {
         match *action {
             tray::TrayAction::Show => {
-                crate::console::uncloak_window(self.hwnd);
+                crate::platform::window::uncloak_window(self.hwnd);
                 self.hidden_to_tray = false;
             }
             tray::TrayAction::Clean(level) => {
-                crate::console::uncloak_window(self.hwnd);
+                crate::platform::window::uncloak_window(self.hwnd);
                 self.hidden_to_tray = false;
                 self.active_panel = Panel::Dashboard;
                 self.start_clean(level);
             }
             tray::TrayAction::Navigate(panel) => {
-                crate::console::uncloak_window(self.hwnd);
+                crate::platform::window::uncloak_window(self.hwnd);
                 self.hidden_to_tray = false;
                 self.active_panel = panel;
             }
@@ -686,7 +686,7 @@ impl MagicXApp {
                 self.tray_error = None;
                 // Uncloak if the window was hidden while the setting was on.
                 if self.hidden_to_tray {
-                    crate::console::uncloak_window(self.hwnd);
+                    crate::platform::window::uncloak_window(self.hwnd);
                     self.hidden_to_tray = false;
                 }
             }
@@ -726,8 +726,8 @@ impl MagicXApp {
             theme::set_active_theme(ui, self.settings.dark_mode);
             self.last_applied_dark = self.settings.dark_mode;
 
-            crate::console::set_process_dark_mode(self.settings.dark_mode);
-            crate::console::set_title_bar_dark_mode(self.hwnd, self.settings.dark_mode);
+            crate::platform::window::set_process_dark_mode(self.settings.dark_mode);
+            crate::platform::window::set_title_bar_dark_mode(self.hwnd, self.settings.dark_mode);
 
             if self.settings.minimize_to_tray {
                 let ctx = ui.ctx().clone();
@@ -821,7 +821,7 @@ fn window_hwnd(cc: &eframe::CreationContext<'_>) -> isize {
             RawWindowHandle::Win32(win32) => Some(win32.hwnd.get()),
             _ => None,
         })
-        .unwrap_or_else(|| crate::console::find_app_window(strings::APP_NAME))
+        .unwrap_or_else(|| crate::platform::window::find_app_window(strings::APP_NAME))
 }
 
 impl eframe::App for MagicXApp {
@@ -857,7 +857,7 @@ impl eframe::App for MagicXApp {
             // minimizes the window as an invisible tool window while keeping
             // WS_VISIBLE set, so the event loop stays in ControlFlow::Wait
             // and request_repaint_after() properly gates the wakeup interval.
-            crate::console::cloak_window(self.hwnd);
+            crate::platform::window::cloak_window(self.hwnd);
             self.hidden_to_tray = true;
             self.hide_requested_at = Some(Instant::now());
         }
@@ -873,11 +873,14 @@ impl eframe::App for MagicXApp {
         let hide_settled = self
             .hide_requested_at
             .is_none_or(|t| t.elapsed() >= Duration::from_millis(500));
-        if self.hidden_to_tray && hide_settled && !crate::console::is_window_minimized(self.hwnd) {
+        if self.hidden_to_tray
+            && hide_settled
+            && !crate::platform::window::is_window_minimized(self.hwnd)
+        {
             // The window was un-minimized externally.  Restore the
             // extended styles (WS_EX_APPWINDOW, remove WS_EX_TOOLWINDOW)
             // so the taskbar button reappears.
-            crate::console::uncloak_window(self.hwnd);
+            crate::platform::window::uncloak_window(self.hwnd);
             self.hidden_to_tray = false;
             self.hide_requested_at = None;
         }
@@ -911,7 +914,7 @@ impl eframe::App for MagicXApp {
         // Use Win32 IsIconic for reliable minimized detection  -
         // egui's ViewportInfo::minimized can return None when the
         // platform does not report the state.
-        let minimized = crate::console::is_window_minimized(self.hwnd);
+        let minimized = crate::platform::window::is_window_minimized(self.hwnd);
         let window_visible = !self.hidden_to_tray && !minimized;
 
         // Tell the stats thread whether the UI needs periodic data.
@@ -949,7 +952,7 @@ impl eframe::App for MagicXApp {
         // calling request_repaint() which would otherwise create a
         // perpetual layout → repaint → layout loop even while
         // minimized or hidden to tray.
-        let minimized = crate::console::is_window_minimized(self.hwnd);
+        let minimized = crate::platform::window::is_window_minimized(self.hwnd);
         let window_visible = !self.hidden_to_tray && !minimized;
         if window_visible {
             self.draw_visible_ui(ui);
