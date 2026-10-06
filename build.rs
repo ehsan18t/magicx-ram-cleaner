@@ -65,6 +65,13 @@ fn main() {
 
         res.compile()
             .expect("unable to compile Windows resource file");
+
+        // The exe runs elevated from user-writable folders, so its load-time
+        // DLL imports must come from System32 only, never from the exe's own
+        // folder (DLL planting). 0x800 = LOAD_LIBRARY_SEARCH_SYSTEM32.
+        if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+            println!("cargo:rustc-link-arg-bins=/DEPENDENTLOADFLAG:0x800");
+        }
     }
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=Cargo.toml");

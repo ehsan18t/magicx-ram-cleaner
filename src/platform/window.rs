@@ -241,50 +241,63 @@ pub fn set_caption_color(hwnd: isize, rgb: [u8; 3]) {
 ///
 /// Does nothing silently if the DLL cannot be loaded or the ordinals are
 /// missing (e.g. on older Windows builds).
-#[expect(
-    clippy::as_conversions,
-    reason = "MAKEINTRESOURCE pattern: ordinal as *const u8 is the Win32 convention"
-)]
 pub fn set_process_dark_mode(dark: bool) {
-    use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
-
     /// `SetPreferredAppMode` argument: force dark context menus.
     const FORCE_DARK: i32 = 2;
     /// `SetPreferredAppMode` argument: force light context menus.
     const FORCE_LIGHT: i32 = 3;
 
-    let lib_name: Vec<u16> = "uxtheme.dll".encode_utf16().chain(Some(0)).collect();
-
-    // SAFETY: LoadLibraryW is a standard Win32 call with a null-terminated
-    // wide string.  Returns null on failure.
-    let hmodule = unsafe { LoadLibraryW(lib_name.as_ptr()) };
-    if hmodule.is_null() {
+    let Some(api) = menu_theme_api() else {
         return;
-    }
-
-    // Ordinal 135 - SetPreferredAppMode(mode: i32) -> i32
-    // SAFETY: GetProcAddress with a MAKEINTRESOURCE-style ordinal (low 16
-    // bits = ordinal, high bits zero) is the documented Win32 pattern for
-    // looking up exports by ordinal number.
-    let set_mode_addr = unsafe { GetProcAddress(hmodule, 135_usize as *const u8) };
-    if let Some(f) = set_mode_addr {
-        // SAFETY: Ordinal 135 is `fn(i32) -> i32` (stdcall).  This
-        // signature has been stable across all Windows 10/11 builds since
-        // 1903.  Transmute between equal-sized function pointer types is sound.
-        let set_mode: unsafe extern "system" fn(i32) -> i32 = unsafe { std::mem::transmute(f) };
+    };
+    if let Some(set_mode) = api.set_preferred_app_mode {
+        // SAFETY: Ordinal 135 is `fn(i32) -> i32` (stdcall), stable across
+        // all Windows 10/11 builds since 1903.
         unsafe {
             set_mode(if dark { FORCE_DARK } else { FORCE_LIGHT });
         }
     }
-
-    // Ordinal 136 - FlushMenuThemes()
-    // Forces all menus in the process to re-evaluate their theme on next show.
-    let flush_addr = unsafe { GetProcAddress(hmodule, 136_usize as *const u8) };
-    if let Some(f) = flush_addr {
-        // SAFETY: Ordinal 136 is `fn()`.  Transmute is sound (same size).
-        let flush: unsafe extern "system" fn() = unsafe { std::mem::transmute(f) };
+    if let Some(flush) = api.flush_menu_themes {
+        // SAFETY: Ordinal 136 is `fn()`, stable since 1903.
         unsafe {
             flush();
         }
     }
+}
+
+/// The two undocumented uxtheme exports used by [`set_process_dark_mode`].
+struct MenuThemeApi {
+    /// Ordinal 135, `SetPreferredAppMode(mode: i32) -> i32`.
+    set_preferred_app_mode: Option<unsafe extern "system" fn(i32) -> i32>,
+    /// Ordinal 136, `FlushMenuThemes()`: makes menus re-read their theme.
+    flush_menu_themes: Option<unsafe extern "system" fn()>,
+}
+
+/// Look the uxtheme exports up once per process. `None` if uxtheme cannot
+/// be loaded from System32.
+#[expect(
+    clippy::as_conversions,
+    reason = "MAKEINTRESOURCE pattern: ordinal as *const u8 is the Win32 convention"
+)]
+fn menu_theme_api() -> Option<&'static MenuThemeApi> {
+    use std::sync::OnceLock;
+    use windows_sys::Win32::System::LibraryLoader::GetProcAddress;
+
+    static API: OnceLock<Option<MenuThemeApi>> = OnceLock::new();
+    API.get_or_init(|| {
+        let module = super::loader::system_module("uxtheme.dll")?;
+        // SAFETY: GetProcAddress with a MAKEINTRESOURCE-style ordinal (low
+        // 16 bits = ordinal, high bits zero) is the documented way to look
+        // an export up by number. Transmuting between function pointer types
+        // of equal size is sound; the signatures are given above.
+        unsafe {
+            Some(MenuThemeApi {
+                set_preferred_app_mode: GetProcAddress(module, 135_usize as *const u8)
+                    .map(|f| std::mem::transmute(f)),
+                flush_menu_themes: GetProcAddress(module, 136_usize as *const u8)
+                    .map(|f| std::mem::transmute(f)),
+            })
+        }
+    })
+    .as_ref()
 }

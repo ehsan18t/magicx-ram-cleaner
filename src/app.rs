@@ -19,12 +19,13 @@ use colored::Colorize;
 
 use crate::cli::{self, Outcome, args::Cli};
 use crate::gui;
-use crate::platform::{console, notify};
+use crate::platform::{console, loader, notify};
 use crate::strings;
 
 /// Run the application with the process's arguments.
 #[must_use]
 pub fn run() -> ExitCode {
+    loader::restrict_dll_search_to_system32();
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     let notify = has_arg(&args, "--notify");
     let gui_launch = !notify && is_gui_launch(&args);

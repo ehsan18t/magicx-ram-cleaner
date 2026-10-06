@@ -15,6 +15,7 @@ pub mod dialog;
 pub mod handle;
 pub mod identity;
 pub mod instance;
+pub mod loader;
 pub mod memory;
 pub mod notify;
 pub mod nt;
