@@ -150,8 +150,13 @@ pub struct MagicXApp {
     /// `true` when settings changed but have not been written to disk yet.
     ///
     /// Saving is deferred while a widget is being dragged (e.g. a slider) so
-    /// the file is not rewritten on every frame.
+    /// the file is not rewritten on every frame, and retried after a failed
+    /// write.
     settings_dirty: bool,
+
+    /// When a failed save may be retried, and the error it failed with (shown
+    /// once, not on every retry).
+    save_failure: Option<(Instant, String)>,
 
     /// Process sort column (0=name, 1=count, 2=memory, 3=peak).
     pub process_sort_col: usize,
@@ -321,6 +326,7 @@ impl MagicXApp {
             monitor_log: VecDeque::with_capacity(MONITOR_LOG_CAPACITY),
             settings_snapshot: settings.clone(),
             settings_dirty: false,
+            save_failure: None,
             settings,
             process_sort_col: 2,
             process_sort_asc: false,
@@ -411,15 +417,47 @@ impl MagicXApp {
     ///
     /// Writes are deferred while the pointer is dragging a widget (e.g. a
     /// slider) so the file is not rewritten every frame; the final value is
-    /// saved on the first frame after release, and always on exit.
+    /// saved on the first frame after release. A failed write (read-only
+    /// media, a locked file) is reported once in the Settings panel and
+    /// retried every few seconds until it succeeds.
     fn persist_settings_if_changed(&mut self, ctx: &egui::Context) {
+        /// Wait between attempts after a failed save.
+        const RETRY: Duration = Duration::from_secs(5);
+
         if self.settings != self.settings_snapshot {
             self.settings_snapshot = self.settings.clone();
             self.settings_dirty = true;
         }
-        if self.settings_dirty && !ctx.egui_is_using_pointer() {
-            super::persistence::SettingsManager::save(&self.settings);
-            self.settings_dirty = false;
+        let retry_due = self
+            .save_failure
+            .as_ref()
+            .is_none_or(|(at, _)| at.elapsed() >= RETRY);
+        if !self.settings_dirty || ctx.egui_is_using_pointer() || !retry_due {
+            return;
+        }
+        match super::persistence::save(&self.settings) {
+            Ok(()) => {
+                self.settings_dirty = false;
+                self.save_failure = None;
+            }
+            Err(e) => {
+                let error = format!("{e:#}");
+                let new_error = self
+                    .save_failure
+                    .as_ref()
+                    .is_none_or(|(_, last)| *last != error);
+                if new_error {
+                    self.settings_status = Some((
+                        format!(
+                            "Settings couldn\u{2019}t be saved and will reset next time: {error}"
+                        ),
+                        true,
+                        Instant::now(),
+                    ));
+                }
+                self.save_failure = Some((Instant::now(), error));
+                ctx.request_repaint_after(RETRY);
+            }
         }
     }
 }
@@ -431,30 +469,42 @@ impl MagicXApp {
 /// the file is missing or corrupt, `auto_start` is instead read back from the
 /// existing logon task so the user's autostart is never wiped.
 fn load_settings_and_sync_autostart() -> (GuiSettings, Option<(String, bool, Instant)>) {
-    use super::persistence::SettingsManager;
+    use super::persistence::Loaded;
 
-    match SettingsManager::load() {
-        Ok(Some(settings)) => {
-            let status = crate::integration::autostart::set_enabled(settings.auto_start)
-                .map_err(|e| format!("{e:#}"))
-                .err()
-                .map(|e| (format!("Autostart sync failed: {e}"), true, Instant::now()));
-            (settings, status)
+    match super::persistence::load() {
+        Loaded::Read {
+            settings,
+            reset_fields,
+        } => {
+            let sync = crate::integration::autostart::set_enabled(settings.auto_start)
+                .map_err(|e| format!("Autostart sync failed: {e:#}"));
+            let status = match sync {
+                Err(e) => Some(e),
+                Ok(()) if !reset_fields.is_empty() => Some(format!(
+                    "Some settings had invalid values and were reset to their defaults: {}",
+                    reset_fields.join(", ")
+                )),
+                Ok(()) => None,
+            };
+            (settings, status.map(|text| (text, true, Instant::now())))
         }
-        Ok(None) => {
+        Loaded::Missing => {
             let settings = GuiSettings {
                 auto_start: crate::integration::autostart::is_enabled(),
                 ..GuiSettings::default()
             };
             (settings, None)
         }
-        Err(e) => {
+        Loaded::Unusable { error, kept_as } => {
             let settings = GuiSettings {
                 auto_start: crate::integration::autostart::is_enabled(),
                 ..GuiSettings::default()
             };
+            let kept = kept_as.map_or_else(String::new, |path| {
+                format!(" The old file was kept as {}.", path.display())
+            });
             let status = (
-                format!("Settings file could not be loaded, using defaults. {e}"),
+                format!("Settings file could not be loaded, using defaults. {error}{kept}"),
                 true,
                 Instant::now(),
             );
@@ -619,7 +669,12 @@ impl eframe::App for MagicXApp {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.stats_running.store(false, Ordering::Release);
-        super::persistence::SettingsManager::save(&self.settings);
+        // Save only what is not on disk yet. Writing unchanged settings
+        // would replace a file that failed to load with defaults even though
+        // the user changed nothing. A failure here has nowhere to be shown.
+        if self.settings_dirty || self.settings != self.settings_snapshot {
+            drop(super::persistence::save(&self.settings));
+        }
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {

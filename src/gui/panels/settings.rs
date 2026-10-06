@@ -13,7 +13,7 @@ use crate::gui::icons::regular as ph;
 use crate::strings::gui::settings as text;
 
 use super::super::app::MagicXApp;
-use super::super::persistence::SettingsManager;
+use super::super::persistence;
 use super::super::settings::ThemeMode;
 use super::super::theme::{self, Palette};
 use super::super::widgets;
@@ -231,7 +231,7 @@ fn set_status(app: &mut MagicXApp, msg: String, is_err: bool) {
 
 /// Export settings to a user-chosen file.
 fn export_settings(app: &mut MagicXApp) {
-    match SettingsManager::export(app.hwnd(), &app.settings) {
+    match persistence::export(app.hwnd(), &app.settings) {
         Ok(Some(path)) => {
             let name = path.file_name().map_or_else(
                 || path.to_string_lossy().into_owned(),
@@ -244,7 +244,7 @@ fn export_settings(app: &mut MagicXApp) {
             );
         }
         Ok(None) => {} // cancelled
-        Err(e) => set_status(app, format!("Couldn\u{2019}t export settings: {e}"), true),
+        Err(e) => set_status(app, format!("Couldn\u{2019}t export settings: {e:#}"), true),
     }
 }
 
@@ -253,14 +253,24 @@ fn export_settings(app: &mut MagicXApp) {
 /// Also syncs the autostart task and the monitor state, which only follow
 /// direct UI toggles otherwise.
 fn import_settings(app: &mut MagicXApp) {
-    match SettingsManager::import(app.hwnd()) {
-        Ok(Some(new_settings)) => {
+    match persistence::import(app.hwnd()) {
+        Ok(Some((new_settings, reset_fields))) => {
             let sync = crate::integration::autostart::set_enabled(new_settings.auto_start)
                 .map_err(|e| format!("{e:#}"));
             app.settings = new_settings;
             app.monitor_active = app.settings.auto_clean_enabled;
             match sync {
-                Ok(()) => set_status(app, text::MSG_IMPORT_OK.to_owned(), false),
+                Ok(()) if reset_fields.is_empty() => {
+                    set_status(app, text::MSG_IMPORT_OK.to_owned(), false);
+                }
+                Ok(()) => set_status(
+                    app,
+                    format!(
+                        "Settings imported. Some had invalid values and were reset to their defaults: {}",
+                        reset_fields.join(", ")
+                    ),
+                    true,
+                ),
                 Err(e) => {
                     // Keep the switch truthful about the task.
                     app.settings.auto_start = crate::integration::autostart::is_enabled();
@@ -273,6 +283,6 @@ fn import_settings(app: &mut MagicXApp) {
             }
         }
         Ok(None) => {} // cancelled
-        Err(e) => set_status(app, format!("Couldn\u{2019}t import settings: {e}"), true),
+        Err(e) => set_status(app, format!("Couldn\u{2019}t import settings: {e:#}"), true),
     }
 }
