@@ -1,4 +1,5 @@
-//! Native Win32 file dialogs (COMDLG32) for JSON files.
+//! Native Win32 dialogs: file pickers (COMDLG32) for JSON files and an
+//! error message box.
 
 use std::ffi::OsString;
 use std::mem::size_of;
@@ -111,4 +112,26 @@ fn dialog_result(chosen: bool, file_buf: &[u16]) -> Result<Option<PathBuf>> {
 fn buffer_to_path(buf: &[u16]) -> PathBuf {
     let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
     PathBuf::from(OsString::from_wide(&buf[..end]))
+}
+
+/// Show a modal error message box with `title` and `message`, for failures
+/// that have no console to report to (a GUI launch, a `--notify` launch).
+/// Blocks until the user dismisses it.
+pub fn error_box(title: &str, message: &str) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MessageBoxW,
+    };
+
+    let title = to_wide(title);
+    let message = to_wide(message);
+    // SAFETY: Both strings are null-terminated UTF-16 buffers that outlive
+    // the call; a null owner makes the box a top-level window.
+    unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            message.as_ptr(),
+            title.as_ptr(),
+            MB_OK | MB_ICONERROR | MB_SETFOREGROUND,
+        );
+    }
 }

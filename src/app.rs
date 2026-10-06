@@ -19,7 +19,7 @@ use colored::Colorize;
 
 use crate::cli::{self, Outcome, args::Cli};
 use crate::gui;
-use crate::platform::{console, loader, notify};
+use crate::platform::{console, dialog, loader, notify};
 use crate::strings;
 
 /// Run the application with the process's arguments.
@@ -29,6 +29,11 @@ pub fn run() -> ExitCode {
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     let notify = has_arg(&args, "--notify");
     let gui_launch = !notify && is_gui_launch(&args);
+    if gui_launch || notify {
+        // These modes have no console, so a panic (which aborts in release
+        // builds) would otherwise end the process without a word.
+        show_panics_in_a_message_box();
+    }
 
     // ── Console setup ────────────────────────────────────────────────
     // GUI / notify modes need no console: drop one that older Windows
@@ -55,7 +60,7 @@ pub fn run() -> ExitCode {
     }
 
     let code = match parse_cli(no_color) {
-        Ok(cli) => run_and_report(&cli, notify),
+        Ok(cli) => run_and_report(&cli, notify, gui_launch),
         Err(e) => report_parse_error(&e, notify),
     };
 
@@ -68,9 +73,10 @@ pub fn run() -> ExitCode {
     code
 }
 
-/// Run the parsed command line and report its outcome on the console or, in
-/// notify mode, as a balloon. Returns the process exit code.
-fn run_and_report(cli: &Cli, notify: bool) -> ExitCode {
+/// Run the parsed command line and report its outcome on the console, as a
+/// balloon in notify mode, or in a message box when the GUI fails to start
+/// (it has no console). Returns the process exit code.
+fn run_and_report(cli: &Cli, notify: bool, gui_launch: bool) -> ExitCode {
     let result = execute(cli, notify);
 
     if notify {
@@ -84,7 +90,11 @@ fn run_and_report(cli: &Cli, notify: bool) -> ExitCode {
         };
         drop(notify::show_balloon_notification(title, &body));
     } else if let Err(e) = &result {
-        eprintln!("{} {e:?}", "Error:".red().bold());
+        if gui_launch {
+            dialog::error_box(strings::APP_NAME, &format!("{e:#}"));
+        } else {
+            eprintln!("{} {e:?}", "Error:".red().bold());
+        }
     }
 
     match result {
@@ -92,6 +102,22 @@ fn run_and_report(cli: &Cli, notify: bool) -> ExitCode {
         Ok(_) => ExitCode::SUCCESS,
         Err(_) => ExitCode::from(2),
     }
+}
+
+/// Install a panic hook that shows the panic message in a message box, after
+/// the default hook has written it to stderr.
+fn show_panics_in_a_message_box() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        default_hook(info);
+        dialog::error_box(
+            strings::APP_NAME,
+            &format!(
+                "{} stopped because of an internal error.\n\n{info}",
+                strings::APP_NAME
+            ),
+        );
+    }));
 }
 
 /// Run a CLI command, or the GUI when no command was given.
