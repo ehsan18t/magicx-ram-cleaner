@@ -4,7 +4,7 @@
     // Correctness
     unused_must_use,         // ignoring Result/Option is a bug
     unreachable_patterns,    // dead match arms = confusion
-    // Safety - unsafe is denied globally; modules that need FFI get #[allow(unsafe_code)]
+    // Safety - unsafe is denied everywhere except the `platform` module tree
     unsafe_code,
     unsafe_op_in_unsafe_fn,  // unsafe blocks inside unsafe fn must be explicit
     // Quality
@@ -84,7 +84,6 @@
 pub mod platform;
 
 /// Core memory cleaning operations and orchestration.
-#[allow(unsafe_code)]
 pub mod cleaner;
 
 /// Centralised user-facing text constants for CLI and GUI.
@@ -94,19 +93,15 @@ pub mod strings;
 pub mod cli;
 
 /// Windows context menu integration (install/uninstall registry entries).
-#[allow(unsafe_code)]
 pub mod context_menu;
 
 /// Terminal display and formatting (banner, status, clean output, box drawing).
-#[allow(unsafe_code)]
 pub mod display;
 
 /// Continuous monitoring loop with auto-clean and Ctrl+C handling.
-#[allow(unsafe_code)]
 pub mod monitor;
 
 /// Memory statistics, Win32 API wrappers, and `MemorySnapshot`.
-#[allow(unsafe_code)]
 pub mod stats;
 
 /// egui-based graphical user interface with dashboard, system-tray icon,
