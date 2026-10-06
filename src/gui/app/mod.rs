@@ -21,7 +21,9 @@ use self::appearance::Appearance;
 pub use self::autostart::AutostartView;
 use self::background::{PROCESS_REFRESH_SECS, stats_thread};
 use self::cleaning::MONITOR_LOG_CAPACITY;
-pub use self::cleaning::{CleanProgress, CleanResultMsg, EventKind, MapTransition, MonitorEvent};
+pub use self::cleaning::{
+    CleanProgress, CleanResultMsg, CleanSource, EventKind, MapTransition, MonitorEvent,
+};
 pub use self::trim::TrimState;
 use super::settings::GuiSettings;
 use super::{fonts, nav, theme, tray};

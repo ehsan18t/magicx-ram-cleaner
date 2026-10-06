@@ -2,7 +2,7 @@
 
 use eframe::egui;
 
-use super::{MagicXApp, Panel};
+use super::{CleanSource, MagicXApp, Panel};
 use crate::gui::tray;
 
 impl MagicXApp {
@@ -19,6 +19,11 @@ impl MagicXApp {
     pub(super) fn handle_tray_action(&mut self, ctx: &egui::Context, action: &tray::TrayAction) {
         match *action {
             tray::TrayAction::Show => self.show_window(ctx),
+            // From the tray, a clean stays in the tray and reports through a
+            // notification; with the window open it shows on the Overview.
+            tray::TrayAction::Clean(level) if self.hidden_to_tray => {
+                self.spawn_clean(level, CleanSource::Tray);
+            }
             tray::TrayAction::Clean(level) => {
                 self.show_window(ctx);
                 self.active_panel = Panel::Overview;

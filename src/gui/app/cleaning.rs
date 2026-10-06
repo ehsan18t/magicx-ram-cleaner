@@ -34,14 +34,26 @@ pub struct MonitorEvent {
     pub text: String,
 }
 
+/// What started a clean.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CleanSource {
+    /// The user, in the window.
+    Manual,
+    /// Monitor auto-clean.
+    Auto,
+    /// The tray menu while the window was hidden: the result is shown as a
+    /// notification instead of opening the window.
+    Tray,
+}
+
 /// Result of a background cleaning operation sent back to the UI thread.
 pub struct CleanResultMsg {
     /// The cleaning result (or error string).
     pub result: std::result::Result<SmartCleanResult, String>,
     /// Which level was requested.
     pub level: CleanLevel,
-    /// `true` when the clean was started by monitor auto-clean.
-    pub auto: bool,
+    /// What started the clean.
+    pub source: CleanSource,
 }
 
 /// How far a running clean has got, updated by the worker thread.
@@ -49,8 +61,8 @@ pub struct CleanResultMsg {
 pub struct CleanProgress {
     /// The level being run.
     pub level: CleanLevel,
-    /// `true` when auto-clean started it.
-    pub auto: bool,
+    /// What started it.
+    pub source: CleanSource,
     /// Steps started so far.
     pub step: usize,
     /// Steps the level plans to run (a leftover sweep can add more).
@@ -88,15 +100,15 @@ impl MapTransition {
 impl MagicXApp {
     /// Start a manual cleaning operation on a background thread.
     pub fn start_clean(&mut self, level: CleanLevel) {
-        self.spawn_clean(level, false);
+        self.spawn_clean(level, CleanSource::Manual);
     }
 
     /// Start a cleaning operation on a background thread.
     ///
-    /// `auto` marks cleans triggered by the monitor, whose results go to the
-    /// activity log and may back the cooldown off. Every finished clean
+    /// Cleans started by the monitor (`source` [`CleanSource::Auto`]) go to
+    /// the activity log and may back the cooldown off. Every finished clean
     /// starts the cooldown.
-    pub(super) fn spawn_clean(&mut self, level: CleanLevel, auto: bool) {
+    pub(super) fn spawn_clean(&mut self, level: CleanLevel, source: CleanSource) {
         if self.cleaning_in_progress {
             return;
         }
@@ -105,7 +117,7 @@ impl MagicXApp {
         if let Ok(mut progress) = self.clean_progress.lock() {
             *progress = Some(CleanProgress {
                 level,
-                auto,
+                source,
                 step: 0,
                 // The sweep only runs when needed, so the count must not
                 // wait for it; while it runs, the last step stays current.
@@ -151,14 +163,14 @@ impl MagicXApp {
                 drop(tx.send(CleanResultMsg {
                     result,
                     level,
-                    auto,
+                    source,
                 }));
             })
         {
             drop(self.clean_tx.send(CleanResultMsg {
                 result: Err(format!("failed to spawn clean thread: {e}")),
                 level,
-                auto,
+                source,
             }));
         }
     }
@@ -202,7 +214,7 @@ impl MagicXApp {
             });
         }
 
-        if msg.auto {
+        if msg.source == CleanSource::Auto {
             let (kind, text) = match &msg.result {
                 Ok(r) => (
                     EventKind::Cleaned,
@@ -229,6 +241,9 @@ impl MagicXApp {
             }
         } else {
             self.auto_clean.note_manual_clean(Instant::now());
+        }
+        if msg.source == CleanSource::Tray {
+            notify_clean_result(&msg);
         }
 
         self.last_clean_result = Some(msg);
@@ -266,11 +281,46 @@ impl MagicXApp {
                     self.settings.default_clean_level.title_case_name(),
                 );
                 self.push_monitor_log(EventKind::Info, msg);
-                self.spawn_clean(self.settings.default_clean_level, true);
+                self.spawn_clean(self.settings.default_clean_level, CleanSource::Auto);
             }
             // The chart shows the monitor is alive, so quiet checks are not
             // logged.
             Decision::CoolingDown | Decision::BelowThreshold => {}
         }
     }
+}
+
+/// Show the result of a clean started from the tray as a notification, on a
+/// worker thread (the balloon keeps its own message loop for a moment).
+fn notify_clean_result(msg: &CleanResultMsg) {
+    use crate::strings::notification::{TITLE, TITLE_ERROR, TITLE_WARNING};
+
+    let (title, body) = match &msg.result {
+        Ok(result) => {
+            let failed = result.failed_count();
+            let failures = if failed > 0 {
+                format!(" {failed} of {} steps failed.", result.results.len())
+            } else {
+                String::new()
+            };
+            let body = format!(
+                "{} freed {}. RAM usage {}% \u{2192} {}%.{failures}",
+                msg.level.title_case_name(),
+                memory::format_bytes(result.reclaimed_bytes().max(0) as u64),
+                result.overall_before.memory_load_percent,
+                result.overall_after.memory_load_percent,
+            );
+            (if failed > 0 { TITLE_WARNING } else { TITLE }, body)
+        }
+        Err(e) => (TITLE_ERROR, format!("The clean failed: {e}")),
+    };
+    drop(
+        std::thread::Builder::new()
+            .name("gui-notify".into())
+            .spawn(move || {
+                drop(crate::platform::notify::show_balloon_notification(
+                    title, &body,
+                ));
+            }),
+    );
 }

@@ -15,7 +15,7 @@ use crate::gui::icons::regular as ph;
 use crate::memory::{self, MemoryComposition, MemoryList, MemorySnapshot};
 use crate::strings::{self, gui::overview as text};
 
-use super::super::app::{CleanProgress, CleanResultMsg, MagicXApp, MapTransition};
+use super::super::app::{CleanProgress, CleanResultMsg, CleanSource, MagicXApp, MapTransition};
 use super::super::theme::{self, Palette};
 use super::super::widgets;
 
@@ -405,7 +405,7 @@ fn draw_progress(ui: &mut egui::Ui, p: &Palette, progress: &CleanProgress) {
         .trim_end_matches("...")
         .trim_end_matches('\u{2026}');
     let label = if label.is_empty() { "Starting" } else { label };
-    let who = if progress.auto {
+    let who = if progress.source == CleanSource::Auto {
         "Auto-clean"
     } else {
         "Cleaning"
@@ -464,7 +464,7 @@ fn draw_result(ui: &mut egui::Ui, p: &Palette, msg: &CleanResultMsg) {
 /// A finished clean: amount freed, time taken, failures, and the steps.
 fn draw_success(ui: &mut egui::Ui, p: &Palette, msg: &CleanResultMsg, result: &SmartCleanResult) {
     let freed = memory::format_bytes(result.reclaimed_bytes().max(0) as u64);
-    let who = if msg.auto {
+    let who = if msg.source == CleanSource::Auto {
         "Auto-clean freed"
     } else {
         "Freed"
