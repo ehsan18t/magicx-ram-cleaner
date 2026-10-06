@@ -25,6 +25,8 @@ cast_sign_loss = "allow"
 # intentionally relaxed.
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
+# Every unsafe block must say why it is sound (restriction lint, opted into).
+undocumented_unsafe_blocks = "deny"
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

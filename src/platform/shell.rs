@@ -164,6 +164,7 @@ pub fn open_url_unelevated(url: &str) -> Result<()> {
     // them and setting `cb` is the documented initialisation.
     let mut startup: STARTUPINFOW = unsafe { std::mem::zeroed() };
     startup.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+    // SAFETY: As above; PROCESS_INFORMATION is an all-output struct.
     let mut info: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
 
     // SAFETY: All pointers reference live, null-terminated buffers or

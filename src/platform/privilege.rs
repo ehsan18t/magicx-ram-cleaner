@@ -5,7 +5,7 @@
 //! and file cache operations require `SeIncreaseQuotaPrivilege`.
 
 use anyhow::{Context, Result, bail};
-use windows_sys::Win32::Foundation::{HANDLE, LUID};
+use windows_sys::Win32::Foundation::{ERROR_NOT_ALL_ASSIGNED, HANDLE, LUID};
 use windows_sys::Win32::Security::{
     AdjustTokenPrivileges, LookupPrivilegeValueW, SE_PRIVILEGE_ENABLED, TOKEN_ADJUST_PRIVILEGES,
     TOKEN_PRIVILEGES, TOKEN_QUERY,
@@ -41,8 +41,8 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
         ) == 0
         {
             bail!(
-                "OpenProcessToken failed (error {}). Are you running as Administrator?",
-                get_last_error()
+                "OpenProcessToken failed ({}). Are you running as Administrator?",
+                std::io::Error::last_os_error()
             );
         }
         // Closed automatically on all exit paths.
@@ -58,9 +58,8 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
 
         if LookupPrivilegeValueW(std::ptr::null(), wide_name.as_ptr(), &raw mut luid) == 0 {
             bail!(
-                "LookupPrivilegeValueW failed for '{}' (error {})",
-                privilege_name,
-                get_last_error()
+                "LookupPrivilegeValueW failed for '{privilege_name}' ({})",
+                std::io::Error::last_os_error()
             );
         }
 
@@ -81,16 +80,15 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
             std::ptr::null_mut(),
         ) == 0
         {
-            let err = get_last_error();
-            bail!("AdjustTokenPrivileges failed for '{privilege_name}' (error {err})");
+            let err = std::io::Error::last_os_error();
+            bail!("AdjustTokenPrivileges failed for '{privilege_name}' ({err})");
         }
 
         // AdjustTokenPrivileges can succeed but still fail to set:
-        let err = get_last_error();
+        let err = std::io::Error::last_os_error().raw_os_error();
         // token guard dropped here - CloseHandle called automatically
 
-        if err == 1300 {
-            // ERROR_NOT_ALL_ASSIGNED
+        if err == Some(ERROR_NOT_ALL_ASSIGNED as i32) {
             bail!("Privilege '{privilege_name}' not held by this account. Run as Administrator.");
         }
 
@@ -117,11 +115,6 @@ pub fn enable_all_privileges() -> Result<()> {
     Ok(())
 }
 
-/// Get the last Win32 error code.
-fn get_last_error() -> u32 {
-    unsafe { windows_sys::Win32::Foundation::GetLastError() }
-}
-
 /// Verify that the process is running with Administrator elevation.
 ///
 /// Uses `CheckTokenMembership` with the built-in Administrators group SID
@@ -132,30 +125,50 @@ fn get_last_error() -> u32 {
 /// Returns an error with a user-friendly message if the process is not
 /// elevated or if the check itself fails.
 pub fn check_admin() -> Result<()> {
-    use windows_sys::Win32::Foundation::LocalFree;
-    use windows_sys::Win32::Security::Authorization::ConvertStringSidToSidW;
-    use windows_sys::Win32::Security::CheckTokenMembership;
+    use windows_sys::Win32::Security::{
+        CheckTokenMembership, CreateWellKnownSid, SECURITY_MAX_SID_SIZE,
+        WinBuiltinAdministratorsSid,
+    };
 
-    // Well-known SID string for BUILTIN\Administrators: S-1-5-32-544
-    let sid_str: Vec<u16> = "S-1-5-32-544\0".encode_utf16().collect();
-    let mut sid: *mut std::ffi::c_void = std::ptr::null_mut();
-
-    // SAFETY: ConvertStringSidToSidW allocates the SID; we free it with LocalFree below.
-    let ok = unsafe { ConvertStringSidToSidW(sid_str.as_ptr(), &raw mut sid) };
-    if ok == 0 {
+    // A SID buffer of the maximum size, aligned for the SID structure.
+    let mut sid = [0usize; (SECURITY_MAX_SID_SIZE as usize).div_ceil(size_of::<usize>())];
+    let mut sid_len = size_of_val(&sid) as u32;
+    // SAFETY: `sid` is a writable buffer of `sid_len` bytes, enough for any
+    // SID; the domain SID is null, as the BUILTIN group needs none.
+    let created = unsafe {
+        CreateWellKnownSid(
+            WinBuiltinAdministratorsSid,
+            std::ptr::null_mut(),
+            sid.as_mut_ptr().cast(),
+            &raw mut sid_len,
+        )
+    };
+    if created == 0 {
         bail!(
-            "Cannot verify admin status. Please run as Administrator.\n\
-             Right-click Command Prompt or PowerShell → 'Run as administrator'"
+            "Cannot build the Administrators group SID to check elevation: {}",
+            std::io::Error::last_os_error()
         );
     }
 
     let mut is_member: i32 = 0;
-    let check_ok = unsafe { CheckTokenMembership(std::ptr::null_mut(), sid, &raw mut is_member) };
-    unsafe { LocalFree(sid) };
-
-    if check_ok == 0 || is_member == 0 {
+    // SAFETY: A null token means "the calling thread's token"; `sid` holds a
+    // valid SID built above and `is_member` is a valid out pointer.
+    let checked = unsafe {
+        CheckTokenMembership(
+            std::ptr::null_mut(),
+            sid.as_mut_ptr().cast(),
+            &raw mut is_member,
+        )
+    };
+    if checked == 0 {
         bail!(
-            "Not running as Administrator.\n\
+            "Cannot check administrator membership: {}",
+            std::io::Error::last_os_error()
+        );
+    }
+    if is_member == 0 {
+        bail!(
+            "Not running as Administrator.
              Right-click Command Prompt or PowerShell → 'Run as administrator'"
         );
     }
