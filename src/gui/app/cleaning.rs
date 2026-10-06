@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::MagicXApp;
-use crate::engine::auto_clean::Decision;
+use crate::engine::auto_clean::{self, Decision};
 use crate::engine::{self, CleanLevel, Progress, SmartCleanResult};
 use crate::memory::{self, MemoryComposition};
 
@@ -93,8 +93,9 @@ impl MagicXApp {
 
     /// Start a cleaning operation on a background thread.
     ///
-    /// `auto` marks cleans triggered by the monitor so the result is logged
-    /// and the cooldown applied only for those.
+    /// `auto` marks cleans triggered by the monitor, whose results go to the
+    /// activity log and may back the cooldown off. Every finished clean
+    /// starts the cooldown.
     pub(super) fn spawn_clean(&mut self, level: CleanLevel, auto: bool) {
         if self.cleaning_in_progress {
             return;
@@ -178,7 +179,8 @@ impl MagicXApp {
     ///
     /// Auto-clean results are logged to the activity log exactly once (here,
     /// not in `logic()`) and start the cooldown, with backoff when the clean
-    /// did not bring memory load below the threshold.
+    /// did not bring memory load below the threshold. A manual clean starts
+    /// the cooldown without backoff, so auto-clean does not follow it at once.
     pub(super) fn poll_clean_results(&mut self) {
         let Ok(msg) = self.clean_rx.try_recv() else {
             return;
@@ -215,16 +217,8 @@ impl MagicXApp {
             };
             self.push_monitor_log(kind, text);
 
-            let load_after = msg.result.as_ref().map_or_else(
-                |_| {
-                    self.latest_snapshot
-                        .lock()
-                        .ok()
-                        .and_then(|s| s.as_ref().map(|s| s.memory_load_percent))
-                },
-                |r| Some(r.overall_after.memory_load_percent),
-            );
             self.sync_auto_clean_limits();
+            let load_after = auto_clean::load_after(&msg.result);
             if self.auto_clean.record_clean(Instant::now(), load_after) {
                 let msg = format!(
                     "Memory is still at {}% or more. Next auto-clean in {} s.",
@@ -233,6 +227,8 @@ impl MagicXApp {
                 );
                 self.push_monitor_log(EventKind::Info, msg);
             }
+        } else {
+            self.auto_clean.note_manual_clean(Instant::now());
         }
 
         self.last_clean_result = Some(msg);

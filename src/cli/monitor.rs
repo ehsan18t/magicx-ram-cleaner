@@ -16,7 +16,7 @@ use anyhow::Result;
 use colored::Colorize;
 
 use super::display;
-use crate::engine::auto_clean::{AutoCleanPolicy, Decision};
+use crate::engine::auto_clean::{self, AutoCleanPolicy, Decision};
 use crate::engine::{self, CleanLevel};
 use crate::memory::MemorySnapshot;
 use crate::platform::console;
@@ -219,12 +219,8 @@ fn handle_threshold_clean(
 
     let outcome = engine::Cleaner::new(&engine::WindowsMemory, display::progress_printer(verbose))
         .smart_clean(auto_level, &[]);
-    let load_after = outcome
-        .as_ref()
-        .ok()
-        .map(|output| output.overall_after.memory_load_percent);
     // The cooldown runs from when the clean finished.
-    let still_high = policy.record_clean(Instant::now(), load_after);
+    let still_high = policy.record_clean(Instant::now(), auto_clean::load_after(&outcome));
     let next_in = policy.effective_cooldown();
 
     match outcome {

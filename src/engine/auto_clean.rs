@@ -3,6 +3,8 @@
 
 use std::time::{Duration, Instant};
 
+use super::SmartCleanResult;
+
 /// Upper bound for the cooldown backoff multiplier.
 pub const MAX_BACKOFF: u32 = 8;
 
@@ -23,7 +25,8 @@ pub enum Decision {
 /// - Cleans when memory load reaches the threshold.
 /// - Waits at least the cooldown after a clean *finishes* before the next,
 ///   so a clean longer than the cooldown cannot be followed by another one
-///   straight away.
+///   straight away. This holds for cleans the user starts too (see
+///   [`AutoCleanPolicy::note_manual_clean`]).
 /// - Doubles the cooldown (up to [`MAX_BACKOFF`] times) after a clean that
 ///   leaves load at or above the threshold, which stops futile back-to-back
 ///   cleans when the load is held up by memory cleaning cannot reclaim. The
@@ -108,6 +111,25 @@ impl AutoCleanPolicy {
         };
         still_high
     }
+
+    /// Record a clean the user started (not the monitor) that finished at
+    /// `now`. The cooldown starts, so an auto-clean cannot follow it straight
+    /// away, but the backoff is left alone: the user's clean says nothing
+    /// about whether auto-cleaning is futile.
+    pub const fn note_manual_clean(&mut self, now: Instant) {
+        self.last_clean = Some(now);
+    }
+}
+
+/// The memory load a clean left behind, for [`AutoCleanPolicy::record_clean`].
+///
+/// `None` when the clean failed, so a failure never backs the cooldown off.
+/// Both front ends use this, so they treat failures the same way.
+pub fn load_after<E>(outcome: &Result<SmartCleanResult, E>) -> Option<u32> {
+    outcome
+        .as_ref()
+        .ok()
+        .map(|result| result.overall_after.memory_load_percent)
 }
 
 #[cfg(test)]
@@ -180,6 +202,20 @@ mod tests {
         assert_eq!(p.effective_cooldown(), COOLDOWN * 4);
         assert!(!p.record_clean(now, None));
         assert_eq!(p.effective_cooldown(), COOLDOWN * 4);
+    }
+
+    #[test]
+    fn a_manual_clean_starts_the_cooldown_without_backing_off() {
+        let mut p = policy();
+        let now = Instant::now();
+        p.record_clean(now, Some(85));
+        p.note_manual_clean(now + Duration::from_secs(100));
+        assert_eq!(p.effective_cooldown(), COOLDOWN * 2, "backoff unchanged");
+        assert_eq!(
+            p.decide(90, now + Duration::from_secs(101)),
+            Decision::CoolingDown,
+            "no auto-clean right after the user's clean"
+        );
     }
 
     #[test]
