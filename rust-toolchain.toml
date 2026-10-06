@@ -1,0 +1,6 @@
+# Pin the toolchain so a new stable release (with new lints) cannot break CI
+# or local builds without a deliberate bump. Update `channel` intentionally.
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
