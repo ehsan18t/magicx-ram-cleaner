@@ -210,7 +210,7 @@ impl Cleaner<'_> {
                 .memory_command(MemoryListCommand::FlushModifiedList)
                 .is_ok()
             {
-                self.wait_for_settle(SettleMode::Quick)?;
+                self.wait_for_settle_silently(SettleMode::Quick)?;
             }
 
             let result = match self.sys.memory_command(MemoryListCommand::PurgeStandbyList) {

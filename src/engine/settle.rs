@@ -36,6 +36,17 @@ impl Cleaner<'_> {
     /// stops changing between consecutive reads or a timeout is reached, then
     /// captures a full snapshot.
     pub(super) fn wait_for_settle(&mut self, mode: SettleMode) -> Result<MemorySnapshot> {
+        self.settle(mode, true)
+    }
+
+    /// [`wait_for_settle`](Self::wait_for_settle) without reporting
+    /// progress, for internal waits that are not an operation of their own.
+    pub(super) fn wait_for_settle_silently(&mut self, mode: SettleMode) -> Result<MemorySnapshot> {
+        self.settle(mode, false)
+    }
+
+    /// Settle polling; reports [`Progress`] only when `report` is set.
+    fn settle(&mut self, mode: SettleMode, report: bool) -> Result<MemorySnapshot> {
         let (max_polls, stable_reads): (u32, u32) = match mode {
             SettleMode::Full => (20, 3),
             SettleMode::Quick => (8, 1),
@@ -59,9 +70,11 @@ impl Cleaner<'_> {
             if current.available_physical.abs_diff(prev_available) < jitter_threshold {
                 stable_count += 1;
                 if stable_count >= stable_reads {
-                    self.report(Progress::Settled {
-                        after_ms: elapsed_ms(poll),
-                    });
+                    if report {
+                        self.report(Progress::Settled {
+                            after_ms: elapsed_ms(poll),
+                        });
+                    }
                     // Only do the expensive full capture once settled
                     return self.sys.snapshot();
                 }
@@ -71,9 +84,11 @@ impl Cleaner<'_> {
             prev_available = current.available_physical;
         }
 
-        self.report(Progress::SettleTimedOut {
-            after_ms: elapsed_ms(max_polls),
-        });
+        if report {
+            self.report(Progress::SettleTimedOut {
+                after_ms: elapsed_ms(max_polls),
+            });
+        }
         self.sys.snapshot()
     }
 }
