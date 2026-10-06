@@ -223,13 +223,9 @@ fn handle_threshold_clean(
         .as_ref()
         .ok()
         .map(|output| output.overall_after.memory_load_percent);
-    if policy.record_clean(Instant::now(), load_after) {
-        println!(
-            "  {} Load is still above the threshold; next auto-clean in {}s at the earliest",
-            "⏳".yellow(),
-            policy.effective_cooldown().as_secs()
-        );
-    }
+    // The cooldown runs from when the clean finished.
+    let still_high = policy.record_clean(Instant::now(), load_after);
+    let next_in = policy.effective_cooldown();
 
     match outcome {
         Ok(output) => {
@@ -238,6 +234,13 @@ fn handle_threshold_clean(
             display::print_clean_summary(&output);
         }
         Err(e) => record_error(&mut state.clean_errors, &e)?,
+    }
+    if still_high {
+        println!(
+            "  {} Load is still above the threshold; next auto-clean in {}s at the earliest",
+            "⏳".yellow(),
+            next_in.as_secs()
+        );
     }
 
     Ok(())
