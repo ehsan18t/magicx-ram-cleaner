@@ -60,7 +60,7 @@ src/
   gui/             — egui graphical interface module
     mod.rs         — module entry point, run_gui() launcher, single-instance guard
     app.rs         — core app state, eframe::App impl, sidebar, layout routing
-    persistence.rs — settings file I/O, Win32 file dialogs, autostart registry
+    persistence.rs — settings file I/O, Win32 file dialogs, autostart (Task Scheduler)
     theme.rs       — colour palette, spacing constants, dark/light Visuals
     tray.rs        — system tray icon with context menu and Phosphor glyph icons
     widgets.rs     — reusable UI components (cards, stat labels, toggle switch)

@@ -48,6 +48,14 @@ These flags can be used with **any** subcommand:
 | `--no-color`    | Disable coloured terminal output (also respects `NO_COLOR` env var) |
 | `-q`, `--quiet` | Suppress banner and non-essential output (implies no verbose)       |
 
+### Scripting, Redirection and Exit Codes
+
+Exit codes: `0` all operations succeeded, `1` one or more operations failed, `2` fatal error, invalid arguments or missing administrator privileges.
+
+Output redirection and pipes work as expected (`status --json > mem.json`, `... | ConvertFrom-Json`), and when the tool runs with captured output but no console (a scheduled task, a script host), it never opens a window or waits for Enter.
+
+MagicX is a single executable that also hosts the GUI, so it is built as a Windows GUI program. Interactive `cmd` and PowerShell therefore do not wait for it to finish: the prompt returns immediately and `%ERRORLEVEL%` / `$LASTEXITCODE` are not updated. When a script needs to wait for the result, use `start /wait magicx-ram-cleaner clean` in `cmd`, or `Start-Process magicx-ram-cleaner -ArgumentList clean -Wait -PassThru` in PowerShell (read `.ExitCode` from the result). Batch files and Task Scheduler always wait.
+
 ---
 
 ## Commands Reference
@@ -383,6 +391,7 @@ Clears the entire standby list. These are cached copies of disk data that are al
 ```
 1. Flush modified page list to disk
 2. Purge ALL standby pages
+3. Leftover sweep (only if needed)
 ```
 First writes all dirty (modified) pages to disk, converting them to standby, then purges the entire standby list. Reclaims more memory than Gentle because it also drains the modified page list. No process working sets are touched.
 
@@ -393,6 +402,7 @@ First writes all dirty (modified) pages to disk, converting them to standby, the
 3. Empty all process working sets (kernel-level)
 4. Flush modified page list to disk
 5. Purge ALL standby pages
+6. Leftover sweep (only if needed)
 ```
 The full sequence. Flushes the file cache and registry cache first (can reclaim GBs on I/O-heavy systems), trims all processes, writes dirty pages to disk, then purges the entire standby list.
 
@@ -406,8 +416,17 @@ The full sequence. Flushes the file cache and registry cache first (can reclaim 
 6. Memory page combining (dedup)
 7. Second-pass: Flush modified list again
 8. Second-pass: Purge standby list again
+9. Leftover sweep (only if needed)
 ```
 Everything plus memory deduplication. The second pass catches pages that were modified during the combining step. Use this when you need maximum free RAM.
+
+### Leftover Sweep
+
+Writing dirty pages to disk finishes asynchronously, so pages still in flight when the standby list is purged land back on it a moment later. From Moderate up, every clean therefore checks what is left on the standby and modified lists afterwards. If the leftovers are larger than 1% of RAM (at least 64 MB), it runs another flush and purge, up to two extra passes. It stops early when a pass shrinks the leftovers by less than a quarter, because that means Windows is refilling its cache as fast as it is purged (for example SysMain prefetching), and further passes would only waste time.
+
+### How "Freed" Is Measured
+
+Windows counts the standby cache as *available* memory, so purging it barely changes the "Available" figure; what it changes is *free* memory (the zeroed and free page lists). Trimming working sets is the opposite: it raises Available but not Free. MagicX measures both and reports the larger change as "Freed", so a Gentle clean that purges 3 GB of standby cache shows 3 GB freed instead of roughly zero. The summary shows Available, Free and Standby before and after so you can see exactly where the memory went. Free and Standby need the kernel page-list query, which requires running as Administrator.
 
 ---
 

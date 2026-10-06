@@ -98,7 +98,7 @@ src/
 +-- gui/              # egui graphical interface module
 |   +-- mod.rs        # Module entry, run_gui() launcher
 |   +-- app.rs        # Core app state, eframe::App impl, sidebar, layout routing
-|   +-- persistence.rs # Settings I/O, Win32 file dialogs, autostart registry
+|   +-- persistence.rs # Settings I/O, Win32 file dialogs, autostart (Task Scheduler)
 |   +-- theme.rs      # Colour palette, spacing, dark/light themes
 |   +-- tray.rs       # System tray icon with context menu
 |   +-- widgets.rs    # Reusable UI components (cards, stat labels, toggle)
