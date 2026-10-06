@@ -167,18 +167,24 @@ The binary will be at `target\release\magicx-ram-cleaner.exe`.
 
 ### Development
 
+The project always builds with the latest stable Rust (`rust-toolchain.toml` selects it, and rustup installs it on first use).
+
 ```powershell
-cargo build          # Debug build
-cargo test           # Run tests
-cargo clippy         # Check for warnings
+.\scripts\install-hooks.ps1   # Once after cloning: fmt, clippy and tests run before every commit
+cargo build                   # Debug build
+cargo test                    # Unit, simulation and architecture tests
+cargo clippy --all-targets    # Lints (deny level)
 cargo run -- clean -l gentle -v
 ```
+
+See the [Contributing Guide](docs/CONTRIBUTING.md) for the full quality gates and commit conventions.
 
 ---
 
 ## Documentation
 
 - [Usage Guide](docs/USAGE.md) - Commands reference, cleaning levels, examples, FAQ
+- [Architecture](docs/ARCHITECTURE.md) - Layers, dependency rules and design decisions
 - [Contributing Guide](docs/CONTRIBUTING.md)
 - [Rust Implementation Guide](docs/RUST_IMPLEMENTATION_GUIDE.md)
 - [Windows Memory Internals](docs/WINDOWS_MEMORY_INTERNALS.md)
