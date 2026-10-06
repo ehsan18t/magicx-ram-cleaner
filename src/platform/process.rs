@@ -1,7 +1,6 @@
 //! Process enumeration, per-process memory counters and working-set trimming.
 
 use anyhow::{Result, bail};
-use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
@@ -14,7 +13,9 @@ use windows_sys::Win32::System::Threading::{
     PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA,
 };
 
-use super::handle::HandleGuard;
+use std::os::windows::io::{AsRawHandle, OwnedHandle};
+
+use super::handle::{owned_or_invalid, owned_or_null};
 use super::wide::extract_exe_name;
 
 /// One running process, as listed by a Toolhelp snapshot.
@@ -33,11 +34,12 @@ pub struct ProcessEntry {
 pub fn processes() -> Result<Vec<ProcessEntry>> {
     // SAFETY: CreateToolhelp32Snapshot with TH32CS_SNAPPROCESS and 0 is the
     // standard documented way to enumerate all running processes.
-    let snap_raw = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
-    if snap_raw == INVALID_HANDLE_VALUE {
+    // The snapshot handle is owned and closed when dropped.
+    let Some(snapshot) =
+        (unsafe { owned_or_invalid(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)) })
+    else {
         bail!("CreateToolhelp32Snapshot failed");
-    }
-    let snapshot = HandleGuard::new(snap_raw);
+    };
 
     // SAFETY: PROCESSENTRY32W is plain data; zeroing it and setting dwSize is
     // the documented initialisation.
@@ -47,7 +49,7 @@ pub fn processes() -> Result<Vec<ProcessEntry>> {
     let mut entries = Vec::new();
     // SAFETY: Process32FirstW/Process32NextW iterate the Toolhelp snapshot.
     // The entry struct is properly zeroed and sized.
-    let mut has_entry = unsafe { Process32FirstW(snapshot.raw(), &raw mut entry) } != 0;
+    let mut has_entry = unsafe { Process32FirstW(snapshot.as_raw_handle(), &raw mut entry) } != 0;
     while has_entry {
         let pid = entry.th32ProcessID;
         if pid != 0 && pid != 4 {
@@ -58,7 +60,7 @@ pub fn processes() -> Result<Vec<ProcessEntry>> {
             });
         }
         // SAFETY: As above.
-        has_entry = unsafe { Process32NextW(snapshot.raw(), &raw mut entry) } != 0;
+        has_entry = unsafe { Process32NextW(snapshot.as_raw_handle(), &raw mut entry) } != 0;
     }
     Ok(entries)
 }
@@ -90,11 +92,9 @@ pub struct MemoryCounters {
 }
 
 /// Open `pid` with `access`, or `None` if access is denied or it has exited.
-fn open_process(pid: u32, access: PROCESS_ACCESS_RIGHTS) -> Option<HandleGuard> {
-    // SAFETY: OpenProcess has no memory-safety preconditions; the handle (or
-    // null on failure) is owned by the guard.
-    let handle = HandleGuard::new(unsafe { OpenProcess(access, 0, pid) });
-    (!handle.raw().is_null()).then_some(handle)
+fn open_process(pid: u32, access: PROCESS_ACCESS_RIGHTS) -> Option<OwnedHandle> {
+    // SAFETY: OpenProcess returns null or a new handle that we own.
+    unsafe { owned_or_null(OpenProcess(access, 0, pid)) }
 }
 
 /// Query the memory counters of process `pid`. Returns `None` if the process
@@ -126,7 +126,7 @@ pub fn memory_counters(pid: u32) -> Option<MemoryCounters> {
         let mut counters: PROCESS_MEMORY_COUNTERS_EX2 = std::mem::zeroed();
         counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX2>() as u32;
         let ok = K32GetProcessMemoryInfo(
-            handle.raw(),
+            handle.as_raw_handle(),
             std::ptr::from_mut(&mut counters).cast::<PROCESS_MEMORY_COUNTERS>(),
             counters.cb,
         );
@@ -145,7 +145,7 @@ pub fn memory_counters(pid: u32) -> Option<MemoryCounters> {
     let base = unsafe {
         let mut counters: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
         counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
-        let ok = K32GetProcessMemoryInfo(handle.raw(), &raw mut counters, counters.cb);
+        let ok = K32GetProcessMemoryInfo(handle.as_raw_handle(), &raw mut counters, counters.cb);
         (ok != 0).then_some(counters)
     }?;
     Some(MemoryCounters {
@@ -166,5 +166,5 @@ pub fn memory_counters(pid: u32) -> Option<MemoryCounters> {
 pub fn empty_working_set(pid: u32) -> bool {
     open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SET_QUOTA)
         // SAFETY: The handle is a valid process handle with the required rights.
-        .is_some_and(|handle| unsafe { K32EmptyWorkingSet(handle.raw()) } != 0)
+        .is_some_and(|handle| unsafe { K32EmptyWorkingSet(handle.as_raw_handle()) } != 0)
 }

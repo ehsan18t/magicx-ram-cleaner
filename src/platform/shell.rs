@@ -28,7 +28,9 @@ pub fn open_url_unelevated(url: &str) -> Result<()> {
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{GetShellWindow, GetWindowThreadProcessId};
 
-    use crate::platform::{handle::HandleGuard, wide::to_wide};
+    use std::os::windows::io::AsRawHandle;
+
+    use crate::platform::{handle::owned_or_null, wide::to_wide};
 
     if !url.starts_with("https://")
         || url
@@ -50,29 +52,37 @@ pub fn open_url_unelevated(url: &str) -> Result<()> {
         bail!("cannot identify the desktop shell process");
     }
 
-    // SAFETY: OpenProcess has no memory-safety preconditions; the handle (or
-    // null) is owned by the guard.
-    let shell_process =
-        HandleGuard::new(unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, shell_pid) });
-    if shell_process.raw().is_null() {
+    // SAFETY: OpenProcess returns null or a new handle that we own.
+    let Some(shell_process) =
+        (unsafe { owned_or_null(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, shell_pid)) })
+    else {
         bail!("cannot open the desktop shell process");
-    }
+    };
 
     let mut shell_token = std::ptr::null_mut();
     // SAFETY: `shell_process` is a valid process handle; the token handle
-    // is written to a valid out pointer and owned by a guard right after.
-    if unsafe { OpenProcessToken(shell_process.raw(), TOKEN_DUPLICATE, &raw mut shell_token) } == 0
+    // is written to a valid out pointer and owned right after.
+    if unsafe {
+        OpenProcessToken(
+            shell_process.as_raw_handle(),
+            TOKEN_DUPLICATE,
+            &raw mut shell_token,
+        )
+    } == 0
     {
         bail!("cannot open the desktop shell token");
     }
-    let shell_token = HandleGuard::new(shell_token);
+    // SAFETY: OpenProcessToken succeeded, so this is a new handle we own.
+    let Some(shell_token) = (unsafe { owned_or_null(shell_token) }) else {
+        bail!("cannot open the desktop shell token");
+    };
 
     let mut primary = std::ptr::null_mut();
     // SAFETY: Duplicates a valid token handle into a new primary token,
-    // written to a valid out pointer and owned by a guard right after.
+    // written to a valid out pointer and owned right after.
     let duplicated = unsafe {
         DuplicateTokenEx(
-            shell_token.raw(),
+            shell_token.as_raw_handle(),
             TOKEN_QUERY
                 | TOKEN_DUPLICATE
                 | TOKEN_ASSIGN_PRIMARY
@@ -87,7 +97,10 @@ pub fn open_url_unelevated(url: &str) -> Result<()> {
     if duplicated == 0 {
         bail!("cannot duplicate the desktop shell token");
     }
-    let primary = HandleGuard::new(primary);
+    // SAFETY: DuplicateTokenEx succeeded, so this is a new handle we own.
+    let Some(primary) = (unsafe { owned_or_null(primary) }) else {
+        bail!("cannot duplicate the desktop shell token");
+    };
 
     let rundll32 = super::paths::system_directory()?
         .join("rundll32.exe")
@@ -107,7 +120,7 @@ pub fn open_url_unelevated(url: &str) -> Result<()> {
     // Requires SeImpersonatePrivilege, which Administrators hold.
     let created = unsafe {
         CreateProcessWithTokenW(
-            primary.raw(),
+            primary.as_raw_handle(),
             0,
             application.as_ptr(),
             command_line.as_mut_ptr(),
@@ -125,7 +138,8 @@ pub fn open_url_unelevated(url: &str) -> Result<()> {
         );
     }
     // The new process runs on its own; only our handles to it are closed.
-    drop(HandleGuard::new(info.hThread));
-    drop(HandleGuard::new(info.hProcess));
+    // SAFETY: CreateProcessWithTokenW succeeded, so both handles are new
+    // handles owned by us; dropping them closes them.
+    drop(unsafe { (owned_or_null(info.hThread), owned_or_null(info.hProcess)) });
     Ok(())
 }

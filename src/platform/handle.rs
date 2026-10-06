@@ -1,37 +1,36 @@
-//! Ownership of Win32 kernel handles.
+//! Taking ownership of Win32 kernel handles as [`OwnedHandle`].
+//!
+//! Win32 APIs report failure with either a null handle (`OpenProcess`,
+//! `CreateMutexW`, ...) or `INVALID_HANDLE_VALUE` (`CreateToolhelp32Snapshot`,
+//! `CreateFileW`, ...). These helpers turn both conventions into an
+//! `Option<OwnedHandle>`, which closes the handle exactly once when dropped.
 
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+use std::os::windows::io::{HandleOrInvalid, HandleOrNull, OwnedHandle};
 
-/// RAII wrapper for Win32 `HANDLE` values.
+use windows_sys::Win32::Foundation::HANDLE;
+
+/// Own a handle from an API that returns null on failure.
 ///
-/// Automatically calls `CloseHandle` on drop, preventing handle leaks if a
-/// panic occurs between the `Open*` / `CreateToolhelp32Snapshot` call and the
-/// explicit `CloseHandle`. Null and `INVALID_HANDLE_VALUE` handles are not
-/// closed (they are never valid).
-pub struct HandleGuard {
-    handle: HANDLE,
+/// # Safety
+///
+/// `raw` must be null or a valid, open handle that the caller owns and does
+/// not close or use as owned elsewhere.
+pub unsafe fn owned_or_null(raw: HANDLE) -> Option<OwnedHandle> {
+    // SAFETY: Upheld by the caller.
+    unsafe { HandleOrNull::from_raw_handle(raw) }
+        .try_into()
+        .ok()
 }
 
-impl HandleGuard {
-    /// Wrap a raw `HANDLE`. The caller must ensure the handle is valid
-    /// and needs closing, or is null / `INVALID_HANDLE_VALUE`.
-    pub const fn new(handle: HANDLE) -> Self {
-        Self { handle }
-    }
-
-    /// Borrow the underlying handle for FFI calls.
-    #[must_use]
-    pub const fn raw(&self) -> HANDLE {
-        self.handle
-    }
-}
-
-impl Drop for HandleGuard {
-    fn drop(&mut self) {
-        if !self.handle.is_null() && self.handle != INVALID_HANDLE_VALUE {
-            // SAFETY: handle is a valid, open Win32 handle that must be closed.
-            // CloseHandle is safe for any valid handle and idempotent for closed ones.
-            unsafe { CloseHandle(self.handle) };
-        }
-    }
+/// Own a handle from an API that returns `INVALID_HANDLE_VALUE` on failure.
+///
+/// # Safety
+///
+/// `raw` must be `INVALID_HANDLE_VALUE` or a valid, open handle that the
+/// caller owns and does not close or use as owned elsewhere.
+pub unsafe fn owned_or_invalid(raw: HANDLE) -> Option<OwnedHandle> {
+    // SAFETY: Upheld by the caller.
+    unsafe { HandleOrInvalid::from_raw_handle(raw) }
+        .try_into()
+        .ok()
 }

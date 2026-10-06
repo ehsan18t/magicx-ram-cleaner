@@ -79,7 +79,7 @@ pub fn run_gui() -> Result<()> {
     // ── Single-instance guard ────────────────────────────────────────
     // Acquire a system-wide named mutex. If another instance is already
     // running, its window is restored and we exit silently.
-    let Some(_instance_guard) = crate::platform::instance::try_acquire_single_instance() else {
+    let Some(_instance_guard) = crate::platform::instance::SingleInstance::acquire() else {
         return Ok(());
     };
 

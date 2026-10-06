@@ -12,7 +12,9 @@ use windows_sys::Win32::Security::{
 };
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
-use crate::platform::{handle::HandleGuard, wide::to_wide};
+use std::os::windows::io::AsRawHandle;
+
+use crate::platform::{handle::owned_or_null, wide::to_wide};
 
 /// Enable a named Windows privilege on the current process token.
 ///
@@ -29,7 +31,7 @@ use crate::platform::{handle::HandleGuard, wide::to_wide};
 /// Returns an error if the privilege cannot be looked up or adjusted.
 pub fn enable_privilege(privilege_name: &str) -> Result<()> {
     // SAFETY: All pointers point to valid stack-allocated variables with correct
-    // sizes. The token handle is wrapped in HandleGuard for automatic cleanup.
+    // sizes. The token handle is owned (and closed) by an OwnedHandle.
     unsafe {
         let mut raw_token: HANDLE = std::ptr::null_mut();
         if OpenProcessToken(
@@ -43,8 +45,10 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
                 get_last_error()
             );
         }
-        // RAII guard: CloseHandle is called automatically on all exit paths
-        let token = HandleGuard::new(raw_token);
+        // Closed automatically on all exit paths.
+        let Some(token) = owned_or_null(raw_token) else {
+            bail!("OpenProcessToken returned no token");
+        };
 
         let wide_name = to_wide(privilege_name);
         let mut luid = LUID {
@@ -69,7 +73,7 @@ pub fn enable_privilege(privilege_name: &str) -> Result<()> {
         };
 
         if AdjustTokenPrivileges(
-            token.raw(),
+            token.as_raw_handle(),
             0, // do not disable all
             &raw const tp,
             0,
