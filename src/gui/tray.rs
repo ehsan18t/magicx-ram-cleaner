@@ -102,7 +102,7 @@ impl TrayHandle {
     /// [`egui::Context::request_repaint`] when a tray event arrives.
     ///
     /// `hwnd` is the Win32 window handle of the main application window
-    /// (obtained via [`crate::console::find_app_window`]).  The watcher
+    /// (taken from eframe's raw window handle).  The watcher
     /// thread calls [`crate::console::uncloak_window`] before dispatching
     /// an action so that the event loop can deliver `RedrawRequested` and
     /// the main thread's `logic()` runs to process the action.
@@ -127,6 +127,8 @@ impl TrayHandle {
             .with_icon(icon)
             .with_menu(Box::new(menu))
             .with_tooltip(strings::tray::TOOLTIP)
+            // Left-click restores the window; the menu is for right-click only.
+            .with_menu_on_left_click(false)
             .build()
             .map_err(|e| format!("Failed to register tray icon: {e}"))?;
 
