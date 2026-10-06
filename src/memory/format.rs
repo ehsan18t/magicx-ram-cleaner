@@ -3,22 +3,20 @@
 /// Format bytes into a human-readable string (e.g., "3.42 GB").
 #[must_use]
 pub fn format_bytes(bytes: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = 1024 * KB;
-    const GB: u64 = 1024 * MB;
-    const TB: u64 = 1024 * GB;
+    const UNITS: [&str; 4] = ["KB", "MB", "GB", "TB"];
 
-    if bytes >= TB {
-        format!("{:.2} TB", bytes as f64 / TB as f64)
-    } else if bytes >= GB {
-        format!("{:.2} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.2} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.2} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{bytes} B")
+    if bytes < 1024 {
+        return format!("{bytes} B");
     }
+    let mut value = bytes as f64 / 1024.0;
+    let mut unit = 0;
+    // Step up a unit when the value would round to 1024.00 in this one, so
+    // 1 MiB - 1 shows as "1.00 MB" rather than "1024.00 KB".
+    while unit + 1 < UNITS.len() && (value * 100.0).round() >= 1024.0 * 100.0 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    format!("{value:.2} {}", UNITS[unit])
 }
 
 /// Format a signed byte delta with an explicit sign (e.g. "+1.50 GB", "-12.00 MB").
@@ -72,6 +70,13 @@ mod tests {
         assert_eq!(format_signed_bytes(1536), "+1.50 KB");
         assert_eq!(format_signed_bytes(-1024 * 1024), "-1.00 MB");
         assert_eq!(format_signed_bytes(i64::MIN).chars().next(), Some('-'));
+    }
+
+    #[test]
+    fn values_just_below_a_unit_round_up_into_it() {
+        assert_eq!(format_bytes(1024 * 1024 - 1), "1.00 MB");
+        assert_eq!(format_bytes(1024 * 1024 * 1024 - 1), "1.00 GB");
+        assert_eq!(format_bytes(1024 * 1024 * 1023), "1023.00 MB");
     }
 
     #[test]
