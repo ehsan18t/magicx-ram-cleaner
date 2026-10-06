@@ -54,4 +54,4 @@ Windows counts the standby cache as available memory, so purging it barely chang
 - **A new OS call:** add a safe wrapper to the matching `platform` module (or a new one), with a `SAFETY:` comment on each `unsafe` block.
 - **A new cleaning operation:** add it to `MemorySystem` (and `WindowsMemory`), implement it as a `Cleaner` method in `engine/operations.rs`, teach the simulation in `engine/fake.rs` how it moves pages, and add a behaviour test.
 - **A new CLI command:** add the variant in `cli/args.rs` and its handling in `cli/commands.rs`.
-- **A new GUI panel:** add a file in `gui/panels/` and an entry in `gui/sidebar.rs`.
+- **A new GUI panel:** add a file in `gui/panels/` and an entry in `gui/nav.rs`.

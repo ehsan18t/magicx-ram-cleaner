@@ -122,9 +122,9 @@ src/
     +-- app/            # App state + eframe loop, cleaning, background, tray events
     +-- settings.rs     # Persisted settings, defaults, valid ranges
     +-- persistence.rs  # Settings file I/O, import/export
-    +-- sidebar.rs      # Navigation
-    +-- theme.rs, tray.rs, widgets.rs
-    +-- panels/         # about, dashboard, monitor, processes, settings
+    +-- nav.rs          # Navigation pane
+    +-- theme.rs, fonts.rs, tray.rs, widgets.rs
+    +-- panels/         # overview, monitor, processes, settings, about
 tests/
 +-- architecture.rs     # Enforces the layering and the unsafe boundary
 ```

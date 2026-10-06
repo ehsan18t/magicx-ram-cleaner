@@ -2,6 +2,8 @@
 
 The GUI redesign: the vocabulary it uses and the decisions behind it. Decisions are settled one at a time and recorded here before any of them is built.
 
+Status: built in four phases (foundations, Overview, Settings with Processes and About, Monitor). Every item in the acceptance checklist below is in the app.
+
 ## Glossary
 
 **Memory list**: one of the kernel's physical page lists the app reads from `MemorySnapshot`: In use, Modified, Standby, Free. Together they add up to installed RAM.

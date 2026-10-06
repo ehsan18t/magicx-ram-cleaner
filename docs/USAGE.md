@@ -666,11 +666,11 @@ Currently built for x86-64 only. ARM support may be added in the future.
 ### Can I use this without the command line?
 
 **Yes.** MagicX includes a built-in GUI. Double-click the exe (or run it without arguments) to launch the graphical interface with:
-- Real-time memory dashboard with usage bars and history chart
-- One-click cleaning at all 4 levels (Gentle / Moderate / Aggressive / Nuclear)
-- Continuous monitoring with automatic cleaning at configurable thresholds
-- Process list sorted by memory usage
-- Settings panel for dark mode, tray icon, and context menu integration
+- An Overview with a live map of your RAM (in use, modified, standby, free) and an estimate of what each level frees
+- Cleaning at all 4 levels (Gentle / Moderate / Aggressive / Nuclear) with progress and a before and after view
+- A Monitor with a 10-minute memory chart and automatic cleaning at a threshold you set
+- A process list grouped by program, with a Trim action per program
+- Settings for the theme (System, Light or Dark), the tray icon, autostart and the context menu
 
 You can also install Desktop context menu integration:
 ```powershell

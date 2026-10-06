@@ -138,9 +138,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # GUI framework (egui + eframe with glow renderer for smaller binary)
-eframe = { version = "0.33", default-features = false, features = ["glow", "default_fonts"] }
-egui_extras = "0.33"
-egui-phosphor = { version = "0.11", features = ["regular"] }
+eframe = { version = "0.36.2", default-features = false, features = ["glow", "default_fonts"] }
+egui-phosphor = { version = "0.14", default-features = false, features = ["subset"] }
 tray-icon = "0.21"
 image = { version = "0.25", default-features = false, features = ["png", "ico"] }
 ab_glyph = "0.2"
@@ -1709,22 +1708,26 @@ src/
     mod.rs            - run_gui() launcher
     app/
       mod.rs          - MagicXApp state, eframe::App impl, Panel enum
-      cleaning.rs     - cleans on a worker thread, collecting results, auto-clean monitor
+      appearance.rs   - follows the Windows theme and accent colour
+      cleaning.rs     - cleans on a worker thread with progress, auto-clean monitor
       background.rs   - background threads refreshing memory stats and the process list
+      history.rs      - the last 10 minutes of readings for the Monitor chart
+      trim.rs         - per-program Trim on a worker thread
       tray_events.rs  - tray icon events and tray icon rebuilds
     settings.rs       - GuiSettings: persisted fields, defaults, valid ranges
-    persistence.rs    - SettingsManager: settings file I/O, import/export
-    sidebar.rs        - navigation sidebar and panel routing
-    theme.rs          - colour palette, spacing constants, dark/light Visuals
+    persistence.rs    - SettingsManager: settings file I/O, import/export, migration
+    nav.rs            - navigation pane and page routing
+    theme.rs          - palette, type scale, spacing, egui visuals
+    fonts.rs          - Segoe UI from the system fonts folder
     tray.rs           - system tray icon with context menu and Phosphor glyph icons
-    widgets.rs        - reusable UI components (cards, stat labels, toggle switch)
-    panels/           - one file per tab
+    widgets.rs        - cards, Settings rows, switches, segmented controls, sliders
+    panels/           - one file per page
       mod.rs          - panel module re-exports
-      about.rs        - app info, developer profile, project details
-      dashboard.rs    - memory overview + one-click cleaning buttons
-      monitor.rs      - auto-clean configuration UI
-      processes.rs    - sortable grouped process memory table
-      settings.rs     - appearance, integration, backup & restore
+      overview.rs     - memory map, level picker, progress and result
+      monitor.rs      - history chart, auto-clean rules, activity
+      processes.rs    - grouped process list with Trim
+      settings.rs     - theme, Windows integration, backup
+      about.rs        - app info, developer, project details
 tests/
   architecture.rs     - enforces the layering and the unsafe boundary
 ```
