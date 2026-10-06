@@ -26,7 +26,8 @@ pub struct ProcessMemoryInfo {
     /// (Windows 10 1709+). Falls back to the full `working_set` on older
     /// builds where the extended struct is not supported.
     pub private_working_set: u64,
-    /// Whether this is a Windows process (see [`is_windows_process`]).
+    /// Whether this is a Windows process: its program file is in the Windows
+    /// folder, or it has no readable program file at all.
     pub windows_process: bool,
     /// When the process started (`FILETIME` ticks), used to recognise it
     /// again later even if Windows reuses its PID.
