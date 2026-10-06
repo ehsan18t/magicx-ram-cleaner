@@ -92,10 +92,15 @@ impl AutoCleanPolicy {
     /// `load_after` percent (`None` if unknown, e.g. the clean failed).
     ///
     /// Returns `true` when load is still at or above the threshold, in which
-    /// case the cooldown has been backed off.
+    /// case the cooldown has been backed off. An unknown load keeps the
+    /// current backoff: a failed clean says nothing about whether cleaning
+    /// can bring the load down.
     pub fn record_clean(&mut self, now: Instant, load_after: Option<u32>) -> bool {
         self.last_clean = Some(now);
-        let still_high = load_after.is_some_and(|load| load >= self.threshold);
+        let Some(load) = load_after else {
+            return false;
+        };
+        let still_high = load >= self.threshold;
         self.backoff = if still_high {
             (self.backoff * 2).min(MAX_BACKOFF)
         } else {
@@ -167,10 +172,14 @@ mod tests {
     }
 
     #[test]
-    fn unknown_load_after_a_failed_clean_does_not_back_off() {
+    fn failed_clean_keeps_the_current_backoff() {
         let mut p = policy();
-        assert!(!p.record_clean(Instant::now(), None));
-        assert_eq!(p.effective_cooldown(), COOLDOWN);
+        let now = Instant::now();
+        p.record_clean(now, Some(85));
+        p.record_clean(now, Some(85));
+        assert_eq!(p.effective_cooldown(), COOLDOWN * 4);
+        assert!(!p.record_clean(now, None));
+        assert_eq!(p.effective_cooldown(), COOLDOWN * 4);
     }
 
     #[test]
