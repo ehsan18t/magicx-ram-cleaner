@@ -73,6 +73,16 @@ pub struct Model {
     pub exited: Vec<u32>,
     /// Bytes each process gives back when trimmed (0 if not listed).
     pub trim_freed: Vec<(u32, u64)>,
+    /// Offsets in bytes added to the available memory of successive settle
+    /// readings, consumed front to back (empty = memory is still). Lets a
+    /// test make memory keep moving so the settle loop has to wait.
+    pub reading_offsets: VecDeque<u64>,
+    /// Win32 error the file cache flush fails with, if any.
+    pub failing_file_cache: Option<u32>,
+    /// Status the registry flush fails with, if any.
+    pub failing_registry: Option<NtStatus>,
+    /// Status page combining fails with, if any.
+    pub failing_combine: Option<NtStatus>,
 }
 
 impl Default for Model {
@@ -99,6 +109,10 @@ impl Default for Model {
             protected: vec![4000],
             exited: Vec::new(),
             trim_freed: Vec::new(),
+            reading_offsets: VecDeque::new(),
+            failing_file_cache: None,
+            failing_registry: None,
+            failing_combine: None,
         }
     }
 }
@@ -188,10 +202,11 @@ impl MemorySystem for FakeSystem {
     }
 
     fn quick_reading(&self) -> Result<QuickMemoryReading> {
-        let m = self.model.borrow();
+        let mut m = self.model.borrow_mut();
+        let offset = m.reading_offsets.pop_front().unwrap_or(0);
         Ok(QuickMemoryReading {
             total_physical: Self::total_pages(&m) * PAGE,
-            available_physical: (m.standby + m.free) * PAGE,
+            available_physical: (m.standby + m.free) * PAGE + offset,
         })
     }
 
@@ -235,6 +250,9 @@ impl MemorySystem for FakeSystem {
     fn flush_file_cache(&self) -> Result<(), u32> {
         self.calls.borrow_mut().push(Call::FlushFileCache);
         let mut m = self.model.borrow_mut();
+        if let Some(error) = m.failing_file_cache {
+            return Err(error);
+        }
         let m = &mut *m;
         let cache = m.file_cache;
         m.file_cache = 0;
@@ -244,12 +262,15 @@ impl MemorySystem for FakeSystem {
 
     fn flush_registry(&self) -> Result<(), NtStatus> {
         self.calls.borrow_mut().push(Call::FlushRegistry);
-        Ok(())
+        self.model.borrow().failing_registry.map_or(Ok(()), Err)
     }
 
     fn combine_pages(&self) -> Result<usize, NtStatus> {
         self.calls.borrow_mut().push(Call::Combine);
         let mut m = self.model.borrow_mut();
+        if let Some(status) = m.failing_combine {
+            return Err(status);
+        }
         let m = &mut *m;
         Ok(shift(&mut m.in_use, &mut m.free, 1000) as usize)
     }

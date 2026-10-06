@@ -55,7 +55,8 @@ impl Cleaner<'_> {
         let first = self.sys.quick_reading()?;
 
         // Scale the jitter threshold to total RAM: 0.01% of physical memory,
-        // with a 4 MB floor. On a 16 GB system this is ~1.6 MB; on 128 GB ~13 MB.
+        // with a 4 MB floor. That is 4 MB on anything up to about 40 GB, and
+        // about 13 MB on 128 GB.
         let jitter_threshold = (first.total_physical / 10_000).max(MIN_JITTER_BYTES);
 
         let mut prev_available = first.available_physical;

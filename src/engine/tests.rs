@@ -434,6 +434,77 @@ fn sweep_reports_only_its_final_settle() {
     assert_eq!(settle_times(&events), [FULL, FULL, FULL]);
 }
 
+/// Run one standby purge (a Full settle) with scripted settle readings.
+fn purge_with_readings(offsets: impl IntoIterator<Item = u64>) -> Vec<Progress> {
+    let sys = FakeSystem::new(Model {
+        reading_offsets: offsets.into_iter().collect(),
+        ..Model::default()
+    });
+    let mut events = Vec::new();
+    Cleaner::new(&sys, |p| events.push(p))
+        .purge_standby()
+        .unwrap();
+    events
+}
+
+#[test]
+fn settling_starts_over_when_memory_jumps() {
+    const JUMP: u64 = 100 * 1024 * 1024;
+    // Readings: the start, two still polls, a jump, then still again. The
+    // jump resets the count, so three still polls are needed after it.
+    let events = purge_with_readings([0, 0, 0, JUMP, JUMP, JUMP, JUMP]);
+    assert_eq!(settle_times(&events), [600]);
+}
+
+#[test]
+fn small_jitter_counts_as_settled() {
+    // Moves below the 4 MB floor are kernel jitter, not settling.
+    let events = purge_with_readings([0, 1024, 2048, 1024]);
+    assert_eq!(settle_times(&events), [FULL]);
+}
+
+#[test]
+fn settling_gives_up_after_the_timeout() {
+    // Memory moves by 100 MB on every poll for longer than 20 polls.
+    let events = purge_with_readings((0..30).map(|i| i * 100 * 1024 * 1024));
+    assert_eq!(settle_times(&events), [] as [u64; 0]);
+    assert!(events.contains(&Progress::SettleTimedOut { after_ms: 2000 }));
+}
+
+#[test]
+fn failed_flushes_and_combining_are_reported_and_the_chain_goes_on() {
+    let sys = FakeSystem::new(Model {
+        failing_file_cache: Some(5),
+        failing_registry: Some(0xC000_0022_u32 as i32),
+        failing_combine: Some(0xC000_0002_u32 as i32),
+        ..Model::default()
+    });
+    let (result, _) = run(&sys, CleanLevel::Nuclear, &[]);
+    let failed: Vec<&str> = result
+        .results
+        .iter()
+        .filter(|r| !r.success)
+        .map(|r| r.operation.as_str())
+        .collect();
+    assert_eq!(
+        failed,
+        [
+            "Flush File Cache",
+            "Flush Registry Cache",
+            "Memory Combining"
+        ]
+    );
+    assert_eq!(result.failed_count(), 3);
+    // The second flush and purge still ran after combining failed.
+    assert_eq!(
+        sys.calls()
+            .iter()
+            .filter(|c| **c == Call::Command(PurgeStandbyList))
+            .count(),
+        2
+    );
+}
+
 #[test]
 fn single_operations_settle_fully() {
     let sys = FakeSystem::default();
