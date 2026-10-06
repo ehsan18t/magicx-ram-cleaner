@@ -236,7 +236,9 @@ pub(super) fn draw_page(ui: &mut egui::Ui, app: &mut MagicXApp) {
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(p.bg))
         .show(ui, |ui| {
+            // Each page keeps its own scroll position.
             egui::ScrollArea::vertical()
+                .id_salt(app.active_panel)
                 .content_margin(egui::Margin {
                     left: 28,
                     right: 28,

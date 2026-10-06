@@ -286,3 +286,76 @@ pub fn secondary_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
             .min_size(egui::vec2(80.0, theme::CONTROL_HEIGHT)),
     )
 }
+
+/// A Windows 11 slider for whole numbers: a rail with the accent filling up
+/// to the thumb, and the value shown on its left by `format`. Drag or click
+/// the rail, or use the arrow keys when it has focus.
+pub fn slider(
+    ui: &mut egui::Ui,
+    value: &mut u64,
+    range: std::ops::RangeInclusive<u64>,
+    step: u64,
+    format: impl Fn(u64) -> String,
+) -> egui::Response {
+    let p = theme::palette();
+    let (min, max) = (*range.start(), *range.end());
+    let step = step.max(1);
+    ui.horizontal(|ui| {
+        let (rect, mut response) = ui.allocate_exact_size(
+            egui::vec2(180.0, theme::CONTROL_HEIGHT),
+            egui::Sense::click_and_drag(),
+        );
+        let rail = rect.shrink2(egui::vec2(10.0, 0.0));
+        let span = (max - min).max(1) as f32;
+
+        let press = response
+            .interact_pointer_pos()
+            .filter(|_| response.dragged() || response.clicked());
+        let mut new = press.map_or(*value, |pos| {
+            let t = ((pos.x - rail.left()) / rail.width()).clamp(0.0, 1.0);
+            let steps = (t * span / step as f32).round() as u64;
+            min + steps * step
+        });
+        if response.has_focus() {
+            ui.input(|i| {
+                if i.key_pressed(egui::Key::ArrowRight) || i.key_pressed(egui::Key::ArrowUp) {
+                    new = new.saturating_add(step);
+                }
+                if i.key_pressed(egui::Key::ArrowLeft) || i.key_pressed(egui::Key::ArrowDown) {
+                    new = new.saturating_sub(step);
+                }
+            });
+        }
+        let new = new.clamp(min, max);
+        if new != *value {
+            *value = new;
+            response.mark_changed();
+        }
+
+        let t = (*value - min) as f32 / span;
+        let x = egui::lerp(rail.left()..=rail.right(), t);
+        let track = egui::Rect::from_center_size(rail.center(), egui::vec2(rail.width(), 4.0));
+        let painter = ui.painter();
+        painter.rect_filled(track, egui::CornerRadius::same(2), p.control_stroke);
+        let filled = egui::Rect::from_min_max(track.min, egui::pos2(x, track.max.y));
+        painter.rect_filled(filled, egui::CornerRadius::same(2), p.accent);
+        let center = egui::pos2(x, rail.center().y);
+        painter.circle_filled(center, 10.0, p.control);
+        painter.circle_stroke(center, 10.0, egui::Stroke::new(1.0_f32, p.control_stroke));
+        let dot = if response.hovered() || response.dragged() {
+            6.0
+        } else {
+            5.0
+        };
+        painter.circle_filled(center, dot, p.accent);
+        focus_ring(ui, &response, rect, &p);
+
+        // The value sits on the left, as in Windows Settings.
+        ui.add_sized(
+            egui::vec2(52.0, theme::CONTROL_HEIGHT),
+            egui::Label::new(egui::RichText::new(format(*value)).color(p.text)),
+        );
+        response
+    })
+    .inner
+}

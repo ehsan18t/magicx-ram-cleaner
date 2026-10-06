@@ -20,7 +20,7 @@ use eframe::egui;
 use self::appearance::Appearance;
 use self::background::{PROCESS_REFRESH_SECS, stats_thread};
 use self::cleaning::MONITOR_LOG_CAPACITY;
-pub use self::cleaning::{CleanProgress, CleanResultMsg, MapTransition};
+pub use self::cleaning::{CleanProgress, CleanResultMsg, EventKind, MapTransition, MonitorEvent};
 pub use self::trim::TrimState;
 use super::settings::GuiSettings;
 use super::{fonts, nav, theme, tray};
@@ -31,6 +31,7 @@ use crate::strings;
 mod appearance;
 mod background;
 mod cleaning;
+pub mod history;
 mod tray_events;
 mod trim;
 
@@ -39,7 +40,7 @@ mod trim;
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 /// Which panel is currently shown in the main content area.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Panel {
     /// Memory map, clean level picker and quick stats.
     Overview,
@@ -65,6 +66,9 @@ pub struct MagicXApp {
 
     /// Latest memory snapshot (updated by background thread).
     pub latest_snapshot: Arc<Mutex<Option<MemorySnapshot>>>,
+
+    /// Recent readings for the Monitor chart (updated by background thread).
+    pub history: Arc<Mutex<history::History>>,
 
     /// Background stats thread shutdown signal.
     stats_running: Arc<AtomicBool>,
@@ -131,18 +135,12 @@ pub struct MagicXApp {
     /// with the CLI monitor.
     auto_clean: AutoCleanPolicy,
 
-    /// Last time a periodic status line was appended to the monitor log.
-    ///
-    /// Used to throttle heartbeat messages so the log is not flooded
-    /// while the monitor is idle (memory below threshold).
-    last_monitor_status_log: Option<Instant>,
-
     /// Previous frame's `monitor_active` state - used to detect
     /// start/stop transitions and log them once.
     prev_monitor_active: bool,
 
-    /// Monitor log messages, oldest first, capped at 500 lines.
-    pub monitor_log: VecDeque<String>,
+    /// Auto-clean events, oldest first, capped at 500.
+    pub monitor_log: VecDeque<MonitorEvent>,
 
     /// User settings.
     pub settings: GuiSettings,
@@ -239,6 +237,7 @@ impl MagicXApp {
 
         let (clean_tx, clean_rx) = mpsc::channel();
         let latest_snapshot = Arc::new(Mutex::new(None));
+        let history = Arc::new(Mutex::new(history::History::default()));
         let stats_running = Arc::new(AtomicBool::new(true));
         let needs_repaint = Arc::new(AtomicBool::new(true));
         let needs_capture = Arc::new(AtomicBool::new(true));
@@ -247,6 +246,7 @@ impl MagicXApp {
         // Spawn background stats collection thread
         {
             let snapshot_ref = Arc::clone(&latest_snapshot);
+            let history_ref = Arc::clone(&history);
             let running_ref = Arc::clone(&stats_running);
             let repaint_ref = Arc::clone(&needs_repaint);
             let capture_ref = Arc::clone(&needs_capture);
@@ -258,6 +258,7 @@ impl MagicXApp {
                     .spawn(move || {
                         stats_thread(
                             &snapshot_ref,
+                            &history_ref,
                             &running_ref,
                             &repaint_ref,
                             &capture_ref,
@@ -291,6 +292,7 @@ impl MagicXApp {
         let app = Self {
             active_panel: Panel::Overview,
             latest_snapshot,
+            history,
             stats_running,
             needs_repaint,
             needs_capture,
@@ -312,7 +314,6 @@ impl MagicXApp {
                 settings.monitor_threshold,
                 Duration::from_secs(settings.monitor_cooldown_secs),
             ),
-            last_monitor_status_log: None,
             prev_monitor_active: false,
             monitor_log: VecDeque::with_capacity(MONITOR_LOG_CAPACITY),
             settings_snapshot: settings.clone(),
@@ -543,18 +544,20 @@ impl eframe::App for MagicXApp {
         // Detect monitor start / stop transitions.
         if self.monitor_active != self.prev_monitor_active {
             if self.monitor_active {
-                self.push_monitor_log(format!(
-                    "Monitoring started: threshold {}%, cooldown {}s, level {}",
-                    self.settings.monitor_threshold,
-                    self.settings.monitor_cooldown_secs,
-                    self.settings.default_clean_level.title_case_name(),
-                ));
-                // Immediately eligible for a status heartbeat, with a fresh
-                // backoff; the cooldown since the last clean still applies.
-                self.last_monitor_status_log = None;
+                self.push_monitor_log(
+                    EventKind::Info,
+                    format!(
+                        "Auto-clean turned on: {} when memory reaches {}%, at most every {} s",
+                        self.settings.default_clean_level.title_case_name(),
+                        self.settings.monitor_threshold,
+                        self.settings.monitor_cooldown_secs,
+                    ),
+                );
+                // A fresh backoff; the cooldown since the last clean still
+                // applies.
                 self.auto_clean.reset_backoff();
             } else {
-                self.push_monitor_log("Monitoring stopped.".to_owned());
+                self.push_monitor_log(EventKind::Info, "Auto-clean turned off".to_owned());
             }
             self.prev_monitor_active = self.monitor_active;
         }

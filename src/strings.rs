@@ -182,39 +182,56 @@ pub mod gui {
         /// Panel title.
         pub const TITLE: &str = "Monitor";
 
-        /// Toggle label.
-        pub const LABEL_AUTO_CLEAN: &str = "Auto-Clean";
+        /// Auto-clean row title.
+        pub const LABEL_AUTO_CLEAN: &str = "Auto-clean";
 
-        /// Status text when the monitor is running.
-        pub const STATUS_RUNNING: &str = "Running";
+        /// Auto-clean row description while it is off.
+        pub const STATUS_OFF: &str =
+            "Off. Turn it on to clean automatically when memory runs high.";
 
-        /// Status text when the monitor is stopped.
-        pub const STATUS_STOPPED: &str = "Stopped";
+        /// Chart caption.
+        pub const CHART_TITLE: &str = "Last 10 minutes";
 
-        /// Description below the toggle.
-        pub const DESCRIPTION: &str =
-            "Automatically cleans memory when usage exceeds the threshold.";
+        /// Shown until the chart has data.
+        pub const CHART_EMPTY: &str =
+            "The chart fills in as the app reads memory, once a second while the window is open.";
 
-        /// Configuration section header.
-        pub const SECTION_CONFIG: &str = "Configuration";
+        /// Chart axis label at the left edge.
+        pub const CHART_START: &str = "10 min ago";
 
-        /// Threshold slider label.
-        pub const LABEL_THRESHOLD: &str = "Threshold:";
+        /// Chart axis label at the right edge.
+        pub const CHART_NOW: &str = "Now";
 
-        /// Cooldown slider label.
-        pub const LABEL_COOLDOWN: &str = "Cooldown:";
+        /// Rules group heading.
+        pub const SECTION_RULES: &str = "Rules";
 
-        /// Clean-level combo label.
-        pub const LABEL_CLEAN_LEVEL: &str = "Clean Level:";
+        /// Threshold row title.
+        pub const LABEL_THRESHOLD: &str = "Clean when memory reaches";
 
-        /// Activity log section header.
-        pub const SECTION_LOG: &str = "Activity Log";
+        /// Threshold row description.
+        pub const DESC_THRESHOLD: &str = "The memory load that starts an auto-clean";
 
-        /// Activity log clear button.
+        /// Cooldown row title.
+        pub const LABEL_COOLDOWN: &str = "Wait between cleans";
+
+        /// Cooldown row description.
+        pub const DESC_COOLDOWN: &str = "The shortest time from one auto-clean to the next";
+
+        /// Level row title.
+        pub const LABEL_CLEAN_LEVEL: &str = "Level";
+
+        /// Level row description.
+        pub const DESC_CLEAN_LEVEL: &str =
+            "What auto-clean runs, separate from the Overview\u{2019}s level";
+
+        /// Activity group heading.
+        pub const SECTION_LOG: &str = "Activity";
+
+        /// Button that clears the activity list.
         pub const BTN_CLEAR: &str = "Clear";
 
-        /// Placeholder when the log is empty.
-        pub const EMPTY_LOG: &str = "No activity yet.";
+        /// Shown while the activity list is empty.
+        pub const EMPTY_LOG: &str = "Auto-clean events show up here.";
     }
 
     /// Processes panel strings.

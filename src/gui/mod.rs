@@ -1,27 +1,31 @@
 //! # `MagicX` RAM Cleaner - GUI Mode
 //!
-//! egui-based graphical user interface that provides a dashboard for
-//! memory monitoring, one-click cleaning, process inspection, and settings.
+//! egui interface in the Windows 11 style described in `docs/UI_DESIGN.md`:
+//! an Overview built around the memory map, a Monitor with a history chart
+//! and auto-clean, a Processes list with per-program Trim, Settings and
+//! About, behind a Task Manager style navigation pane.
 //!
 //! The GUI is launched when the binary is executed with no CLI subcommand
-//! (e.g. double-click from Explorer). All cleaning and statistics logic
-//! is delegated to the existing library modules (`cleaner`, `stats`, etc.).
+//! (e.g. double-click from Explorer). All cleaning and measuring is done by
+//! the engine and memory layers; the GUI only presents them.
 //!
 //! ## Architecture
 //!
 //! ```text
 //! src/gui/
-//! ├── mod.rs       - entry point (run_gui), module re-exports
-//! ├── app.rs       - MagicXApp state, eframe::App impl, sidebar, layout
-//! ├── theme.rs     - colour palette, spacing, custom Visuals
-//! ├── tray.rs      - system-tray icon handle and action routing
-//! ├── widgets.rs   - reusable components (cards, stat labels, buttons)
-//! └── panels/
-//!     ├── mod.rs         - panel re-exports
-//!     ├── dashboard.rs   - memory overview, cleaning buttons, quick info
-//!     ├── monitor.rs     - auto-clean threshold / cooldown controls
-//!     ├── processes.rs   - sortable process table
-//!     └── settings.rs    - appearance, integration preferences
+//! ├── mod.rs          - entry point (run_gui), the Phosphor icon subset
+//! ├── app/            - MagicXApp state and eframe loop: appearance,
+//! │                     background threads, cleaning, chart history,
+//! │                     trims, tray events
+//! ├── nav.rs          - navigation pane and page routing
+//! ├── theme.rs        - palette, type scale, spacing, egui visuals
+//! ├── fonts.rs        - Segoe UI from the system fonts folder
+//! ├── widgets.rs      - cards, Settings rows, switches, segmented
+//! │                     controls, sliders, buttons
+//! ├── settings.rs     - persisted settings, defaults, valid ranges
+//! ├── persistence.rs  - settings file I/O, import/export, migration
+//! ├── tray.rs         - system-tray icon and menu
+//! └── panels/         - overview, monitor, processes, settings, about
 //! ```
 //!
 //! ## Threading Model
@@ -33,11 +37,13 @@
 //! │  │  ├─ polls channels for clean results    │
 //! │  │  └─ polls tray icon event queue         │
 //! │  ├─ MagicXApp::ui()     (UI thread)        │
-//! │  │  └─ renders sidebar + active panel      │
+//! │  │  └─ renders the pane + active page      │
 //! │  ├─ stats_thread   (background, 1 Hz)      │
-//! │  │  └─ captures MemorySnapshot             │
-//! │  └─ clean_thread   (on demand)             │
-//! │     └─ runs smart_clean, sends result      │
+//! │  │  └─ captures MemorySnapshot + history   │
+//! │  ├─ clean_thread   (on demand)             │
+//! │  │  └─ runs smart_clean, reports progress  │
+//! │  └─ trim_thread    (on demand)             │
+//! │     └─ trims one program's processes       │
 //! └────────────────────────────────────────────┘
 //! ```
 
@@ -51,10 +57,10 @@ egui_phosphor::subset! {
     /// holds only these glyphs instead of the full ~490 KB icon font.
     mod icons {
         use regular::{
-            ACTIVITY, ARROW_RIGHT, BROOM, CARET_DOWN, CARET_UP, CHECK, CODE, CPU,
+            ACTIVITY, ARROW_RIGHT, BROOM, CARET_DOWN, CARET_UP, CHECK, CLOCK, CODE, CPU,
             DOWNLOAD_SIMPLE, FIRE, FLOPPY_DISK, GAUGE, GEAR, GITHUB_LOGO, GLOBE, HEART, INFO,
             LEAF, LIGHTNING, LINKEDIN_LOGO, LIST, MAGNIFYING_GLASS, MOUSE_RIGHT_CLICK, PALETTE,
-            POWER, RADIOACTIVE, ROCKET_LAUNCH, SCALES, TELEGRAM_LOGO, TRAY,
+            POWER, RADIOACTIVE, ROCKET_LAUNCH, SCALES, SLIDERS, TELEGRAM_LOGO, TRAY,
             UPLOAD_SIMPLE, WARNING_CIRCLE, WINDOWS_LOGO, X,
         };
     }

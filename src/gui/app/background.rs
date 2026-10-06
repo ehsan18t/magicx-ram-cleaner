@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 
 use super::MagicXApp;
+use super::history::{History, Sample};
 use crate::memory::{self, MemorySnapshot};
 
 /// How often the background stats thread captures a snapshot (ms).
@@ -16,9 +17,11 @@ pub(super) const STATS_POLL_INTERVAL_MS: u64 = 1000;
 /// How often the process list refreshes (seconds).
 pub(super) const PROCESS_REFRESH_SECS: u64 = 5;
 
-/// Background thread that periodically captures memory snapshots.
+/// Background thread that periodically captures memory snapshots, and
+/// records each one in the chart history.
 pub(super) fn stats_thread(
     snapshot: &Arc<Mutex<Option<MemorySnapshot>>>,
+    history: &Arc<Mutex<History>>,
     running: &Arc<AtomicBool>,
     needs_repaint: &Arc<AtomicBool>,
     needs_capture: &Arc<AtomicBool>,
@@ -32,6 +35,9 @@ pub(super) fn stats_thread(
         if needs_capture.load(Ordering::Acquire)
             && let Ok(snap) = MemorySnapshot::capture()
         {
+            if let Ok(mut lock) = history.lock() {
+                lock.push(Sample::of(&snap, Instant::now()));
+            }
             if let Ok(mut lock) = snapshot.lock() {
                 *lock = Some(snap);
             }

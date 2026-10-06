@@ -9,8 +9,30 @@ use crate::engine::auto_clean::Decision;
 use crate::engine::{self, CleanLevel, Progress, SmartCleanResult};
 use crate::memory::{self, MemoryComposition};
 
-/// Maximum number of lines kept in the monitor activity log.
+/// Maximum number of events kept in the auto-clean activity list.
 pub(super) const MONITOR_LOG_CAPACITY: usize = 500;
+
+/// What an auto-clean event reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventKind {
+    /// Monitor turned on or off, a clean starting, or a backoff.
+    Info,
+    /// An auto-clean finished.
+    Cleaned,
+    /// An auto-clean failed.
+    Failed,
+}
+
+/// One entry in the auto-clean activity list.
+#[derive(Debug, Clone)]
+pub struct MonitorEvent {
+    /// Local time it happened, `HH:MM:SS`.
+    pub time: String,
+    /// What kind of event it is.
+    pub kind: EventKind,
+    /// What happened, in plain words.
+    pub text: String,
+}
 
 /// Result of a background cleaning operation sent back to the UI thread.
 pub struct CleanResultMsg {
@@ -123,13 +145,16 @@ impl MagicXApp {
         }
     }
 
-    /// Append a line to the monitor activity log, dropping the oldest line
+    /// Add an event to the auto-clean activity list, dropping the oldest
     /// once [`MONITOR_LOG_CAPACITY`] is reached.
-    pub(super) fn push_monitor_log(&mut self, msg: String) {
+    pub(super) fn push_monitor_log(&mut self, kind: EventKind, text: String) {
         if self.monitor_log.len() >= MONITOR_LOG_CAPACITY {
             self.monitor_log.pop_front();
         }
-        self.monitor_log.push_back(msg);
+        let now = crate::platform::time::local_now();
+        let time = now.get(11..).unwrap_or(&now).to_owned();
+        self.monitor_log
+            .push_back(MonitorEvent { time, kind, text });
     }
 
     /// Poll for completed cleaning results.
@@ -159,14 +184,19 @@ impl MagicXApp {
         }
 
         if msg.auto {
-            let log_msg = match &msg.result {
-                Ok(r) => format!(
-                    "Auto-clean complete: freed {}",
-                    memory::format_bytes(r.reclaimed_bytes().max(0) as u64),
+            let (kind, text) = match &msg.result {
+                Ok(r) => (
+                    EventKind::Cleaned,
+                    format!(
+                        "{} freed {} in {:.1} s",
+                        msg.level.title_case_name(),
+                        memory::format_bytes(r.reclaimed_bytes().max(0) as u64),
+                        r.total_elapsed_secs,
+                    ),
                 ),
-                Err(e) => format!("Auto-clean failed: {e}"),
+                Err(e) => (EventKind::Failed, format!("Auto-clean failed: {e}")),
             };
-            self.push_monitor_log(log_msg);
+            self.push_monitor_log(kind, text);
 
             let load_after = msg.result.as_ref().map_or_else(
                 |_| {
@@ -180,11 +210,11 @@ impl MagicXApp {
             self.sync_auto_clean_limits();
             if self.auto_clean.record_clean(Instant::now(), load_after) {
                 let msg = format!(
-                    "Memory load still at or above {}%; next auto-clean in {}s.",
+                    "Memory is still at {}% or more. Next auto-clean in {} s.",
                     self.settings.monitor_threshold,
                     self.auto_clean.effective_cooldown().as_secs(),
                 );
-                self.push_monitor_log(msg);
+                self.push_monitor_log(EventKind::Info, msg);
             }
         }
 
@@ -199,12 +229,8 @@ impl MagicXApp {
         );
     }
 
-    /// Handle auto-clean in monitor mode.
-    ///
-    /// Checks the current memory load against the configured threshold and
-    /// triggers a clean when exceeded.  Also emits periodic heartbeat
-    /// messages to the activity log so the user can see the monitor is
-    /// actively checking (every 60 seconds).
+    /// Handle auto-clean in monitor mode: check the current memory load
+    /// against the threshold and start a clean when it is reached.
     pub(super) fn handle_monitor_auto_clean(&mut self) {
         if !self.monitor_active || self.cleaning_in_progress {
             return;
@@ -223,28 +249,15 @@ impl MagicXApp {
         match self.auto_clean.decide(load, Instant::now()) {
             Decision::Clean => {
                 let msg = format!(
-                    "Memory load {load}% >= threshold {}%, auto-cleaning ({})...",
-                    self.settings.monitor_threshold,
+                    "Memory reached {load}%, running {}",
                     self.settings.default_clean_level.title_case_name(),
                 );
-                self.push_monitor_log(msg);
-                self.last_monitor_status_log = Some(Instant::now());
+                self.push_monitor_log(EventKind::Info, msg);
                 self.spawn_clean(self.settings.default_clean_level, true);
             }
-            Decision::CoolingDown => {}
-            Decision::BelowThreshold => {
-                // Periodic heartbeat so the user knows the monitor is alive.
-                let should_log = self
-                    .last_monitor_status_log
-                    .is_none_or(|t| t.elapsed() >= Duration::from_secs(60));
-                if should_log {
-                    self.push_monitor_log(format!(
-                        "Checked: memory at {load}%, below threshold {}%. No action needed.",
-                        self.settings.monitor_threshold,
-                    ));
-                    self.last_monitor_status_log = Some(Instant::now());
-                }
-            }
+            // The chart shows the monitor is alive, so quiet checks are not
+            // logged.
+            Decision::CoolingDown | Decision::BelowThreshold => {}
         }
     }
 }
