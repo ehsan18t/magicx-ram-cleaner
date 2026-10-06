@@ -126,7 +126,7 @@ fn execute(cli: &Cli, notify: bool) -> Result<Outcome> {
         if notify {
             bail!("--notify requires a command such as `clean` or `status`");
         }
-        gui::run_gui()?;
+        gui::run_gui(cli.tray)?;
         return Ok(Outcome::default());
     };
     cli::run(command, cli.quiet, notify)
@@ -173,12 +173,13 @@ fn has_arg(args: &[OsString], flag: &str) -> bool {
 
 /// Whether `args` (the arguments after the exe path) mean "open the GUI".
 ///
-/// True when there are no arguments, or only global flags that do not
-/// change GUI behaviour (`--no-color`, `-q` / `--quiet`). Any other argument
-/// (subcommand, `--help`, `--version`, `--notify`) means a CLI launch.
+/// True when there are no arguments, or only flags the GUI accepts
+/// (`--no-color`, `-q` / `--quiet`, and `--tray` from the autostart task).
+/// Any other argument (subcommand, `--help`, `--version`, `--notify`) means
+/// a CLI launch.
 fn is_gui_launch(args: &[OsString]) -> bool {
     args.iter()
-        .all(|a| a == "--no-color" || a == "-q" || a == "--quiet")
+        .all(|a| a == "--no-color" || a == "-q" || a == "--quiet" || a == "--tray")
 }
 
 #[cfg(test)]
@@ -194,6 +195,7 @@ mod tests {
         assert!(is_gui_launch(&args(&[])));
         assert!(is_gui_launch(&args(&["--no-color", "-q"])));
         assert!(is_gui_launch(&args(&["--quiet"])));
+        assert!(is_gui_launch(&args(&["--tray"])));
     }
 
     #[test]

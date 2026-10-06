@@ -73,10 +73,6 @@ pub struct GuiSettings {
     /// rather than quitting. The tray icon provides "Open" and "Quit" actions.
     #[serde(alias = "tray_enabled")]
     pub minimize_to_tray: bool,
-    /// Launch automatically at Windows startup (current user only).
-    ///
-    /// Creates (or removes) a Task Scheduler logon task.
-    pub auto_start: bool,
     /// Auto-clean threshold percentage (50 to 99).
     pub monitor_threshold: u32,
     /// Cooldown between auto-cleans (10 to 300 seconds).
@@ -126,7 +122,6 @@ impl Default for GuiSettings {
     fn default() -> Self {
         Self {
             minimize_to_tray: false,
-            auto_start: false,
             monitor_threshold: DEFAULT_THRESHOLD,
             monitor_cooldown_secs: DEFAULT_COOLDOWN_SECS,
             default_clean_level: DEFAULT_CLEAN_LEVEL,
@@ -169,11 +164,11 @@ mod tests {
     #[test]
     fn missing_fields_take_defaults_so_old_files_still_load() {
         let settings: GuiSettings =
-            serde_json::from_str(r#"{ "auto_start": true }"#).expect("partial file loads");
+            serde_json::from_str(r#"{ "minimize_to_tray": true }"#).expect("partial file loads");
         assert_eq!(
             settings,
             GuiSettings {
-                auto_start: true,
+                minimize_to_tray: true,
                 ..GuiSettings::default()
             }
         );
@@ -209,7 +204,7 @@ mod tests {
     #[test]
     fn settings_round_trip_through_json() {
         let settings = GuiSettings {
-            auto_start: true,
+            minimize_to_tray: true,
             default_clean_level: CleanLevel::Gentle,
             ..GuiSettings::default()
         };

@@ -54,6 +54,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_Controls_Dialogs",
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
+    "Win32_Globalization",
 ] }
 clap = { version = "4", features = ["derive", "color", "help", "usage", "suggestions"] }
 colored = "3"

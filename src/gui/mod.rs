@@ -96,7 +96,7 @@ fn load_window_icon() -> Option<egui::IconData> {
 ///
 /// Returns an error if eframe cannot initialise the window or OpenGL context,
 /// or if the process lacks administrator privileges.
-pub fn run_gui() -> Result<()> {
+pub fn run_gui(start_in_tray: bool) -> Result<()> {
     // ── Single-instance guard ────────────────────────────────────────
     // Acquire a system-wide named mutex. If another instance is already
     // running, its window is restored and we exit silently.
@@ -128,7 +128,7 @@ pub fn run_gui() -> Result<()> {
     eframe::run_native(
         crate::ids::WINDOW_TITLE,
         native_options,
-        Box::new(|cc| Ok(Box::new(app::MagicXApp::new(cc)?))),
+        Box::new(move |cc| Ok(Box::new(app::MagicXApp::new(cc, start_in_tray)?))),
     )
     .map_err(|e| anyhow::anyhow!("eframe error: {e}"))
 }

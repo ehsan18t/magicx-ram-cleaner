@@ -18,6 +18,7 @@ use anyhow::Context;
 use eframe::egui;
 
 use self::appearance::Appearance;
+pub use self::autostart::AutostartView;
 use self::background::{PROCESS_REFRESH_SECS, stats_thread};
 use self::cleaning::MONITOR_LOG_CAPACITY;
 pub use self::cleaning::{CleanProgress, CleanResultMsg, EventKind, MapTransition, MonitorEvent};
@@ -28,6 +29,7 @@ use crate::engine::auto_clean::AutoCleanPolicy;
 use crate::memory::{MemorySnapshot, ProcessMemoryInfo};
 
 mod appearance;
+mod autostart;
 mod background;
 mod cleaning;
 pub mod history;
@@ -220,9 +222,21 @@ pub struct MagicXApp {
     /// `Send`-safe access from background threads (the tray watcher uses it
     /// to bring the window back).
     hwnd: isize,
+
+    /// The Start with Windows switch and its background task reads.
+    pub autostart: autostart::AutostartUi,
+
+    /// Whether to start hidden in the tray (the logon task's `--tray`).
+    /// Only honoured when the tray icon exists, so the window can come back.
+    start_in_tray: bool,
 }
 
 impl MagicXApp {
+    /// Show `text` under the Settings cards for a few seconds.
+    pub fn show_settings_status(&mut self, text: String, is_error: bool) {
+        self.settings_status = Some((text, is_error, Instant::now()));
+    }
+
     /// The main window's `HWND`, for dialogs that must be modal to it.
     #[must_use]
     pub const fn hwnd(&self) -> isize {
@@ -234,13 +248,13 @@ impl MagicXApp {
     /// # Errors
     ///
     /// Returns an error if the background stats thread cannot be spawned.
-    pub fn new(cc: &eframe::CreationContext<'_>) -> anyhow::Result<Self> {
+    pub fn new(cc: &eframe::CreationContext<'_>, start_in_tray: bool) -> anyhow::Result<Self> {
         fonts::install(&cc.egui_ctx);
         theme::configure_style(&cc.egui_ctx);
 
         // Load persisted settings before applying the theme so the window
         // starts in the user's preferred mode without a one-frame flash.
-        let (settings, settings_status) = load_settings_and_sync_autostart();
+        let (settings, settings_status) = load_settings();
         let appearance = Appearance::read(settings.theme);
 
         let (clean_tx, clean_rx) = mpsc::channel();
@@ -342,6 +356,8 @@ impl MagicXApp {
             quit_requested: false,
             context_menu_installed: crate::integration::context_menu::is_installed(),
             hwnd,
+            autostart: autostart::AutostartUi::start(&cc.egui_ctx),
+            start_in_tray,
         };
         // Native menus, the title bar and egui all match from the first frame.
         app.apply_appearance(&cc.egui_ctx);
@@ -462,13 +478,9 @@ impl MagicXApp {
     }
 }
 
-/// Load persisted settings and bring the autostart task in line with them.
-///
-/// Returns the settings plus an optional status message for the Settings
-/// panel. Autostart is only synced from a file that was actually loaded: when
-/// the file is missing or corrupt, `auto_start` is instead read back from the
-/// existing logon task so the user's autostart is never wiped.
-fn load_settings_and_sync_autostart() -> (GuiSettings, Option<(String, bool, Instant)>) {
+/// Load persisted settings, with an optional status message for the
+/// Settings panel when the file had problems.
+fn load_settings() -> (GuiSettings, Option<(String, bool, Instant)>) {
     use super::persistence::Loaded;
 
     match super::persistence::load() {
@@ -476,30 +488,20 @@ fn load_settings_and_sync_autostart() -> (GuiSettings, Option<(String, bool, Ins
             settings,
             reset_fields,
         } => {
-            let sync = crate::integration::autostart::set_enabled(settings.auto_start)
-                .map_err(|e| format!("Autostart sync failed: {e:#}"));
-            let status = match sync {
-                Err(e) => Some(e),
-                Ok(()) if !reset_fields.is_empty() => Some(format!(
-                    "Some settings had invalid values and were reset to their defaults: {}",
-                    reset_fields.join(", ")
-                )),
-                Ok(()) => None,
-            };
-            (settings, status.map(|text| (text, true, Instant::now())))
+            let status = (!reset_fields.is_empty()).then(|| {
+                (
+                    format!(
+                        "Some settings had invalid values and were reset to their defaults: {}",
+                        reset_fields.join(", ")
+                    ),
+                    true,
+                    Instant::now(),
+                )
+            });
+            (settings, status)
         }
-        Loaded::Missing => {
-            let settings = GuiSettings {
-                auto_start: crate::integration::autostart::is_enabled(),
-                ..GuiSettings::default()
-            };
-            (settings, None)
-        }
+        Loaded::Missing => (GuiSettings::default(), None),
         Loaded::Unusable { error, kept_as } => {
-            let settings = GuiSettings {
-                auto_start: crate::integration::autostart::is_enabled(),
-                ..GuiSettings::default()
-            };
             let kept = kept_as.map_or_else(String::new, |path| {
                 format!(" The old file was kept as {}.", path.display())
             });
@@ -508,7 +510,7 @@ fn load_settings_and_sync_autostart() -> (GuiSettings, Option<(String, bool, Ins
                 true,
                 Instant::now(),
             );
-            (settings, Some(status))
+            (GuiSettings::default(), Some(status))
         }
     }
 }
@@ -532,9 +534,17 @@ fn window_hwnd(cc: &eframe::CreationContext<'_>) -> isize {
 
 impl eframe::App for MagicXApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Reveal the window on the first frame (anti-flash).
+        // Reveal the window on the first frame (anti-flash), or, for a
+        // `--tray` start with a live tray icon, go straight to the tray
+        // without ever showing it.
         if !self.window_revealed {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            if self.start_in_tray && self.tray_handle.is_some() {
+                crate::platform::window::cloak_window(self.hwnd);
+                self.hidden_to_tray = true;
+                self.hide_requested_at = Some(Instant::now());
+            } else {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            }
             self.window_revealed = true;
         }
 
@@ -593,6 +603,7 @@ impl eframe::App for MagicXApp {
 
         // Poll background results
         self.poll_clean_results();
+        self.poll_autostart(ctx);
 
         // Detect monitor start / stop transitions.
         if self.monitor_active != self.prev_monitor_active {

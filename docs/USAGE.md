@@ -672,6 +672,8 @@ Currently built for x86-64 only. ARM support may be added in the future.
 - A process list grouped by program, with a Trim action per program
 - Settings for the theme (System, Light or Dark), the tray icon, autostart and the context menu
 
+**Start with Windows** creates one Task Scheduler task that starts this copy for every administrator who signs in, including accounts created later. Standard accounts are not included, because Windows cannot start an app that needs administrator rights at their sign-in. The task passes `--tray`, so the app starts hidden in the notification area when the tray icon is turned on (otherwise it opens normally). The app only changes the task when you flip the switch; starting the app never rewrites or removes it. If the task starts a different copy, the switch shows off and says which copy, and turning it on moves autostart to this one.
+
 You can also install Desktop context menu integration:
 ```powershell
 magicx-ram-cleaner context-menu install

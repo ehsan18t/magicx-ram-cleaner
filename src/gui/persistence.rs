@@ -280,11 +280,11 @@ mod tests {
     #[test]
     fn one_invalid_field_keeps_every_other_setting() {
         let (settings, reset) = parse_settings(
-            r#"{ "monitor_threshold": "high", "theme": "purple", "auto_start": true,
+            r#"{ "monitor_threshold": "high", "theme": "purple", "minimize_to_tray": true,
                  "default_clean_level": "Gentle" }"#,
         )
         .expect("loads");
-        assert!(settings.auto_start);
+        assert!(settings.minimize_to_tray);
         assert_eq!(settings.default_clean_level, CleanLevel::Gentle);
         assert_eq!(settings.theme, ThemeMode::System, "invalid theme reset");
         assert_eq!(reset, ["monitor_threshold", "theme"]);
@@ -310,7 +310,7 @@ mod tests {
         let dir = temp_dir("round-trip");
         let path = dir.join("settings.json");
         let settings = GuiSettings {
-            auto_start: true,
+            minimize_to_tray: true,
             monitor_threshold: 91,
             ..GuiSettings::default()
         };

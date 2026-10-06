@@ -338,7 +338,7 @@ pub mod gui {
 
         /// Autostart row description.
         pub const DESC_AUTOSTART: &str =
-            "Starts when you sign in, through a Task Scheduler logon task";
+            "Starts this copy in the tray whenever an administrator signs in";
 
         /// Context menu row title.
         pub const LABEL_CONTEXT_MENU: &str = "Desktop context menu";
@@ -385,11 +385,11 @@ pub mod gui {
         pub const MSG_CTX_REMOVED: &str = "Context menu removed";
 
         /// Confirmation: autostart turned on.
-        pub const MSG_AUTOSTART_ON: &str = "MagicX RAM Cleaner will start when you sign in";
+        pub const MSG_AUTOSTART_ON: &str =
+            "MagicX RAM Cleaner will start in the tray when an administrator signs in";
 
         /// Confirmation: autostart turned off.
-        pub const MSG_AUTOSTART_OFF: &str =
-            "MagicX RAM Cleaner won\u{2019}t start when you sign in";
+        pub const MSG_AUTOSTART_OFF: &str = "MagicX RAM Cleaner won\u{2019}t start at sign-in";
     }
 
     /// About panel strings.

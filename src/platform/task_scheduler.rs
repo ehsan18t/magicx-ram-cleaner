@@ -45,7 +45,8 @@ pub fn register_from_xml(name: &str, xml: &str) -> Result<()> {
         "/XML".as_ref(),
         xml_path.as_os_str(),
         "/F".as_ref(),
-    ])
+    ])?
+    .map(drop)
 }
 
 /// Delete task `name`. A missing task counts as success.
@@ -55,27 +56,45 @@ pub fn delete(name: &str) -> Result<()> {
         "/TN".as_ref(),
         name.as_ref(),
         "/F".as_ref(),
-    ]);
+    ])?;
     // A failed delete is only fine when the task is really gone. Checking
-    // with a query (exit status) avoids parsing localised schtasks text, and
-    // a delete is always attempted, so a failing query cannot hide a task.
+    // with a query (exit status) avoids parsing localised schtasks text.
     match deleted {
-        Err(_) if !exists(name) => Ok(()),
-        other => other,
+        Err(e) if exists(name)? => Err(e),
+        _ => Ok(()),
     }
 }
 
 /// Whether task `name` exists.
-#[must_use]
-pub fn exists(name: &str) -> bool {
-    run_schtasks(&["/Query".as_ref(), "/TN".as_ref(), name.as_ref()]).is_ok()
+///
+/// # Errors
+///
+/// Fails if `schtasks.exe` cannot be run at all.
+pub fn exists(name: &str) -> Result<bool> {
+    Ok(query_xml(name)?.is_some())
+}
+
+/// The XML definition of task `name`, or `Ok(None)` if there is no such task.
+///
+/// # Errors
+///
+/// Fails if `schtasks.exe` cannot be run at all.
+pub fn query_xml(name: &str) -> Result<Option<String>> {
+    Ok(run_schtasks(&[
+        "/Query".as_ref(),
+        "/TN".as_ref(),
+        name.as_ref(),
+        "/XML".as_ref(),
+    ])?
+    .ok())
 }
 
 /// Run `schtasks.exe` with `args` without showing a console window.
 ///
-/// Fails on a non-zero exit status with the `schtasks` stderr (falling back
-/// to stdout) in the message.
-fn run_schtasks(args: &[&std::ffi::OsStr]) -> Result<()> {
+/// The outer error means `schtasks.exe` could not be run. The inner result
+/// is its outcome: its output on success, or an error with its stderr
+/// (falling back to stdout) for a non-zero exit status.
+fn run_schtasks(args: &[&std::ffi::OsStr]) -> Result<Result<String>> {
     use std::os::windows::process::CommandExt;
 
     // Use the absolute System32 path from the API, so this elevated process
@@ -90,16 +109,45 @@ fn run_schtasks(args: &[&std::ffi::OsStr]) -> Result<()> {
         .context("Cannot run schtasks.exe")?;
 
     if output.status.success() {
-        return Ok(());
+        return Ok(Ok(decode_oem(&output.stdout)));
     }
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = decode_oem(&output.stderr);
     let detail = if stderr.trim().is_empty() {
-        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+        decode_oem(&output.stdout).trim().to_owned()
     } else {
         stderr.trim().to_owned()
     };
-    bail!("schtasks.exe failed ({}): {detail}", output.status)
+    Ok(Err(anyhow::anyhow!(
+        "schtasks.exe failed ({}): {detail}",
+        output.status
+    )))
+}
+
+/// Decode console program output, which `schtasks.exe` writes in the OEM
+/// code page (850, 866, 936, ...), not UTF-8.
+fn decode_oem(bytes: &[u8]) -> String {
+    use windows_sys::Win32::Globalization::{CP_OEMCP, MultiByteToWideChar};
+
+    let Ok(len) = i32::try_from(bytes.len()) else {
+        return String::from_utf8_lossy(bytes).into_owned();
+    };
+    if len == 0 {
+        return String::new();
+    }
+    // SAFETY: `bytes` is valid for `len` bytes; a null output buffer asks
+    // only for the required length in UTF-16 units.
+    let needed =
+        unsafe { MultiByteToWideChar(CP_OEMCP, 0, bytes.as_ptr(), len, std::ptr::null_mut(), 0) };
+    let Ok(capacity) = usize::try_from(needed) else {
+        return String::from_utf8_lossy(bytes).into_owned();
+    };
+    let mut wide = vec![0u16; capacity];
+    // SAFETY: `wide` is writable for `needed` UTF-16 units, as just measured.
+    let written =
+        unsafe { MultiByteToWideChar(CP_OEMCP, 0, bytes.as_ptr(), len, wide.as_mut_ptr(), needed) };
+    wide.truncate(usize::try_from(written).unwrap_or(0));
+    String::from_utf16_lossy(&wide)
 }
 
 /// A freshly created temporary directory that only `SYSTEM` and the
@@ -188,5 +236,22 @@ impl Drop for PrivateTempDir {
     fn drop(&mut self) {
         // Named binding avoids `let_underscore_drop`; cleanup is best-effort.
         let _cleanup = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn oem_output_decodes_ascii_and_empty_input() {
+        assert_eq!(decode_oem(b"SUCCESS: done"), "SUCCESS: done");
+        assert_eq!(decode_oem(b""), "");
+    }
+
+    #[test]
+    fn a_missing_task_is_not_an_error() {
+        assert!(!exists("MagicX test task that does not exist").expect("schtasks runs"));
+        delete("MagicX test task that does not exist").expect("missing counts as deleted");
     }
 }

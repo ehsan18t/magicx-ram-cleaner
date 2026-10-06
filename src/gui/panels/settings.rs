@@ -5,7 +5,7 @@
 //! Covers the theme, Windows integration (tray, autostart, Desktop context
 //! menu) and backing settings up to a file.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use eframe::egui;
 
@@ -34,7 +34,7 @@ pub fn draw(ui: &mut egui::Ui, app: &mut MagicXApp) {
     widgets::card(ui, app.dark(), |ui| {
         draw_tray_row(ui, app, &p);
         widgets::divider(ui);
-        draw_autostart_row(ui, app);
+        draw_autostart_row(ui, app, &p);
         widgets::divider(ui);
         draw_context_menu_row(ui, app);
     });
@@ -90,9 +90,14 @@ fn draw_tray_row(ui: &mut egui::Ui, app: &mut MagicXApp, p: &Palette) {
     }
 }
 
-/// Start with Windows, synced to the logon task the moment it is flipped.
-fn draw_autostart_row(ui: &mut egui::Ui, app: &mut MagicXApp) {
-    let mut wanted = app.settings.auto_start;
+/// Start with Windows. The switch shows the logon task as last read and only
+/// moves once a change succeeds; reads and changes run in the background.
+fn draw_autostart_row(ui: &mut egui::Ui, app: &mut MagicXApp, p: &Palette) {
+    use super::super::app::AutostartView;
+    use crate::integration::autostart::AutostartState;
+
+    let ready = matches!(app.autostart.view, AutostartView::Known(_)) && !app.autostart.busy;
+    let mut wanted = matches!(&app.autostart.view, AutostartView::Known(state) if state.is_on());
     let mut changed = false;
     widgets::settings_row(
         ui,
@@ -100,24 +105,33 @@ fn draw_autostart_row(ui: &mut egui::Ui, app: &mut MagicXApp) {
         text::LABEL_AUTOSTART,
         text::DESC_AUTOSTART,
         |ui| {
-            changed = widgets::toggle_switch(ui, &mut wanted).changed();
+            ui.add_enabled_ui(ready, |ui| {
+                changed = widgets::toggle_switch(ui, &mut wanted).changed();
+            });
         },
     );
-    if !changed {
-        return;
+    let note = match &app.autostart.view {
+        AutostartView::Known(AutostartState::OtherCopy(path)) => Some((
+            format!(
+                "Autostart currently starts another copy ({path}). Turn it on to start this copy instead."
+            ),
+            p.text_secondary,
+        )),
+        AutostartView::Unknown(error) => Some((
+            format!("Couldn\u{2019}t read the autostart task: {error}"),
+            p.critical,
+        )),
+        _ => None,
+    };
+    if let Some((note, color)) = note {
+        ui.add(
+            egui::Label::new(egui::RichText::new(note).size(theme::CAPTION).color(color)).wrap(),
+        );
+        ui.add_space(6.0);
     }
-    match crate::integration::autostart::set_enabled(wanted).map_err(|e| format!("{e:#}")) {
-        Ok(()) => {
-            app.settings.auto_start = wanted;
-            let msg = if wanted {
-                text::MSG_AUTOSTART_ON
-            } else {
-                text::MSG_AUTOSTART_OFF
-            };
-            set_status(app, msg.to_owned(), false);
-        }
-        // The switch stays where it was, so it keeps telling the truth.
-        Err(e) => set_status(app, format!("Couldn\u{2019}t change autostart: {e}"), true),
+    if changed {
+        let ctx = ui.ctx().clone();
+        app.request_autostart(&ctx, wanted);
     }
 }
 
@@ -226,7 +240,7 @@ fn draw_status(ui: &mut egui::Ui, app: &mut MagicXApp, p: &Palette) {
 
 /// Show `msg` under the cards.
 fn set_status(app: &mut MagicXApp, msg: String, is_err: bool) {
-    app.settings_status = Some((msg, is_err, Instant::now()));
+    app.show_settings_status(msg, is_err);
 }
 
 /// Export settings to a user-chosen file.
@@ -250,36 +264,24 @@ fn export_settings(app: &mut MagicXApp) {
 
 /// Import settings from a user-chosen file and apply them.
 ///
-/// Also syncs the autostart task and the monitor state, which only follow
-/// direct UI toggles otherwise.
+/// Also syncs the monitor state, which only follows direct UI toggles
+/// otherwise. Autostart is not a setting: it stays as the task has it.
 fn import_settings(app: &mut MagicXApp) {
     match persistence::import(app.hwnd()) {
         Ok(Some((new_settings, reset_fields))) => {
-            let sync = crate::integration::autostart::set_enabled(new_settings.auto_start)
-                .map_err(|e| format!("{e:#}"));
             app.settings = new_settings;
             app.monitor_active = app.settings.auto_clean_enabled;
-            match sync {
-                Ok(()) if reset_fields.is_empty() => {
-                    set_status(app, text::MSG_IMPORT_OK.to_owned(), false);
-                }
-                Ok(()) => set_status(
+            if reset_fields.is_empty() {
+                set_status(app, text::MSG_IMPORT_OK.to_owned(), false);
+            } else {
+                set_status(
                     app,
                     format!(
                         "Settings imported. Some had invalid values and were reset to their defaults: {}",
                         reset_fields.join(", ")
                     ),
                     true,
-                ),
-                Err(e) => {
-                    // Keep the switch truthful about the task.
-                    app.settings.auto_start = crate::integration::autostart::is_enabled();
-                    set_status(
-                        app,
-                        format!("Settings imported, but autostart couldn\u{2019}t be changed: {e}"),
-                        true,
-                    );
-                }
+                );
             }
         }
         Ok(None) => {} // cancelled

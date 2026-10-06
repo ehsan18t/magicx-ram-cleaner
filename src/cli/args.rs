@@ -203,6 +203,8 @@ Run \x1b[32mmagicx-ram-cleaner <command> --help\x1b[0m for detailed command info
 /// diagnostics, and monitoring with auto-clean.
 ///
 /// REQUIRES: Run as Administrator (right-click → Run as administrator).
+// Each flag is an independent command-line switch; an enum would not fit.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Parser)]
 #[command(
     name = "magicx-ram-cleaner",
@@ -245,6 +247,10 @@ pub struct Cli {
     /// internally by context menu entries.
     #[arg(long, global = true, hide = true)]
     pub notify: bool,
+
+    /// Start the GUI hidden in the tray (passed by the autostart task).
+    #[arg(long, hide = true)]
+    pub tray: bool,
 }
 
 /// Available CLI subcommands.
