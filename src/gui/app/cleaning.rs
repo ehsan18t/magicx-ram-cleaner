@@ -78,6 +78,11 @@ pub struct MapTransition {
 impl MapTransition {
     /// How long the memory map takes to move to its new state.
     pub const DURATION: Duration = Duration::from_millis(900);
+
+    /// How long the map then keeps showing the after-state: longer than the
+    /// stats thread's capture interval, so a fresh reading has replaced the
+    /// one taken before the clean.
+    pub const HOLD: Duration = Duration::from_millis(1200);
 }
 
 impl MagicXApp {

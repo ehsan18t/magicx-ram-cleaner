@@ -80,7 +80,7 @@ fn draw_summary(ui: &mut egui::Ui, p: &Palette, snap: &MemorySnapshot) {
         ui.label(
             theme::semibold(
                 format!(
-                    "Memory is under pressure: {}% is in use. A clean can free some of it.",
+                    "Memory is under pressure at {}% in use, and a clean can free some of it.",
                     snap.memory_load_percent
                 ),
                 theme::BODY,
@@ -99,7 +99,7 @@ fn draw_summary(ui: &mut egui::Ui, p: &Palette, snap: &MemorySnapshot) {
         },
         |c| {
             format!(
-                "Apps are using {}. Another {} is standby cache that Windows can hand back the \
+                "Apps are using {}, and another {} is standby cache that Windows hands back the \
                  moment an app needs it.",
                 memory::format_bytes(c.in_use),
                 memory::format_bytes(c.standby),
@@ -150,10 +150,13 @@ fn map_parts(
 
     let shown = transition
         .and_then(|t| {
-            let progress =
-                t.started.elapsed().as_secs_f32() / MapTransition::DURATION.as_secs_f32();
-            (progress < 1.0).then(|| {
+            let elapsed = t.started.elapsed();
+            // After moving, hold the result until a reading taken after the
+            // clean has certainly arrived, so the map never snaps back to a
+            // reading from before it.
+            (elapsed < MapTransition::DURATION + MapTransition::HOLD).then(|| {
                 ctx.request_repaint();
+                let progress = elapsed.as_secs_f32() / MapTransition::DURATION.as_secs_f32();
                 blend(&t.from, &t.to, ease_out_cubic(progress))
             })
         })
